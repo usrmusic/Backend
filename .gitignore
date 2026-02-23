@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Environment files (NEVER commit secrets)
+.env
+.env.local
+.env.production
+.env.development
+.env.example
+
+# Uploads (use cloud storage in production)
+uploads/*
+!uploads/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+
+# Lock files (optional, uncomment if using only one package manager)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Allow these specific files to be committed (requested)
+USRMusic\ Backend.postman_collection.json

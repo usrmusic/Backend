@@ -1,0 +1,663 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id                             Int             @id @default(autoincrement()) @db.UnsignedInt
+  role_id                        BigInt          @db.UnsignedBigInt
+  name                           String?         @db.VarChar(60)
+  email                          String          @unique(map: "users_email_unique") @db.VarChar(60)
+  password                       String?         @db.VarChar(255)
+  profile_photo                  String?         @db.VarChar(225)
+  password_text                  String?         @db.VarChar(255)
+  contact_number                 String          @db.VarChar(18)
+  address                        String?         @db.VarChar(100)
+  is_email_send                  Boolean?
+  sidebar_active                 Boolean         @default(false)
+  deleted_at                     DateTime?       @db.Timestamp(0)
+  created_at                     DateTime        @default(now()) @db.Timestamp(0)
+  created_by                     Int?
+  updated_at                     DateTime?       @updatedAt @db.Timestamp(0)
+  updated_by                     Int?
+  contracts                      Contract[]
+  events_events_dj_idTousers     Event[]         @relation("events_dj_idTousers")
+  events_events_user_idTousers   Event[]         @relation("events_user_idTousers")
+  file_uploads                   FileUpload[]
+  package_users                  package_users[]
+  signatures                     Signature[]
+  todos_todos_assigned_toTousers todos[]         @relation("todos_assigned_toTousers")
+  todos_todos_created_byTousers  todos[]         @relation("todos_created_byTousers")
+  roles                          roles           @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "users_role_id_foreign")
+
+  @@index([email], map: "users_email_index")
+  @@index([id], map: "users_id_index")
+  @@index([role_id], map: "users_role_id_index")
+  @@map("users")
+}
+
+model Event {
+  id                             Int             @id @default(autoincrement()) @db.UnsignedInt
+  contract_token                 String?         @unique(map: "events_contract_token_unique") @db.VarChar(255)
+  invoice                        Int?
+  user_id                        Int?            @db.UnsignedInt
+  venue_id                       Int?            @db.UnsignedInt
+  dj_id                          Int?            @db.UnsignedInt
+  dj_package_name                String?         @db.VarChar(100)
+  names_id                       Int?            @db.UnsignedInt
+  event_status_id                Int?            @db.UnsignedInt
+  dj_cost_price_for_event        Float?
+  refund_amount                  Float?
+  deposit_amount                 Decimal?        @db.Decimal(10, 2)
+  event_cost                     Float?
+  date                           DateTime?       @db.Date
+  start_time                     DateTime?       @db.Time(0)
+  end_time                       DateTime?       @db.Time(0)
+  rigList_event_notes            String?         @db.Text
+  extra_data_rigList             String?         @db.LongText
+  brochure_emailed               Boolean?
+  called                         Boolean?
+  send_media                     Boolean?
+  quoted                         Boolean?
+  no_of_guests                   String?         @db.VarChar(50)
+  couple_name                    String?         @db.VarChar(150)
+  access_time                    String?         @db.VarChar(255)
+  caterer                        String?         @db.VarChar(255)
+  decor                          String?         @db.VarChar(255)
+  event_date_contact             String?         @db.VarChar(200)
+  videography                    String?         @db.Text
+  photo_usb_provided             String?         @db.Text
+  brief_itinerary                String?         @db.Text
+  entrance_song_style            String?         @db.Text
+  guests_upstanding              String?         @db.Text
+  cake_song_who_feeds            String?         @db.Text
+  first_dance                    String?         @db.Text
+  playlist_request               String?         @db.Text
+  stag_songs                     String?         @db.Text
+  hen_songs                      String?         @db.Text
+  do                             String?         @db.Text
+  dont                           String?         @db.Text
+  special_requests_announcements String?         @db.Text
+  usr_name                       String?         @db.VarChar(150)
+  usr_date                       String?         @db.VarChar(10)
+  details                        String?         @db.Text
+  is_email_sent                  Boolean         @default(false)
+  total_cost_for_equipment       String?         @db.VarChar(255)
+  event_amount_without_vat       String?         @db.VarChar(100)
+  vat_value                      String?         @db.VarChar(100)
+  is_vat_available_for_the_event Boolean         @default(false)
+  is_event_payment_fully_paid    Boolean         @default(false)
+  payment_send                   String?         @db.VarChar(5)
+  payment_date                   DateTime?       @db.Date
+  extra_cost                     Float?
+  profit                         Float?
+  contract_pdf_url               String?         @db.VarChar(255)
+  contract_signed_at             DateTime?       @db.Timestamp(0)
+  contract_emailed_at            DateTime?       @db.Timestamp(0)
+  created_at                     DateTime        @default(now()) @db.Timestamp(0)
+  created_by                     Int?
+  updated_at                     DateTime?       @updatedAt @db.Timestamp(0)
+  updated_by                     Int?
+  contracts                      Contract[]
+  event_package                  EventPackage[]
+  event_payments                 EventPayment[]
+  users_events_dj_idTousers      User?           @relation("events_dj_idTousers", fields: [dj_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "events_dj_id_foreign")
+  event_statuses                 event_statuses? @relation(fields: [event_status_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "events_event_status_id_foreign")
+  users_events_user_idTousers    User?           @relation("events_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "events_user_id_foreign")
+  venues                         Venue?          @relation(fields: [venue_id], references: [id], map: "events_venue_id_foreign")
+  file_uploads                   FileUpload[]
+  todos                          todos[]
+
+  @@index([date], map: "events_date_index")
+  @@index([dj_id], map: "events_dj_id_foreign")
+  @@index([event_status_id], map: "events_event_status_id_index")
+  @@index([id], map: "events_id_index")
+  @@index([user_id], map: "events_user_id_index")
+  @@index([venue_id], map: "events_venue_id_index")
+  @@map("events")
+}
+
+model Equipment {
+  id                     BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  supplier_id            Int?                     @db.UnsignedInt
+  name                   String                   @db.VarChar(100)
+  cost_price             Float?
+  sell_price             Float
+  status                 String                   @default("ACTIVE") @db.VarChar(10)
+  quantity               Int?
+  pricing_guide          String?                  @db.Text
+  is_availabilty_check   Boolean                  @default(false)
+  rig_notes              String?                  @db.Text
+  created_at             DateTime                 @default(now()) @db.Timestamp(0)
+  created_by             Int?
+  updated_at             DateTime?                @updatedAt @db.Timestamp(0)
+  updated_by             Int?
+  suppliers              Supplier?                @relation(fields: [supplier_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "equipment_supplier_id_foreign")
+  equipment_properties   equipment_properties[]
+  event_package          EventPackage[]
+  package_user_equipment package_user_equipment[] @ignore
+
+  @@index([supplier_id], map: "equipment_supplier_id_foreign")
+  @@map("equipment")
+}
+
+model EventPackage {
+  id                  BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  equipment_id        BigInt?      @db.UnsignedBigInt
+  equipment_order_id  Int?
+  event_id            Int?         @db.UnsignedInt
+  package_type_id     BigInt?      @db.UnsignedBigInt
+  sell_price          Float?
+  cost_price          Float?
+  notes               String?      @db.Text
+  rig_notes           String?      @db.Text
+  payment_send        String?      @db.VarChar(5)
+  payment_date        DateTime?    @db.Date
+  quantity            Int?
+  total_price         Float?
+  price_added_to_bill Float?
+  created_at          DateTime?    @db.Timestamp(0)
+  updated_at          DateTime?    @db.Timestamp(0)
+  equipment           Equipment?   @relation(fields: [equipment_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "event_package_equipment_id_foreign")
+  events              Event?       @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "event_package_event_id_foreign")
+  package_types       PackageType? @relation(fields: [package_type_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "event_package_package_type_id_foreign")
+
+  @@index([equipment_id], map: "event_package_equipment_id_foreign")
+  @@index([event_id], map: "event_package_event_id_foreign")
+  @@index([package_type_id], map: "event_package_package_type_id_foreign")
+  @@map("event_package")
+}
+
+model EventPayment {
+  id                BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  event_id          Int?          @db.UnsignedInt
+  payment_method_id BigInt        @db.UnsignedBigInt
+  date              DateTime      @db.Date
+  amount            Float
+  created_at        DateTime?     @db.Timestamp(0)
+  updated_at        DateTime?     @db.Timestamp(0)
+  events            Event?        @relation(fields: [event_id], references: [id], map: "event_payments_event_id_foreign")
+  payment_methods   PaymentMethod @relation(fields: [payment_method_id], references: [id], onUpdate: Restrict, map: "event_payments_payment_method_id_foreign")
+
+  @@index([event_id], map: "event_payments_event_id_foreign")
+  @@index([payment_method_id], map: "event_payments_payment_method_id_foreign")
+  @@map("event_payments")
+}
+
+model PaymentMethod {
+  id             BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  name           String         @db.VarChar(10)
+  created_at     DateTime?      @db.Timestamp(0)
+  updated_at     DateTime?      @db.Timestamp(0)
+  event_payments EventPayment[]
+
+  @@map("payment_methods")
+}
+
+model PackageType {
+  id            BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  type          String         @db.VarChar(10)
+  created_at    DateTime?      @db.Timestamp(0)
+  updated_at    DateTime?      @db.Timestamp(0)
+  event_package EventPackage[]
+
+  @@map("package_types")
+}
+
+model EventNote {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  event_id   Int       @db.UnsignedInt
+  notes      String    @db.Text
+  created_at DateTime  @default(now()) @db.Timestamp(0)
+  created_by Int?
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@map("event_notes")
+}
+
+model FileUpload {
+  id           Int       @id @default(autoincrement()) @db.UnsignedInt
+  created_by   Int?      @db.UnsignedInt
+  file_name    String    @db.Text
+  file_type    String?   @db.VarChar(20)
+  event_id     Int?      @db.UnsignedInt
+  general      Boolean   @default(false)
+  delete_after DateTime? @db.Timestamp(0)
+  created_at   DateTime  @default(now()) @db.Timestamp(0)
+  updated_at   DateTime? @db.Timestamp(0)
+  updated_by   Int?
+  users        User?     @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "file_uploads_created_by_foreign")
+  events       Event?    @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "file_uploads_event_id_foreign")
+
+  @@index([created_by], map: "file_uploads_created_by_foreign")
+  @@index([event_id], map: "file_uploads_event_id_foreign")
+  @@map("file_uploads")
+}
+
+model CompanyName {
+  id               BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name             String    @db.VarChar(50)
+  company_logo     String?   @db.VarChar(50)
+  brochure         String?   @db.VarChar(100)
+  contact_name     String?   @db.VarChar(100)
+  telephone_number String?   @db.VarChar(20)
+  email            String?   @db.VarChar(50)
+  website          String?   @db.VarChar(50)
+  instagram        String?   @db.VarChar(50)
+  facebook         String?   @db.VarChar(50)
+  address_name     String?   @db.VarChar(50)
+  street           String?   @db.VarChar(50)
+  city             String?   @db.VarChar(50)
+  postal_code      String?   @db.VarChar(50)
+  bank_name        String?   @db.VarChar(50)
+  sort_code        String?   @db.VarChar(50)
+  account_number   String?   @db.VarChar(50)
+  vat              String?   @db.VarChar(100)
+  vat_percentage   String?   @db.VarChar(20)
+  admin_signature  String?   @db.VarChar(255)
+  created_at       DateTime? @db.Timestamp(0)
+  updated_at       DateTime? @db.Timestamp(0)
+
+  @@map("company_names")
+}
+
+model EmailContent {
+  id         BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  email_name String?   @db.VarChar(255)
+  subject    String?   @db.VarChar(255)
+  body       String?   @db.Text
+  created_at DateTime? @db.Timestamp(0)
+  updated_at DateTime? @db.Timestamp(0)
+
+  @@map("email_contents")
+}
+
+model MicrosoftEvent {
+  id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  event_id           BigInt    @db.UnsignedBigInt
+  microsoft_event_id String    @db.VarChar(255)
+  created_at         DateTime? @db.Timestamp(0)
+  updated_at         DateTime? @db.Timestamp(0)
+
+  @@map("microsoft_events")
+}
+
+model Contract {
+  id              BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id         Int              @db.UnsignedInt
+  event_id        Int              @db.UnsignedInt
+  signed_pdf_path String?          @db.VarChar(255)
+  amount          Int?
+  status          contracts_status @default(draft)
+  content         String?          @db.LongText
+  sent_at         DateTime?        @db.Timestamp(0)
+  signed_at       DateTime?        @db.Timestamp(0)
+  created_at      DateTime?        @db.Timestamp(0)
+  updated_at      DateTime?        @db.Timestamp(0)
+  events          Event            @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "contracts_event_id_foreign")
+  users           User             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "contracts_user_id_foreign")
+  signatures      Signature[]
+
+  @@index([event_id], map: "contracts_event_id_foreign")
+  @@index([user_id], map: "contracts_user_id_foreign")
+  @@map("contracts")
+}
+
+model Signature {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id        Int       @db.UnsignedInt
+  contract_id    BigInt    @db.UnsignedBigInt
+  signature_path String    @db.VarChar(255)
+  ip_address     String?   @db.VarChar(255)
+  user_agent     String?   @db.VarChar(255)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+  contracts      Contract  @relation(fields: [contract_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "signatures_contract_id_foreign")
+  users          User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "signatures_user_id_foreign")
+
+  @@index([contract_id], map: "signatures_contract_id_foreign")
+  @@index([user_id], map: "signatures_user_id_foreign")
+  @@map("signatures")
+}
+
+model Venue {
+  id            Int       @id @default(autoincrement()) @db.UnsignedInt
+  venue         String?   @db.VarChar(50)
+  stage         String?   @db.VarChar(100)
+  power         String?   @db.VarChar(100)
+  access        String?   @db.VarChar(100)
+  smoke_haze    String?   @db.VarChar(100)
+  rigging_point String?   @db.VarChar(100)
+  venue_address String?   @db.VarChar(100)
+  attachment    String?   @db.VarChar(255)
+  notes         String?   @db.Text
+  created_at    DateTime  @default(now()) @db.Timestamp(0)
+  created_by    Int?
+  updated_at    DateTime? @db.Timestamp(0)
+  updated_by    Int?
+  events        Event[]
+
+  @@index([id], map: "venues_id_index")
+  @@map("venues")
+}
+
+model Supplier {
+  id             Int         @id @default(autoincrement()) @db.UnsignedInt
+  name           String?     @db.VarChar(30)
+  company_name   String?     @db.VarChar(100)
+  email          String?     @db.VarChar(30)
+  contact_number String?     @db.VarChar(18)
+  industry       String?     @db.VarChar(100)
+  notes          String?     @db.Text
+  created_at     DateTime    @default(now()) @db.Timestamp(0)
+  created_by     Int?
+  updated_at     DateTime?   @db.Timestamp(0)
+  updated_by     Int?
+  equipment      Equipment[]
+
+  @@index([id], map: "suppliers_id_index")
+  @@map("suppliers")
+}
+
+model Property {
+  id                      BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  name                    String?                   @db.VarChar(50)
+  type                    String                    @default("Equipment") @db.VarChar(15)
+  status                  String                    @default("ACTIVE") @db.VarChar(10)
+  created_at              DateTime                  @default(now()) @db.Timestamp(0)
+  created_by              Int?
+  updated_at              DateTime?                 @db.Timestamp(0)
+  updated_by              Int?
+  equipment_properties    equipment_properties[]
+  package_user_properties package_user_properties[]
+
+  @@map("properties")
+}
+
+model Media {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  display_name String    @db.VarChar(255)
+  stored_name  String    @db.VarChar(255)
+  extension    String?   @db.VarChar(255)
+  mime_type    String?   @db.VarChar(255)
+  size         BigInt?
+  created_at   DateTime? @db.Timestamp(0)
+  updated_at   DateTime? @db.Timestamp(0)
+
+  @@map("media")
+}
+
+model activity_log {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  log_name     String?   @db.VarChar(255)
+  description  String    @db.Text
+  subject_type String?   @db.VarChar(255)
+  event        String?   @db.VarChar(255)
+  subject_id   BigInt?   @db.UnsignedBigInt
+  causer_type  String?   @db.VarChar(255)
+  causer_id    BigInt?   @db.UnsignedBigInt
+  properties   String?   @db.LongText
+  batch_uuid   String?   @db.Char(36)
+  created_at   DateTime? @db.Timestamp(0)
+  updated_at   DateTime? @db.Timestamp(0)
+
+  @@index([log_name], map: "activity_log_log_name_index")
+  @@index([causer_type, causer_id], map: "causer")
+  @@index([subject_type, subject_id], map: "subject")
+}
+
+model equipment_properties {
+  id           BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
+  equipment_id BigInt?    @db.UnsignedBigInt
+  property_id  BigInt?    @db.UnsignedBigInt
+  value        String?    @db.VarChar(50)
+  created_at   DateTime   @default(now()) @db.Timestamp(0)
+  created_by   Int?
+  updated_at   DateTime?  @db.Timestamp(0)
+  updated_by   Int?
+  deleted_at   DateTime?  @db.Timestamp(0)
+  equipment    Equipment? @relation(fields: [equipment_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "equipment_properties_equipment_id_foreign")
+  properties   Property?  @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "equipment_properties_property_id_foreign")
+
+  @@index([equipment_id], map: "equipment_properties_equipment_id_foreign")
+  @@index([property_id], map: "equipment_properties_property_id_foreign")
+}
+
+model event_statuses {
+  id     Int     @id @default(autoincrement()) @db.UnsignedInt
+  status String  @db.VarChar(15)
+  events Event[]
+}
+
+model failed_jobs {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  uuid       String   @unique(map: "failed_jobs_uuid_unique") @db.VarChar(255)
+  connection String   @db.Text
+  queue      String   @db.Text
+  payload    String   @db.LongText
+  exception  String   @db.LongText
+  failed_at  DateTime @default(now()) @db.Timestamp(0)
+}
+
+model jobs {
+  id           BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  queue        String @db.VarChar(255)
+  payload      String @db.LongText
+  attempts     Int    @db.UnsignedTinyInt
+  reserved_at  Int?   @db.UnsignedInt
+  available_at Int    @db.UnsignedInt
+  created_at   Int    @db.UnsignedInt
+
+  @@index([queue], map: "jobs_queue_index")
+}
+
+model microsoft_events_temp {
+  id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  event_id           BigInt    @db.UnsignedBigInt
+  microsoft_event_id String    @db.VarChar(255)
+  created_at         DateTime? @db.Timestamp(0)
+  updated_at         DateTime? @db.Timestamp(0)
+}
+
+model migrations {
+  id        Int    @id @default(autoincrement()) @db.UnsignedInt
+  migration String @db.VarChar(255)
+  batch     Int
+}
+
+model model_has_permissions {
+  permission_id BigInt      @db.UnsignedBigInt
+  model_type    String      @db.VarChar(255)
+  model_id      BigInt      @db.UnsignedBigInt
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "model_has_permissions_permission_id_foreign")
+
+  @@id([permission_id, model_id, model_type])
+  @@index([model_id, model_type], map: "model_has_permissions_model_id_model_type_index")
+}
+
+model model_has_roles {
+  role_id    BigInt @db.UnsignedBigInt
+  model_type String @db.VarChar(255)
+  model_id   BigInt @db.UnsignedBigInt
+  roles      roles  @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "model_has_roles_role_id_foreign")
+
+  @@id([role_id, model_id, model_type])
+  @@index([model_id, model_type], map: "model_has_roles_model_id_model_type_index")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model package_user_equipment {
+  package_user_id    BigInt?        @db.UnsignedBigInt
+  equipment_id       BigInt?        @db.UnsignedBigInt
+  equipment_order_id Int?
+  quantity           Int?
+  created_at         DateTime       @default(now()) @db.Timestamp(0)
+  created_by         Int?
+  updated_at         DateTime?      @db.Timestamp(0)
+  updated_by         Int?
+  equipment          Equipment?     @relation(fields: [equipment_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "package_user_equipment_equipment_id_foreign")
+  package_users      package_users? @relation(fields: [package_user_id], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "package_user_equipment_package_user_id_foreign")
+
+  @@index([equipment_id], map: "package_user_equipment_equipment_id_foreign")
+  @@index([package_user_id], map: "package_user_equipment_package_user_id_foreign")
+  @@ignore
+}
+
+model package_user_properties {
+  id               BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  property_id      BigInt        @db.UnsignedBigInt
+  package_users_id BigInt        @db.UnsignedBigInt
+  value            String        @db.VarChar(255)
+  created_at       DateTime      @default(now()) @db.Timestamp(0)
+  created_by       Int?
+  updated_at       DateTime?     @db.Timestamp(0)
+  updated_by       Int?
+  package_users    package_users @relation(fields: [package_users_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "package_user_properties_package_users_id_foreign")
+  properties       Property      @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "package_user_properties_property_id_foreign")
+
+  @@index([package_users_id], map: "package_user_properties_package_users_id_foreign")
+  @@index([property_id], map: "package_user_properties_property_id_foreign")
+}
+
+model package_users {
+  id                      BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id                 Int?                      @db.UnsignedInt
+  package_name            String?                   @db.VarChar(255)
+  cost_price              Float
+  sell_price              Float
+  status                  String                    @default("ACTIVE") @db.VarChar(10)
+  created_at              DateTime                  @default(now()) @db.Timestamp(0)
+  created_by              Int?
+  updated_at              DateTime?                 @db.Timestamp(0)
+  updated_by              Int?
+  package_user_equipment  package_user_equipment[]  @ignore
+  package_user_properties package_user_properties[]
+  users                   User?                     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "package_users_user_id_foreign")
+
+  @@index([user_id], map: "package_users_user_id_foreign")
+}
+
+model password_resets {
+  email      String    @id @db.VarChar(255)
+  token      String    @db.VarChar(255)
+  created_at DateTime? @db.Timestamp(0)
+}
+
+model permissions {
+  id                    BigInt                  @id @default(autoincrement()) @db.UnsignedBigInt
+  name                  String                  @db.VarChar(255)
+  guard_name            String                  @db.VarChar(255)
+  created_at            DateTime?               @db.Timestamp(0)
+  updated_at            DateTime?               @db.Timestamp(0)
+  model_has_permissions model_has_permissions[]
+  role_has_permissions  role_has_permissions[]
+
+  @@unique([name, guard_name], map: "permissions_name_guard_name_unique")
+}
+
+model personal_access_tokens {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  tokenable_type String    @db.VarChar(255)
+  tokenable_id   BigInt    @db.UnsignedBigInt
+  name           String    @db.VarChar(255)
+  token          String    @unique(map: "personal_access_tokens_token_unique") @db.VarChar(64)
+  abilities      String?   @db.Text
+  last_used_at   DateTime? @db.Timestamp(0)
+  expires_at     DateTime? @db.Timestamp(0)
+  created_at     DateTime? @db.Timestamp(0)
+  updated_at     DateTime? @db.Timestamp(0)
+
+  @@index([tokenable_type, tokenable_id], map: "personal_access_tokens_tokenable_type_tokenable_id_index")
+}
+
+model role_has_permissions {
+  permission_id BigInt      @db.UnsignedBigInt
+  role_id       BigInt      @db.UnsignedBigInt
+  permissions   permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "role_has_permissions_permission_id_foreign")
+  roles         roles       @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "role_has_permissions_role_id_foreign")
+
+  @@id([permission_id, role_id])
+  @@index([role_id], map: "role_has_permissions_role_id_foreign")
+}
+
+model roles {
+  id                   BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  name                 String                 @db.VarChar(255)
+  guard_name           String                 @db.VarChar(255)
+  created_at           DateTime?              @db.Timestamp(0)
+  updated_at           DateTime?              @db.Timestamp(0)
+  model_has_roles      model_has_roles[]
+  role_has_permissions role_has_permissions[]
+  users                User[]
+
+  @@unique([name, guard_name], map: "roles_name_guard_name_unique")
+}
+
+model telescope_entries {
+  sequence                BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  uuid                    String                   @unique(map: "telescope_entries_uuid_unique") @db.Char(36)
+  batch_id                String                   @db.Char(36)
+  family_hash             String?                  @db.VarChar(255)
+  should_display_on_index Boolean                  @default(true)
+  type                    String                   @db.VarChar(20)
+  content                 String                   @db.LongText
+  created_at              DateTime?                @db.DateTime(0)
+  telescope_entries_tags  telescope_entries_tags[] @ignore
+
+  @@index([batch_id], map: "telescope_entries_batch_id_index")
+  @@index([created_at], map: "telescope_entries_created_at_index")
+  @@index([family_hash], map: "telescope_entries_family_hash_index")
+  @@index([type, should_display_on_index], map: "telescope_entries_type_should_display_on_index_index")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model telescope_entries_tags {
+  entry_uuid        String            @db.Char(36)
+  tag               String            @db.VarChar(255)
+  telescope_entries telescope_entries @relation(fields: [entry_uuid], references: [uuid], onDelete: Cascade, onUpdate: Restrict, map: "telescope_entries_tags_entry_uuid_foreign")
+
+  @@index([entry_uuid, tag], map: "telescope_entries_tags_entry_uuid_tag_index")
+  @@index([tag], map: "telescope_entries_tags_tag_index")
+  @@ignore
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model telescope_monitoring {
+  tag String @db.VarChar(255)
+
+  @@ignore
+}
+
+model todos {
+  id                             Int       @id @default(autoincrement()) @db.UnsignedInt
+  event_id                       Int?      @db.UnsignedInt
+  assigned_to                    Int?      @db.UnsignedInt
+  created_by                     Int?      @db.UnsignedInt
+  action                         String    @db.Text
+  deadline                       DateTime? @db.Date
+  comment                        String?   @db.Text
+  complete                       Boolean?  @default(false)
+  deleted_at                     DateTime? @db.Timestamp(0)
+  created_at                     DateTime  @default(now()) @db.Timestamp(0)
+  updated_at                     DateTime? @db.Timestamp(0)
+  updated_by                     Int?
+  users_todos_assigned_toTousers User?     @relation("todos_assigned_toTousers", fields: [assigned_to], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "todos_assigned_to_foreign")
+  users_todos_created_byTousers  User?     @relation("todos_created_byTousers", fields: [created_by], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "todos_created_by_foreign")
+  events                         Event?    @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "todos_event_id_foreign")
+
+  @@index([assigned_to], map: "todos_assigned_to_foreign")
+  @@index([created_by], map: "todos_created_by_foreign")
+  @@index([event_id], map: "todos_event_id_foreign")
+  @@index([id], map: "todos_id_index")
+}
+
+enum contracts_status {
+  draft
+  sent
+  signed
+  declined
+  expired
+}

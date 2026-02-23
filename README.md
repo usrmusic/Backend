@@ -5,14 +5,10 @@ RBAC backend using Node.js (ESM), Express, Prisma v7 (MySQL), Resend, and file u
 ## Quick Start (Local Development)
 
 1. **Copy environment file:**
+```bash 
+copy .env.example .env.devlopment
+
 ```bash
-# Windows (cmd)
-copy .env.local .env
-
-# Or PowerShell/macOS/Linux
-cp .env.local .env
-```
-
 2. **Install dependencies:**
 ```bash
 npm install

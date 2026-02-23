@@ -1,6 +1,6 @@
-# Backend Boilerplate (Express + Prisma v7 + Auth0)
+# Backend Boilerplate (Express + Prisma v7)
 
-RBAC backend using Node.js (ESM), Express, Auth0 (access token validation), Prisma v7 (MySQL), Resend, and file uploads.
+RBAC backend using Node.js (ESM), Express, Prisma v7 (MySQL), Resend, and file uploads.
 
 ## Quick Start (Local Development)
 
@@ -55,8 +55,6 @@ backend/
 **Local (.env or .env.local):**
 - `DATABASE_URL` - MySQL connection (e.g., `mysql://root:@127.0.0.1:3306/usrmusic_dev`)
 - `PORT` - Server port (default: 4000)
-- `AUTH0_DOMAIN` - Your Auth0 domain
-- `AUTH0_AUDIENCE` - Your Auth0 API audience
 - `RESEND_API_KEY` - Resend API key for emails
 
 Prisma CLI env loading note:
@@ -87,8 +85,6 @@ npx prisma db pull                   # Pull schema from existing DB
 1. **Create Railway project** and add a **MySQL** service.
 2. **Connect GitHub repo** to Railway.
 3. **Set environment variables** in Railway dashboard:
-   - `AUTH0_DOMAIN`
-   - `AUTH0_AUDIENCE`
    - `RESEND_API_KEY`
    - `NODE_ENV=production`
    - (Railway auto-provides `DATABASE_URL`)
@@ -113,7 +109,6 @@ npx prisma db pull                   # Pull schema from existing DB
 - **Node.js** (ESM modules)
 - **Express** - Web framework
 - **Prisma v7** - ORM with MySQL
-- **Auth0** - JWT access token validation (RS256 + JWKS)
 - **Resend** - Email service
 - **Multer** - File uploads (disk storage; replace with S3 for production)
 - **Helmet** - Security headers
@@ -121,7 +116,6 @@ npx prisma db pull                   # Pull schema from existing DB
 
 ## Auth & Security
 
-- **Auth0 middleware** validates Bearer tokens using JWKS (see `src/middleware/auth0.js`)
 - **Centralized error handler** hides internal errors in production
 - **Graceful shutdown** disconnects Prisma on SIGTERM/SIGINT
 - All routes under `/api` are available; protect routes with `verifyAccessToken` middleware

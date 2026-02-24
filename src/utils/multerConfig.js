@@ -12,15 +12,18 @@ export function createUploadMiddleware({ allowedMimeTypes = [], maxBytes } = {})
   const uploadsDir = getUploadsDir();
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, uploadsDir);
-    },
-    filename: function (req, file, cb) {
-      const name = `${Date.now()}-${file.originalname}`;
-      cb(null, name);
-    },
-  });
+  // If using S3, prefer memory storage (will upload to S3 in uploadHelper)
+  const storage = (process.env.FILE_STORAGE || '').toLowerCase() === 's3'
+    ? multer.memoryStorage()
+    : multer.diskStorage({
+        destination: function (req, file, cb) {
+          cb(null, uploadsDir);
+        },
+        filename: function (req, file, cb) {
+          const name = `${Date.now()}-${file.originalname}`;
+          cb(null, name);
+        },
+      });
 
   function fileFilter(req, file, cb) {
     if (!allowedMimeTypes || allowedMimeTypes.length === 0) return cb(null, true);
@@ -47,6 +50,18 @@ export const pdfUpload = createUploadMiddleware({
     'application/pdf',
     'application/vnd.oasis.opendocument.text',
   ],
+});
+
+export const mediaUpload = createUploadMiddleware({
+  allowedMimeTypes: [
+    'audio/mpeg', // .mp3
+    'audio/mp3',
+    'audio/wav',
+    'video/mp4', // .mp4
+    'video/mpeg',
+    'video/quicktime',
+  ],
+  maxBytes: parseInt(process.env.MAX_UPLOAD_BYTES_MEDIA || String(200 * 1024 * 1024), 10), // default 200MB
 });
 
 export default { createUploadMiddleware, imageUpload, pdfUpload };

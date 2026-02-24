@@ -1,6 +1,7 @@
 import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { uploadFile } from "../utils/uploadHelper.js";
+import { deleteObjectFromS3 } from "../utils/s3Client.js";
 import { serializeForJson } from "../utils/serialize.js";
 import path from "path";
 import fs from "fs";
@@ -55,14 +56,14 @@ export const createCompany = catchAsync(async (req, res) => {
     if (req.files && req.files.company_logo && req.files.company_logo[0]) {
       const up = await uploadFile(req.files.company_logo[0], { allowedMimeTypes: [
         'image/jpeg','image/png','image/gif','image/webp','image/svg+xml'
-      ] });
+      ], folder: 'company/logo' });
       if (up && up.url) data.company_logo = up.url;
     }
 
     if (req.files && req.files.brochure && req.files.brochure[0]) {
       const up = await uploadFile(req.files.brochure[0], { allowedMimeTypes: [
         'application/pdf','application/vnd.oasis.opendocument.text'
-      ] });
+      ], folder: 'company/brochure' });
       if (up && up.url) data.brochure = up.url;
     }
 
@@ -71,12 +72,9 @@ export const createCompany = catchAsync(async (req, res) => {
       const base = body.admin_signature.replace(/^data:.*;base64,/, '');
       const buf = Buffer.from(base, 'base64');
       const name = `signature-${Date.now()}.png`;
-      const uploadsDir = getUploadsDir();
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      const out = path.join(uploadsDir, name);
-      await fs.promises.writeFile(out, buf);
-      const baseUrl = process.env.BASE_URL || '';
-      data.admin_signature = `${baseUrl}/uploads/${name}`;
+      // Use uploadFile to store signature (supports s3/local)
+      const up = await uploadFile({ buffer: buf, originalname: name, mimetype: 'image/png' }, { folder: 'company/signature' });
+      if (up && up.url) data.admin_signature = up.url;
     }
   } catch (err) {
     console.error('file upload error', err);
@@ -125,8 +123,15 @@ export const updateCompany = catchAsync(async (req, res) => {
           const oldName = path.basename(existing.company_logo);
           const cnt = await prisma.companyName.count({ where: { company_logo: existing.company_logo } });
           if (cnt <= 1) {
-            const p = path.join(getUploadsDir(), oldName);
-            try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            try {
+              if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+                // existing.company_logo stores key for s3
+                await deleteObjectFromS3(existing.company_logo);
+              } else {
+                const p = path.join(getUploadsDir(), oldName);
+                try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+              }
+            } catch (e) {}
           }
         }
         data.company_logo = up.url;
@@ -144,8 +149,14 @@ export const updateCompany = catchAsync(async (req, res) => {
           const oldName = path.basename(existing.brochure);
           const cnt = await prisma.companyName.count({ where: { brochure: existing.brochure } });
           if (cnt <= 1) {
-            const p = path.join(getUploadsDir(), oldName);
-            try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            try {
+              if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+                await deleteObjectFromS3(existing.brochure);
+              } else {
+                const p = path.join(getUploadsDir(), oldName);
+                try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+              }
+            } catch (e) {}
           }
         }
         data.brochure = up.url;
@@ -156,11 +167,8 @@ export const updateCompany = catchAsync(async (req, res) => {
       const base = body.admin_signature.replace(/^data:.*;base64,/, '');
       const buf = Buffer.from(base, 'base64');
       const name = `signature-${Date.now()}.png`;
-      const uploadsDir = getUploadsDir();
-      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-      const out = path.join(uploadsDir, name);
-      await fs.promises.writeFile(out, buf);
-      data.admin_signature = `${process.env.BASE_URL || ''}/uploads/${name}`;
+      const up = await uploadFile({ buffer: buf, originalname: name, mimetype: 'image/png' }, { folder: 'company/signature' });
+      if (up && up.url) data.admin_signature = up.url;
     }
   } catch (err) {
     console.error('update file error', err);
@@ -182,34 +190,46 @@ export const deleteCompanies = catchAsync(async (req, res) => {
   const companies = await prisma.companyName.findMany({ where: { id: { in: ids.map((i) => BigInt(i)) } } });
   const uploadsDir = getUploadsDir();
   for (const c of companies) {
-    try {
-      if (c.company_logo) {
-        const name = path.basename(c.company_logo);
-        const cnt = await prisma.companyName.count({ where: { company_logo: c.company_logo } });
-        if (cnt <= 1) {
-          const p = path.join(uploadsDir, name);
-          try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+      try {
+        if (c.company_logo) {
+          const name = path.basename(c.company_logo);
+          const cnt = await prisma.companyName.count({ where: { company_logo: c.company_logo } });
+          if (cnt <= 1) {
+            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+              try { await deleteObjectFromS3(c.company_logo); } catch (e) {}
+            } else {
+              const p = path.join(uploadsDir, name);
+              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            }
+          }
         }
-      }
-      if (c.brochure) {
-        const name = path.basename(c.brochure);
-        const cnt = await prisma.companyName.count({ where: { brochure: c.brochure } });
-        if (cnt <= 1) {
-          const p = path.join(uploadsDir, name);
-          try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+        if (c.brochure) {
+          const name = path.basename(c.brochure);
+          const cnt = await prisma.companyName.count({ where: { brochure: c.brochure } });
+          if (cnt <= 1) {
+            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+              try { await deleteObjectFromS3(c.brochure); } catch (e) {}
+            } else {
+              const p = path.join(uploadsDir, name);
+              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            }
+          }
         }
-      }
-      if (c.admin_signature) {
-        const name = path.basename(c.admin_signature);
-        const cnt = await prisma.companyName.count({ where: { admin_signature: c.admin_signature } });
-        if (cnt <= 1) {
-          const p = path.join(uploadsDir, name);
-          try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+        if (c.admin_signature) {
+          const name = path.basename(c.admin_signature);
+          const cnt = await prisma.companyName.count({ where: { admin_signature: c.admin_signature } });
+          if (cnt <= 1) {
+            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+              try { await deleteObjectFromS3(c.admin_signature); } catch (e) {}
+            } else {
+              const p = path.join(uploadsDir, name);
+              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            }
+          }
         }
+      } catch (e) {
+        console.error('delete file error', e);
       }
-    } catch (e) {
-      console.error('delete file error', e);
-    }
   }
 
   await prisma.companyName.deleteMany({ where: { id: { in: ids.map((i) => BigInt(i)) } } });

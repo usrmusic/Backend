@@ -46,6 +46,7 @@ export const createClient = catchAsync(async (req, res) => {
           'image/webp',
           'image/svg+xml',
         ],
+        folder: 'profile',
       });
       if (uploadRes && uploadRes.url) profilePhotoUrl = uploadRes.url;
     } catch (err) {

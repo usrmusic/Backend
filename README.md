@@ -67,13 +67,8 @@ Prisma CLI env loading note:
 ```bash
 npm run local       # Run with .env.local (via env-cmd)
 npm run dev         # Dev mode with nodemon + .env.local
-npm run start       # Production mode (reads Railway env vars directly)
-npm run production  # Same as start
 
 npx prisma generate                  # Generate Prisma client
-npx prisma migrate dev --name init   # Create and apply migration (local)
-npx prisma migrate deploy            # Apply migrations (production/Railway)
-npx prisma db pull                   # Pull schema from existing DB
 ```
 
 ## Deployment (Railway)

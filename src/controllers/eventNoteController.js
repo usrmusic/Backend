@@ -1,4 +1,5 @@
 import prisma from "../utils/prismaClient.js";
+import eventNoteService from '../services/eventNoteService.js';
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 
@@ -21,14 +22,11 @@ export const createEventNote = catchAsync(async (req, res) => {
   const body = req.body || {};
   if (body.event_id == null || body.notes == null) return res.status(400).json({ error: 'event_id_and_notes_required' });
 
-  const data = {
-    event_id: Number(body.event_id),
+  const created = await eventNoteService.createNote(prisma, {
+    eventId: Number(body.event_id),
     notes: String(body.notes),
-    created_at: new Date(),
-  };
-  if (body.created_by != null) data.created_by = Number(body.created_by);
-
-  const created = await prisma.eventNote.create({ data });
+    created_by: body.created_by != null ? Number(body.created_by) : null,
+  });
   res.status(201).json(serializeForJson(created));
 });
 

@@ -420,7 +420,7 @@ export const addDepositStore = catchAsync(async (req, res) => {
       where: { event_id: eventId, package_type_id: { in: [1,2] } },
       select: {
         id: true, event_id: true, equipment_id: true, package_type_id: true, sell_price: true, total_price: true, price_added_to_bill: true, quantity: true, notes: true,
-        equipment: { select: { id: true, name: true, sell_price: true, equipment_properties: { include: { property: true } } } },
+        equipment: { select: { id: true, name: true, sell_price: true, equipment_properties: { include: { properties: true } } } },
       }
     });
 

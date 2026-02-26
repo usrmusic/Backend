@@ -21,6 +21,7 @@ import contractRoutes from './contractRoutes.js';
 import signatureRoutes from './signatureRoutes.js';
 import todoRoutes from './todoRoutes.js';
 import enquiryRoutes from './enquiryRoutes.js';
+import confirmedEventsRoutes from './confirmedEventsRoutes.js';
 
 const router = express.Router();
 
@@ -48,6 +49,9 @@ router.use('/equipment', equipmentRoutes);
 // Payment methods & event payments
 router.use('/payments/methods', paymentMethodRoutes);
 router.use('/payments/event', eventPaymentRoutes);
+// Legacy / Laravel-style aliases (keep compatibility with Postman/older clients)
+router.use('/payment-methods', paymentMethodRoutes);
+router.use('/event-payments', eventPaymentRoutes);
 // Company name CRUD (frontend expects /company-name routes)
 router.use('/', companyRoutes);
 // Email Content routes
@@ -61,6 +65,8 @@ router.use('/contracts', contractRoutes);
 router.use('/signatures', signatureRoutes);
 // Enquiries (create / lookup)
 router.use('/enquiries', enquiryRoutes);
+// Confirmed events routes
+router.use('/confirmed-events', confirmedEventsRoutes);
 // Todos
 router.use('/todos', todoRoutes);
 

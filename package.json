@@ -7,7 +7,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "npx prisma generate && node src/index.js",
     "local": "env-cmd -f .env.local node src/server.js",
     "dev": "env-cmd -f .env.local nodemon --watch src --exec node src/server.js",
     "production": "node src/server.js",

@@ -1,16 +1,18 @@
 import prisma from '../utils/prismaClient.js';
 import catchAsync from '../utils/catchAsync.js';
+import { parseFilterSort } from '../utils/queryHelpers.js';
 
 export const rigListEvent = catchAsync(async (req, res) => {
+  const opts = parseFilterSort(req.query || {});
   const today = new Date();
   const isoDate = today.toISOString().slice(0, 10);
+  const where = { ...(opts.where || {}), event_status_id: 2, date: { gte: new Date(isoDate) } };
 
   const events = await prisma.event.findMany({
-    where: {
-      date: { gte: new Date(isoDate) },
-      event_status_id: 2,
-    },
-    orderBy: { date: 'asc' },
+    where,
+    orderBy: opts.orderBy || { date: 'asc' },
+    take: opts.take,
+    skip: opts.skip,
     select: {
       id: true,
       date: true,

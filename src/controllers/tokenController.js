@@ -22,7 +22,14 @@ function parseCookies(req) {
 export const refreshToken = async (req, res) => {
   const cookies = parseCookies(req);
   const cookieName = process.env.REFRESH_COOKIE_NAME || 'refreshToken';
-  const raw = cookies[cookieName];
+  // Try cookie first, then body, then header fallbacks for API clients that don't send cookies
+  let raw = cookies[cookieName];
+  if (!raw) {
+    raw = req.body && (req.body.refreshToken || req.body.refresh_token) || req.headers['x-refresh-token'];
+    // Do NOT treat the Authorization bearer header as a refresh token fallback,
+    // because clients typically send the access token there. Prefer explicit
+    // `x-refresh-token` header or `refreshToken` body field for non-cookie flows.
+  }
   if (!raw) return res.status(401).json({ error: 'no_refresh_token' });
 
   const hashed = hashToken(raw);

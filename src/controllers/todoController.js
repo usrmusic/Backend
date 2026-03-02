@@ -83,7 +83,7 @@ export const getAssignedTo = catchAsync(async (req, res) => {
 
 export const getClientsForTodo = catchAsync(async (req, res) => {
   // assume clients have role_id = 1
-  const clients = await prisma.user.findMany({ where: { role_id: BigInt(1) }, select: { id: true, name: true, email: true } });
+  const clients = await prisma.user.findMany({ where: { role_id: 1 }, select: { id: true, name: true, email: true } });
   res.json(serializeForJson(clients));
 });
 

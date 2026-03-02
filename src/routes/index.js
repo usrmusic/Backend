@@ -1,67 +1,95 @@
-import express from 'express';
-import uploadRoutes from './uploadRoutes.js';
-import fileUploadRoutes from './fileUploadRoutes.js';
-import authRoutes from './auth.js';
-import rolePermissionRoutes from './rolePermissionRoutes.js';
-import clientRoutes from './clientRoutes.js';
-import venueRoutes from './venueRoutes.js';
-import supplierRoutes from './supplierRoutes.js';
-import packageTypeRoutes from './packageTypeRoutes.js';
-import packageUserRoutes from './packageUserRoutes.js';
-import packageUserEquipmentRoutes from './packageUserEquipmentRoutes.js';
-import eventPackageRoutes from './eventPackageRoutes.js';
-import equipmentRoutes from './equipmentRoutes.js';
-import paymentMethodRoutes from './paymentMethodRoutes.js';
-import eventPaymentRoutes from './eventPaymentRoutes.js';
-import companyRoutes from './companyRoutes.js';
-import emailContentRoutes from './emailContentRoutes.js';
-import rigListRoutes from './rigListRoutes.js';
-import eventNoteRoutes from './eventNoteRoutes.js';
-import contractRoutes from './contractRoutes.js';
-import signatureRoutes from './signatureRoutes.js';
-import todoRoutes from './todoRoutes.js';
-import enquiryRoutes from './enquiryRoutes.js';
+import express from "express";
+import userRoutes from "./user.route.js";
+import clientRoute from "./client.routes.js";
+import venueRoutes from "./venue.routes.js";
 
 const router = express.Router();
 
-router.use('/upload', uploadRoutes);
-// Laravel-like file uploads
-router.use('/file-uploads', fileUploadRoutes);
-router.use('/auth', authRoutes);
-// Admin role & permission management mounted under /admin
-router.use('/admin', rolePermissionRoutes);
-// Client CRUD mounted under /clients
-router.use('/clients', clientRoutes);
-// Venues CRUD
-router.use('/venues', venueRoutes);
-// Suppliers CRUD
-router.use('/suppliers', supplierRoutes);
-// Package types and package users
-router.use('/packages/types', packageTypeRoutes);
-router.use('/packages/users', packageUserRoutes);
-// package user equipment mappings
-router.use('/packages/users/equipment', packageUserEquipmentRoutes);
-// Event packages
-router.use('/packages/event', eventPackageRoutes);
-// Equipment CRUD
-router.use('/equipment', equipmentRoutes);
-// Payment methods & event payments
-router.use('/payments/methods', paymentMethodRoutes);
-router.use('/payments/event', eventPaymentRoutes);
-// Company name CRUD (frontend expects /company-name routes)
-router.use('/', companyRoutes);
-// Email Content routes
-router.use('/', emailContentRoutes);
-// Rig list routes (requires 'rig list' permission)
-router.use('/', rigListRoutes);
-// Event notes
-router.use('/events/notes', eventNoteRoutes);
-// Contracts and signatures
-router.use('/contracts', contractRoutes);
-router.use('/signatures', signatureRoutes);
-// Enquiries (create / lookup)
-router.use('/enquiries', enquiryRoutes);
-// Todos
-router.use('/todos', todoRoutes);
+const defaultRoutes = [
+  {
+    path: "/user",
+    route: userRoutes,
+  },
+  {
+    path: "/client",
+    route: clientRoute
+  },
+  {
+    path: "/venue",
+    route: venueRoutes,
+  }
+  // {
+  //   path: "/admin",
+  //   route: rolePermissionRoutes,
+  // },
+  // {
+  //   path: "/clients",
+  //   route: clientRoutes,
+  // },
+  // {
+  //   path: "/venues",
+  //   route: venueRoutes,
+  // },
+  // {
+  //   path: "/suppliers",
+  //   route: supplierRoutes,
+  // },
+  // {
+  //   path: "/company",
+  //   route: companyRoutes,
+  // },
+  // {
+  //   path: "/equipment",
+  //   route: equipmentRoutes,
+  // },
+  // {
+  //   path: "/enquiry",
+  //   route: enquiryRoutes,
+  // },
+  // {
+  //   path: "/packages/",
+  //   route: packageRoutes,
+  // },
+  // {
+  //   path: "/payments",
+  //   route: paymentRoutes,
+  // },
+  // {
+  //   path: "/email",
+  //   route: emailContentRoutes,
+  // },
+  // {
+  //   path: "/rig-list",
+  //   route: rigListRoutes,
+  // },
+  // {
+  //   path: "/contracts",
+  //   route: contractRoutes,
+  // },
+  // {
+  //   path: "/reports",
+  //   route: reportsRoutes,
+  // },
+  // {
+  //   path: "/todos",
+  //   route: todoRoutes,
+  // },
+  // {
+  //   path: "/signatures",
+  //   route: signatureRoutes,
+  // },
+  // {
+  //   path: "/calendar",
+  //   route: calendarRoutes,
+  // },
+  // {
+  //   path: "/files",
+  //   route: filesRoutes,
+  // },
+];
+
+defaultRoutes.forEach((route) => {
+  router.use(route.path, route.route);
+});
 
 export default router;

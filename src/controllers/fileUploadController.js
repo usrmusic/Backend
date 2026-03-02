@@ -4,6 +4,7 @@ import { uploadFile, getDownloadUrl } from '../utils/uploadHelper.js';
 import { getSignedGetUrl } from '../utils/s3Client.js';
 import path from 'path';
 import fs from 'fs';
+import { logActivity } from '../utils/activityLogger.js';
 
 function getUploadsDir() {
   if (process.env.PERSISTENT_UPLOADS_DIR && process.env.PERSISTENT_UPLOADS_DIR.length)
@@ -52,6 +53,8 @@ export const storeFile = catchAsync(async (req, res) => {
   };
 
   const created = await prisma.fileUpload.create({ data });
+
+  try { await logActivity(prisma, { log_name: 'file_uploads', description: 'Uploaded file', subject_type: 'FileUpload', subject_id: created.id, causer_id: req.user?.id || null, properties: { file_name: fileNameStored, event_id: created.event_id } }); } catch(e){}
 
   // produce download url for response
   let download_url = null;

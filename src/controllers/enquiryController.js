@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { toDbDate } from '../utils/dateUtils.js';
 import sendEmail from '../utils/mail/resendClient.js';
 import eventNoteService from '../services/eventNoteService.js';
+import microsoftGraph from '../utils/microsoftGraph.js';
 
 // Create enquiry (core fields + event packages + rig notes + initial note)
 export const createEnquiry = catchAsync(async (req, res) => {
@@ -469,6 +470,27 @@ export const addDepositStore = catchAsync(async (req, res) => {
       eventNotes: eventNotes.length ? eventNotes[0] : null,
     };
   });
+
+  // Try to create a calendar event in Microsoft Graph (best-effort).
+  try {
+    // load event details
+    const event = await prisma.event.findUnique({ where: { id: Number(result.event_id) }, include: { users_events_user_idTousers: true, venues: true } });
+    if (event) {
+      const startIso = event.start_time ? new Date(event.start_time).toISOString() : (event.date ? new Date(event.date).toISOString() : null);
+      const endIso = event.end_time ? new Date(event.end_time).toISOString() : (event.date ? new Date(event.date).toISOString() : null);
+      const subject = `USRMusic Event #${event.id} - ${event.users_events_user_idTousers?.name || 'Client'}`;
+      const content = event.details || '';
+      const location = event.venues?.venue || '';
+
+      const created = await microsoftGraph.createEvent({ subject, content, startIso, endIso, location }).catch(()=>null);
+      if (created && created.id) {
+        // add an event note recording the external calendar id so we can find it later
+        await eventNoteService.createNote(prisma, { eventId: event.id, notes: `CalendarEventId: ${created.id}`, created_by: req.user?.id || null }).catch(()=>{});
+      }
+    }
+  } catch (e) {
+    console.error('[enquiryController] microsoft graph create failed', e?.message || e);
+  }
 
   res.json(serializeForJson({ success: true, data: result }));
 });

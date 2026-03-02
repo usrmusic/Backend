@@ -55,9 +55,52 @@ class CoreCrudService {
     return this.model.update({ where, data, ...opts });
   }
 
+  // Soft-delete by default if `deleted_at` exists in the model (sets timestamp).
+  // If `opts.force` is true, or the model/schema doesn't support `deleted_at`,
+  // fall back to permanent deletion using `delete`.
   async delete(id, opts = {}) {
     const where = { [this.idField]: id };
+    if (opts.force) return this.model.delete({ where, ...opts });
+
+    try {
+      return await this.model.update({ where, data: { deleted_at: new Date() }, ...opts });
+    } catch (err) {
+      // If Prisma model doesn't have `deleted_at`, fallback to hard delete.
+      if (err && err.name === 'PrismaClientValidationError') {
+        return this.model.delete({ where, ...opts });
+      }
+      throw err;
+    }
+  }
+
+  // Soft-delete many records by IDs. `ids` should be an array of identifier values.
+  // If `opts.force` is true, perform permanent deletion with `deleteMany`.
+  async deleteMany(ids = [], opts = {}) {
+    if (!Array.isArray(ids) || ids.length === 0) return { count: 0 };
+    const where = { [this.idField]: { in: ids } };
+    if (opts.force) return this.model.deleteMany({ where, ...opts });
+
+    try {
+      return await this.model.updateMany({ where, data: { deleted_at: new Date() }, ...opts });
+    } catch (err) {
+      if (err && err.name === 'PrismaClientValidationError') {
+        return this.model.deleteMany({ where, ...opts });
+      }
+      throw err;
+    }
+  }
+
+  // Force permanent delete of a single record
+  async forceDelete(id, opts = {}) {
+    const where = { [this.idField]: id };
     return this.model.delete({ where, ...opts });
+  }
+
+  // Force permanent delete of multiple records
+  async forceDeleteMany(ids = [], opts = {}) {
+    if (!Array.isArray(ids) || ids.length === 0) return { count: 0 };
+    const where = { [this.idField]: { in: ids } };
+    return this.model.deleteMany({ where, ...opts });
   }
 }
 

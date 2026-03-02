@@ -15,15 +15,23 @@ const s3Client = new S3Client({
     : undefined,
 });
 
-export async function uploadStreamToS3(streamOrBuffer, key, contentType) {
+export async function uploadStreamToS3(streamOrBuffer, key, contentType, opts = {}) {
   const body = streamOrBuffer;
-  const command = new PutObjectCommand({
+  const params = {
     Bucket: BUCKET,
     Key: key,
     Body: body,
     ContentType: contentType,
     ACL: 'private',
-  });
+  };
+  // optional metadata
+  if (opts.metadata && typeof opts.metadata === 'object') params.Metadata = opts.metadata;
+  // optional tags (object -> key1=val1&key2=val2)
+  if (opts.tags && typeof opts.tags === 'object') {
+    const tagPairs = Object.entries(opts.tags).map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    params.Tagging = tagPairs.join('&');
+  }
+  const command = new PutObjectCommand(params);
   await s3Client.send(command);
   return { key };
 }

@@ -5,9 +5,9 @@
   "license": "ISC",
   "author": "",
   "type": "module",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "npx prisma generate && node src/index.js",
+    "start": "npx prisma generate && node src/server.js",
     "local": "env-cmd -f .env.local node src/server.js",
     "dev": "env-cmd -f .env.local nodemon --watch src --exec node src/server.js",
     "production": "node src/server.js",

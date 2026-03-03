@@ -6,7 +6,7 @@ export const listEquipment = catchAsync(async (req, res) => {
   const { q, supplier_id } = req.query;
   const where = {};
   if (supplier_id) where.supplier_id = Number(supplier_id);
-  if (q) where.name = { contains: String(q), mode: 'insensitive' };
+  if (q) where.name = { contains: String(q) };
 
   const items = await prisma.equipment.findMany({ where, orderBy: { name: 'asc' } });
   res.json(serializeForJson(items));

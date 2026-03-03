@@ -78,13 +78,13 @@ class CoreCrudService {
   async deleteMany(ids = [], opts = {}) {
     if (!Array.isArray(ids) || ids.length === 0) return { count: 0 };
     const where = { [this.idField]: { in: ids } };
-    if (opts.force) return this.model.deleteMany({ where, ...opts });
+    if (opts.force) return this.model.deleteMany({ where });
 
     try {
-      return await this.model.updateMany({ where, data: { deleted_at: new Date() }, ...opts });
+      return await this.model.updateMany({ where, data: { deleted_at: new Date() } });
     } catch (err) {
       if (err && err.name === 'PrismaClientValidationError') {
-        return this.model.deleteMany({ where, ...opts });
+        return this.model.deleteMany({ where });
       }
       throw err;
     }

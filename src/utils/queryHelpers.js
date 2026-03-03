@@ -18,8 +18,8 @@ export function parseFilterSort(q = {}) {
   if (q.q) {
     const s = String(q.q);
     where.OR = [
-      { usr_name: { contains: s, mode: 'insensitive' } },
-      { 'users_events_user_idTousers': { is: { name: { contains: s, mode: 'insensitive' } } } },
+      { usr_name: { contains: s } },
+      { 'users_events_user_idTousers': { is: { name: { contains: s } } } },
     ];
   }
 

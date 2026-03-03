@@ -258,8 +258,8 @@ const listUsers = catchAsync(async (req, res) => {
     const s = String(q).trim();
     if (s.length) {
       filter.OR = [
-        { name: { contains: s, mode: 'insensitive' } },
-        { email: { contains: s, mode: 'insensitive' } },
+        { name: { contains: s } },
+        { email: { contains: s } },
         { contact_number: { contains: s } },
       ];
     }

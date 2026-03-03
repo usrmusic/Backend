@@ -135,9 +135,9 @@ export const listClients = catchAsync(async (req, res) => {
     }
   }
   if (req.query.name)
-    filter.name = { contains: req.query.name, mode: "insensitive" };
+    filter.name = { contains: req.query.name };
   if (req.query.email)
-    filter.email = { contains: req.query.email, mode: "insensitive" };
+    filter.email = { contains: req.query.email };
   if (req.query.role_id) filter.role_id = BigInt(req.query.role_id);
 
   const perPage = Number(req.query.perPage || req.query.limit || 25);

@@ -18,7 +18,7 @@ const listVenues = catchAsync(async (req, res) => {
       // ignore invalid JSON filter
     }
   }
-  if (req.query.search) filter.venue = { contains: req.query.search, mode: 'insensitive' };
+  if (req.query.search) filter.venue = { contains: req.query.search };
 
   const perPage = Number(req.query.perPage || req.query.limit || 25);
   const page = Number(req.query.page || 1);

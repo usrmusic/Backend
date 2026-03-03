@@ -42,7 +42,14 @@ const deleteSupplier = {
 };
 
 const deleteManySuppliers = {
-	body: Joi.object({ ids: Joi.array().items(Joi.number().integer()).min(1).required(), force: Joi.boolean().default(false) }),
+	params: Joi.object({
+		ids: Joi.alternatives()
+			.try(Joi.array().items(Joi.number().integer()), Joi.string())
+			.required(),
+	}),
+	body: Joi.object({
+		force: Joi.boolean().optional(),
+	}).optional(),
 };
 
 export default {

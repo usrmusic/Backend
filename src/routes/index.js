@@ -2,6 +2,7 @@ import express from "express";
 import userRoutes from "./user.route.js";
 import clientRoute from "./client.routes.js";
 import venueRoutes from "./venue.routes.js";
+import supplierRoutes from "./supplier.routes.js";
 
 const router = express.Router();
 
@@ -17,6 +18,10 @@ const defaultRoutes = [
   {
     path: "/venue",
     route: venueRoutes,
+  },
+  {
+    path: "/supplier",
+    route: supplierRoutes,
   }
   // {
   //   path: "/admin",

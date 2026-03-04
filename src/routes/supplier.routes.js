@@ -2,7 +2,7 @@ import express from "express";
 import { verifyAccessToken } from "../middleware/auth0.js";
 import { checkPermission } from "../middleware/authorize.js";
 import { supplierController } from "../controllers/index.js";
-import  validate  from "../middleware/validate.js";
+import validate from "../middleware/validate.js";
 import { supplierValidation } from "../validation/index.js";
 
 const router = express.Router();
@@ -21,6 +21,9 @@ router
     validate(supplierValidation.createSupplier),
     supplierController.createSupplier,
   );
+router
+  .route("/get-dropdown")
+  .get(protectAdmin, supplierController.listSupplierDropdown);
 router
   .route("/:id")
   .get(
@@ -45,12 +48,5 @@ router
     validate(supplierValidation.deleteManySuppliers),
     supplierController.deleteManySuppliers,
   );
-// router
-//   .route("/get-dropdown")
-//   .get(
-//     protectAdmin,
-//     validate(supplierValidation.listSupplierDropdown),
-//     supplierController.listSupplierDropdown,
-//   );
 
 export default router;

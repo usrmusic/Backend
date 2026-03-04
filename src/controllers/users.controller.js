@@ -39,7 +39,7 @@ export const signIn = catchAsync(async (req, res) => {
   });
 
   const resp = { accessToken, expiresInMinutes: accessExpMin, user: safeUser };
-  if (process.env.DEBUG_AUTH === 'true') {
+  if (process.env.DEBUG_AUTH === "true") {
     // expose refreshRaw only in debug mode to help local testing (do not enable in production)
     resp.debug_refresh = refreshRaw;
   }
@@ -157,7 +157,10 @@ const forgotPassword = catchAsync(async (req, res) => {
   // If email sent successfully, update DB password via CoreCrudService
   const hashed = await bcrypt.hash(plainPassword, 10);
   // userSvc.update expects (id, data) — we already loaded `user` above
-  await userSvc.update(user.id, { password: hashed, password_text: plainPassword });
+  await userSvc.update(user.id, {
+    password: hashed,
+    password_text: plainPassword,
+  });
 
   return res.json({ ok: true });
 });
@@ -168,18 +171,20 @@ const updateUser = catchAsync(async (req, res) => {
   const data = {};
   if (body.name !== undefined) data.name = body.name;
   if (body.email !== undefined) data.email = body.email;
-  if (body.contact_number !== undefined) data.contact_number = body.contact_number;
+  if (body.contact_number !== undefined)
+    data.contact_number = body.contact_number;
   if (body.role_id !== undefined) data.role_id = body.role_id;
   if (body.address !== undefined) data.address = body.address;
   if (body.sendEmail !== undefined) data.is_email_send = !!body.sendEmail;
-  else if (body.email_send !== undefined) data.is_email_send = !!body.email_send;
+  else if (body.email_send !== undefined)
+    data.is_email_send = !!body.email_send;
 
   if (req.file) {
     try {
-      const uploadRes = await uploadFile(req.file, { folder: 'profile' });
+      const uploadRes = await uploadFile(req.file, { folder: "profile" });
       if (uploadRes && uploadRes.url) data.profile_photo = uploadRes.url;
     } catch (e) {
-      console.error('updateUser upload error', e);
+      console.error("updateUser upload error", e);
     }
   }
 
@@ -195,7 +200,11 @@ const deleteUser = catchAsync(async (req, res) => {
   if (!result) return res.status(404).json({ error: "user_not_found" });
   // If a soft-delete was performed, the result should include `deleted_at`.
   if (result.deleted_at) {
-    return res.json({ ok: true, softDeleted: true, deletedAt: result.deleted_at });
+    return res.json({
+      ok: true,
+      softDeleted: true,
+      deletedAt: result.deleted_at,
+    });
   }
   // Otherwise assume a permanent deletion occurred (result is the deleted record)
   return res.json({ ok: true, softDeleted: false });
@@ -214,7 +223,7 @@ const deleteManyUsers = catchAsync(async (req, res) => {
         else ids = [Number(parsed)];
       } catch (e) {
         ids = raw
-          .split(',')
+          .split(",")
           .map((s) => Number(s.trim()))
           .filter((n) => !Number.isNaN(n));
       }
@@ -222,16 +231,22 @@ const deleteManyUsers = catchAsync(async (req, res) => {
   }
 
   if (!Array.isArray(ids) || ids.length === 0)
-    return res.status(400).json({ error: 'ids_required' });
+    return res.status(400).json({ error: "ids_required" });
 
   // Support `force` option from params (e.g., route may include a `force` param)
-  const force = !!(req.params && (req.params.force === true || req.params.force === 'true' || req.params.force === '1'));
+  const force = !!(
+    req.params &&
+    (req.params.force === true ||
+      req.params.force === "true" ||
+      req.params.force === "1")
+  );
 
   // Delegate deletion to the CoreCrudService (userSvc)
   const result = await userSvc.deleteMany(ids, { force });
 
   // Normalize response
-  const count = result && typeof result.count === 'number' ? result.count : undefined;
+  const count =
+    result && typeof result.count === "number" ? result.count : undefined;
   res.json({ ok: true, count });
 });
 
@@ -239,13 +254,20 @@ const listUsers = catchAsync(async (req, res) => {
   // Pagination, sorting and search support
   const perPage = Number(req.query.perPage || req.query.limit || 25);
   const page = Number(req.query.page || 1);
-  const sort = req.query.sort || (req.query.sort_by ? `${req.query.sort_by}:${req.query.sort_dir || 'asc'}` : undefined);
+  const sort =
+    req.query.sort ||
+    (req.query.sort_by
+      ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
+      : undefined);
 
   // build base filter (only active users)
   let filter = { deleted_at: null };
   if (req.query.filter) {
     try {
-      const parsed = typeof req.query.filter === 'string' ? JSON.parse(req.query.filter) : req.query.filter;
+      const parsed =
+        typeof req.query.filter === "string"
+          ? JSON.parse(req.query.filter)
+          : req.query.filter;
       filter = { ...filter, ...parsed };
     } catch (e) {
       // ignore invalid JSON filter
@@ -268,7 +290,10 @@ const listUsers = catchAsync(async (req, res) => {
   const users = await userSvc.list({ filter, perPage, page, sort });
   const total = await prisma.user.count({ where: filter }).catch(() => 0);
 
-  return res.json({ data: serializeForJson(users), meta: { total, page, perPage } });
+  return res.json({
+    data: serializeForJson(users),
+    meta: { total, page, perPage },
+  });
 });
 
 const listRoles = catchAsync(async (req, res) => {
@@ -279,10 +304,17 @@ const listRoles = catchAsync(async (req, res) => {
 const getUser = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   const user = await userSvc.getById(id);
-  if (!user || user.deleted_at) return res.status(404).json({ error: "user_not_found" });
+  if (!user || user.deleted_at)
+    return res.status(404).json({ error: "user_not_found" });
   res.json(serializeForJson(user));
 });
 
+const listUserDropdown = catchAsync(async (req, res) => {
+  const users = await userSvc.list({
+    select: { id: true, name: true, email: true },
+  });
+  res.json(serializeForJson(users));
+});
 export default {
   signIn,
   signUp,
@@ -294,4 +326,5 @@ export default {
   listUsers,
   listRoles,
   getUser,
+  listUserDropdown,
 };

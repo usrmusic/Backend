@@ -40,11 +40,15 @@ router
     userController.deleteManyUsers,
   );
 router
-  .route("/forgot")
-  .post(
-    validate(userValidation.forgotPassword),
-    userController.forgotPassword,
+  .route("/get-dropdown")
+  .get(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    userController.listUserDropdown,
   );
+router
+  .route("/forgot")
+  .post(validate(userValidation.forgotPassword), userController.forgotPassword);
 router
   .route("/verify")
   .post(validate(userValidation.verifyEmail), userController.verifyEmail);

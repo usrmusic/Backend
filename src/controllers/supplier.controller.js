@@ -130,6 +130,11 @@ const deleteManySuppliers = catchAsync(async (req, res) => {
   res.json({ ok: true });
 });
 
+const listSupplierDropdown = catchAsync(async (req, res) => {
+  const suppliers = await supplierSvc.list({select: { id: true, name: true, company_name: true } });
+  res.json(serializeForJson(suppliers));
+});
+
 export default {
   listSuppliers,
   getSupplier,
@@ -137,4 +142,5 @@ export default {
   updateSupplier,
   deleteSupplier,
   deleteManySuppliers,
+  listSupplierDropdown,
 };

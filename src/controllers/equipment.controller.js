@@ -71,6 +71,15 @@ const createEquipment = catchAsync(async (req, res) => {
     if (createdSupplier && createdSupplier.id) body.supplier_id = Number(createdSupplier.id);
   }
 
+  // If supplier_id was provided, ensure it exists to avoid FK violations
+  if (body.supplier_id) {
+    const sid = Number(body.supplier_id);
+    if (Number.isNaN(sid)) return res.status(400).json({ error: 'invalid_supplier_id' });
+    const existingSupplier = await supplierSvc.getById(sid).catch(() => null);
+    if (!existingSupplier) return res.status(400).json({ error: 'supplier_not_found' });
+    body.supplier_id = sid;
+  }
+
   const data = {
     supplier_id: body.supplier_id ? Number(body.supplier_id) : undefined,
     name: body.name,
@@ -101,6 +110,15 @@ const updateEquipment = catchAsync(async (req, res) => {
   if (!body.supplier_id && body.supplier_name) {
     const createdSupplier = await supplierSvc.create({ name: String(body.supplier_name).trim() });
     if (createdSupplier && createdSupplier.id) body.supplier_id = Number(createdSupplier.id);
+  }
+
+  // If supplier_id provided for update, ensure it exists
+  if (body.supplier_id) {
+    const sid = Number(body.supplier_id);
+    if (Number.isNaN(sid)) return res.status(400).json({ error: 'invalid_supplier_id' });
+    const existingSupplier = await supplierSvc.getById(sid).catch(() => null);
+    if (!existingSupplier) return res.status(400).json({ error: 'supplier_not_found' });
+    body.supplier_id = sid;
   }
   const data = {
     supplier_id: body.supplier_id ? Number(body.supplier_id) : undefined,

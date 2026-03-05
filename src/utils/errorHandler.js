@@ -11,6 +11,11 @@ function handlePrismaError(err) {
   if (err.code === 'P2025') {
     return new AppError('Record not found', 404);
   }
+  if (err.code === 'P2003') {
+    // Foreign key constraint failed
+    const meta = err.meta || {};
+    return new AppError('Foreign key constraint violated', 400, meta);
+  }
   return null;
 }
 
@@ -30,7 +35,10 @@ export default function errorHandler(err, req, res, next) { // eslint-disable-li
   if (err && err.code && err.code.startsWith('P')) {
     const pe = handlePrismaError(err);
     if (pe) {
-      return res.status(pe.statusCode).json({ error: pe.message });
+      const payload = { error: pe.message };
+      if (pe.details) payload.details = pe.details;
+      if (process.env.NODE_ENV !== 'production') payload.stack = pe.stack;
+      return res.status(pe.statusCode).json(payload);
     }
   }
 

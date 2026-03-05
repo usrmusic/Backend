@@ -141,16 +141,44 @@ const createPackage = catchAsync(async (req, res) => {
     return pkg;
   });
 
-  const result = await packageUserSvc.model.findUnique({
+  // Fetch main package record without including `package_user_equipment` to avoid
+  // Prisma attempting to select a non-existent `id` column on that table.
+  const base = await packageUserSvc.model.findUnique({
     where: { id: created.id },
     include: {
       package_user_properties: true,
-      package_user_equipment: {
-        include: { equipment: { include: { equipment_properties: true } } },
-      },
       users: { select: { id: true, name: true, email: true } },
     },
   });
+
+  // Load equipment lines via raw SQL and join to `equipment` table. This avoids
+  // relying on Prisma's model mapping for `package_user_equipment` which may be
+  // out-of-sync with the production schema.
+  const equipmentRows = await prisma.$queryRaw`
+    SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
+           e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+    FROM package_user_equipment p
+    LEFT JOIN equipment e ON e.id = p.equipment_id
+    WHERE p.package_user_id = ${Number(created.id)}
+  `;
+
+  const result = {
+    ...base,
+    package_user_equipment: (equipmentRows || []).map((r) => ({
+      package_user_id: r.package_user_id,
+      equipment_id: r.equipment_id,
+      equipment_order_id: r.equipment_order_id,
+      quantity: r.quantity,
+      equipment: r.equipment_id
+        ? {
+            id: Number(r.equipment_id),
+            name: r.equipment_name,
+            cost_price: r.equipment_cost_price,
+            sell_price: r.equipment_sell_price,
+          }
+        : null,
+    })),
+  };
 
   res.status(201).json(serializeForJson(result));
 });
@@ -275,16 +303,41 @@ const updatePackage = catchAsync(async (req, res) => {
     return updatedPkg;
   });
 
-  const result = await packageUserSvc.model.findUnique({
+  // Fetch updated package without including `package_user_equipment` and load
+  // equipment lines separately via raw SQL to avoid schema mismatch issues.
+  const base = await packageUserSvc.model.findUnique({
     where: { id: updated.id },
     include: {
       package_user_properties: true,
-      package_user_equipment: {
-        include: { equipment: { include: { equipment_properties: true } } },
-      },
       users: { select: { id: true, name: true, email: true } },
     },
   });
+
+  const equipmentRows = await prisma.$queryRaw`
+    SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
+           e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+    FROM package_user_equipment p
+    LEFT JOIN equipment e ON e.id = p.equipment_id
+    WHERE p.package_user_id = ${Number(updated.id)}
+  `;
+
+  const result = {
+    ...base,
+    package_user_equipment: (equipmentRows || []).map((r) => ({
+      package_user_id: r.package_user_id,
+      equipment_id: r.equipment_id,
+      equipment_order_id: r.equipment_order_id,
+      quantity: r.quantity,
+      equipment: r.equipment_id
+        ? {
+            id: Number(r.equipment_id),
+            name: r.equipment_name,
+            cost_price: r.equipment_cost_price,
+            sell_price: r.equipment_sell_price,
+          }
+        : null,
+    })),
+  };
 
   res.json(serializeForJson(result));
 });
@@ -293,17 +346,41 @@ const getPackage = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
 
-  const pkg = await packageUserSvc.model.findUnique({
+  const base = await packageUserSvc.model.findUnique({
     where: { id },
     include: {
       package_user_properties: true,
-      package_user_equipment: {
-        include: { equipment: { include: { equipment_properties: true } } },
-      },
       users: { select: { id: true, name: true, email: true } },
     },
   });
-  if (!pkg) return res.status(404).json({ error: "package_not_found" });
+  if (!base) return res.status(404).json({ error: "package_not_found" });
+
+  const equipmentRows = await prisma.$queryRaw`
+    SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
+           e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+    FROM package_user_equipment p
+    LEFT JOIN equipment e ON e.id = p.equipment_id
+    WHERE p.package_user_id = ${Number(id)}
+  `;
+
+  const pkg = {
+    ...base,
+    package_user_equipment: (equipmentRows || []).map((r) => ({
+      package_user_id: r.package_user_id,
+      equipment_id: r.equipment_id,
+      equipment_order_id: r.equipment_order_id,
+      quantity: r.quantity,
+      equipment: r.equipment_id
+        ? {
+            id: Number(r.equipment_id),
+            name: r.equipment_name,
+            cost_price: r.equipment_cost_price,
+            sell_price: r.equipment_sell_price,
+          }
+        : null,
+    })),
+  };
+
   res.json(serializeForJson(pkg));
 });
 

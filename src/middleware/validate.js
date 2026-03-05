@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import ApiError from '../utils/ApiError.js';
+import AppError from '../utils/AppError.js';
 
 const pick = (obj = {}, keys = []) =>
   keys.reduce((acc, k) => {
@@ -25,7 +25,7 @@ const validate = (schema = {}) => (req, res, next) => {
 
     if (error) {
       const errorMessage = error.details.map((d) => d.message).join(', ');
-      return next(new ApiError(400, errorMessage));
+      return next(new AppError(errorMessage, 400));
     }
 
     Object.assign(req, value);

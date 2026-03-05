@@ -5,6 +5,9 @@ import venueRoutes from "./venue.routes.js";
 import supplierRoutes from "./supplier.routes.js";
 import equipmentRoutes from "./equipment.routes.js";
 import packageRoutes from "./package.routes.js";
+import companyRoutes from "./company.routes.js"
+import rolePermissionRoutes from "./rolePermission.routes.js";
+import emailContentRoutes from "./emailContent.routes.js";
 const router = express.Router();
 
 const defaultRoutes = [
@@ -31,6 +34,17 @@ const defaultRoutes = [
   {
     path: "/package",
     route: packageRoutes,
+  },{
+    path: "/company",
+    route: companyRoutes
+  },
+  {
+    path: "/roles-permissions",
+    route: rolePermissionRoutes,
+  },
+  {
+    path:'/email-content',
+    route: emailContentRoutes,
   }
   // {
   //   path: "/admin",

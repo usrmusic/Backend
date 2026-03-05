@@ -11,6 +11,14 @@ const validate = (schema = {}) => (req, res, next) => {
   try {
     const validSchema = pick(schema, ['params', 'query', 'body']);
     const obj = pick(req, Object.keys(validSchema));
+    // If multer parsed files, merge presence of file fields into body so Joi can validate them
+    if (req.files && obj.body && typeof obj.body === 'object') {
+      // For each file field (e.g. company_logo) set the body value to the original filename so Joi sees a string
+      Object.keys(req.files).forEach((f) => {
+        const entry = req.files[f];
+        if (Array.isArray(entry) && entry.length) obj.body[f] = entry[0].originalname || 'file';
+      });
+    }
 
     const joiSchema = Joi.object(validSchema).prefs({ errors: { label: 'key' }, abortEarly: false });
     const { value, error } = joiSchema.validate(obj);

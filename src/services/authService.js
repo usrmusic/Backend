@@ -4,6 +4,7 @@ import services from './index.js';
 import { serializeForJson } from '../utils/serialize.js';
 import { generateRandomToken, hashToken } from '../utils/tokenUtils.js';
 import userService from './userService.js';
+import AppError from '../utils/AppError.js';
 
 const userSvc = services.get('user');
 // Prisma schema defines `personal_access_tokens` for stored tokens; use that service key
@@ -13,7 +14,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 export async function verifyCredentials(email, password) {
   const user = await userService.getUserByEmail(email);
-  if (!user) throw new Error('invalid_credentials');
+  if (!user) throw new AppError('invalid_credentials', 401);
 
   const hashed = user.password || null;
   const plain = user.password_text || null;
@@ -27,7 +28,7 @@ export async function verifyCredentials(email, password) {
     }
   }
   if (!ok && plain) ok = plain === password;
-  if (!ok) throw new Error('invalid_credentials');
+  if (!ok) throw new AppError('invalid_credentials', 401);
   return user;
 }
 

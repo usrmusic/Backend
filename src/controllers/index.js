@@ -4,3 +4,6 @@ export { default as venueController } from './venue.controller.js';
 export { default as supplierController } from './supplier.controller.js';
 export { default as equipmentController } from './equipment.controller.js';
 export { default as packageController } from './package.controller.js';
+export { default as companyController } from './company.controller.js'
+export { default as rolePermissionController } from './rolePermission.controller.js';
+export { default as emailContentController } from './emailContent.controller.js';

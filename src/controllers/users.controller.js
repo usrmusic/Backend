@@ -19,7 +19,7 @@ export const signIn = catchAsync(async (req, res) => {
   const { email, password } = req.body || {};
 
   const user = await authService.verifyCredentials(email, password);
-
+    
   const { accessToken, accessExpMin, refreshRaw, refreshHash, refreshExpires } =
     await authService.generateTokens(user);
 

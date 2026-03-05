@@ -5,6 +5,10 @@ import { deleteObjectFromS3 } from "../utils/s3Client.js";
 import { serializeForJson } from "../utils/serialize.js";
 import path from "path";
 import fs from "fs";
+import services from "../services/index.js";
+
+const companySvc = services.get("CompanyName");
+
 
 function getUploadsDir() {
   if (process.env.PERSISTENT_UPLOADS_DIR && process.env.PERSISTENT_UPLOADS_DIR.length)
@@ -12,20 +16,43 @@ function getUploadsDir() {
   return path.resolve(process.cwd(), 'uploads');
 }
 
-export const listCompanies = catchAsync(async (req, res) => {
-  const data = await prisma.companyName.findMany({ orderBy: { id: 'desc' } });
-  res.json({ data: serializeForJson(data) });
+const listCompanies = catchAsync(async (req, res) => {
+
+  const perPage = Number(req.query.perPage || req.query.limit || 25);
+  const page = Number(req.query.page || 1);
+  const sort =
+    req.query.sort || (req.query.sort_by ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}` : undefined);
+
+  let filter = {};
+  if (req.query.filter) {
+    try {
+      filter = typeof req.query.filter === "string" ? JSON.parse(req.query.filter) : req.query.filter;
+    } catch (e) {
+      // ignore invalid JSON filter
+    }
+  }
+
+  const q = req.query.search || req.query.q;
+  if (q && String(q).trim().length) {
+    filter.name = { contains: String(q).trim() };
+  }
+
+  const items = await companySvc.list({ filter, perPage, page, sort });
+  const total = await companySvc.model.count({ where: filter }).catch(() => 0);
+
+  res.json({ data: serializeForJson(items), meta: { total, page, perPage } });
 });
 
-export const getCompany = catchAsync(async (req, res) => {
+const getCompany = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: 'invalid_id' });
-  const item = await prisma.companyName.findUnique({ where: { id: BigInt(id) } });
+
+  const item = await companySvc.getById(BigInt(id));
   if (!item) return res.status(404).json({ error: 'not_found' });
   res.json({ data: serializeForJson(item) });
 });
 
-export const createCompany = catchAsync(async (req, res) => {
+const createCompany = catchAsync(async (req, res) => {
   const body = req.body || {};
   const name = body.name;
   if (!name) return res.status(400).json({ error: 'name_required' });
@@ -80,16 +107,16 @@ export const createCompany = catchAsync(async (req, res) => {
     console.error('file upload error', err);
   }
 
-  const created = await prisma.companyName.create({ data });
+  const created = await companySvc.create(data);
   res.status(201).json({ data: serializeForJson(created) });
 });
 
-export const updateCompany = catchAsync(async (req, res) => {
+const updateCompany = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: 'invalid_id' });
   const body = req.body || {};
 
-  const existing = await prisma.companyName.findUnique({ where: { id: BigInt(id) } });
+  const existing = await companySvc.getById(BigInt(id));
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
   const data = {
@@ -121,7 +148,7 @@ export const updateCompany = catchAsync(async (req, res) => {
         // delete old logo if not referenced elsewhere
         if (existing.company_logo) {
           const oldName = path.basename(existing.company_logo);
-          const cnt = await prisma.companyName.count({ where: { company_logo: existing.company_logo } });
+          const cnt = await companySvc.model.count({ where: { company_logo: existing.company_logo } });
           if (cnt <= 1) {
             try {
               if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
@@ -147,7 +174,7 @@ export const updateCompany = catchAsync(async (req, res) => {
       if (up && up.url) {
         if (existing.brochure) {
           const oldName = path.basename(existing.brochure);
-          const cnt = await prisma.companyName.count({ where: { brochure: existing.brochure } });
+          const cnt = await companySvc.model.count({ where: { brochure: existing.brochure } });
           if (cnt <= 1) {
             try {
               if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
@@ -174,11 +201,12 @@ export const updateCompany = catchAsync(async (req, res) => {
     console.error('update file error', err);
   }
 
-  const updated = await prisma.companyName.update({ where: { id: BigInt(id) }, data });
+  const updated = await companySvc.update(BigInt(id), data);
   res.json({ data: serializeForJson(updated) });
 });
 
-export const deleteCompanies = catchAsync(async (req, res) => {
+const deleteCompanies = catchAsync(async (req, res) => {
+  // Delete many companies by CSV ids in params (route: /delete-many/:ids)
   const idsRaw = req.params.ids || (req.body && req.body.ids);
   if (!idsRaw) return res.status(400).json({ error: 'ids_required' });
   const ids = Array.isArray(idsRaw) ? idsRaw.map((i) => Number(i)) : String(idsRaw).split(',').map((i) => Number(i));
@@ -186,54 +214,82 @@ export const deleteCompanies = catchAsync(async (req, res) => {
   // Prevent deletion if events reference these company ids
   const hasEvent = await prisma.event.findFirst({ where: { names_id: { in: ids } } });
   if (hasEvent) return res.status(400).json({ error: 'company_has_events', message: 'Cannot delete company. Associated events exist.' });
-
-  const companies = await prisma.companyName.findMany({ where: { id: { in: ids.map((i) => BigInt(i)) } } });
-  const uploadsDir = getUploadsDir();
+  const companies = await companySvc.list({ filter: { id: { in: ids.map((i) => BigInt(i)) } }, perPage: ids.length || undefined });
   for (const c of companies) {
-      try {
-        if (c.company_logo) {
-          const name = path.basename(c.company_logo);
-          const cnt = await prisma.companyName.count({ where: { company_logo: c.company_logo } });
-          if (cnt <= 1) {
-            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
-              try { await deleteObjectFromS3(c.company_logo); } catch (e) {}
-            } else {
-              const p = path.join(uploadsDir, name);
-              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
-            }
-          }
-        }
-        if (c.brochure) {
-          const name = path.basename(c.brochure);
-          const cnt = await prisma.companyName.count({ where: { brochure: c.brochure } });
-          if (cnt <= 1) {
-            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
-              try { await deleteObjectFromS3(c.brochure); } catch (e) {}
-            } else {
-              const p = path.join(uploadsDir, name);
-              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
-            }
-          }
-        }
-        if (c.admin_signature) {
-          const name = path.basename(c.admin_signature);
-          const cnt = await prisma.companyName.count({ where: { admin_signature: c.admin_signature } });
-          if (cnt <= 1) {
-            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
-              try { await deleteObjectFromS3(c.admin_signature); } catch (e) {}
-            } else {
-              const p = path.join(uploadsDir, name);
-              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
-            }
-          }
-        }
-      } catch (e) {
-        console.error('delete file error', e);
-      }
+    try {
+      await removeCompanyFiles(c);
+    } catch (e) {
+      console.error('delete file error', e);
+    }
   }
 
-  await prisma.companyName.deleteMany({ where: { id: { in: ids.map((i) => BigInt(i)) } } });
+  await companySvc.forceDeleteMany(ids.map((i) => BigInt(i)));
   res.json({ ok: true });
 });
 
-export default { listCompanies, getCompany, createCompany, updateCompany, deleteCompanies };
+// Delete single company (route: DELETE /:id)
+const deleteCompany = catchAsync(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'invalid_id' });
+
+  // Prevent deletion if events reference this company id
+  const hasEvent = await prisma.event.findFirst({ where: { names_id: id } });
+  if (hasEvent) return res.status(400).json({ error: 'company_has_events', message: 'Cannot delete company. Associated events exist.' });
+
+  const company = await companySvc.getById(BigInt(id));
+  if (!company) return res.status(404).json({ error: 'not_found' });
+
+  try {
+    await removeCompanyFiles(company);
+  } catch (e) {
+    console.error('delete file error', e);
+  }
+
+  await companySvc.forceDelete(BigInt(id));
+  res.json({ ok: true });
+});
+
+// Helper: remove uploaded files for a company record (handles s3/local and shared refs)
+async function removeCompanyFiles(c) {
+  const uploadsDir = getUploadsDir();
+  if (c.company_logo) {
+    const name = path.basename(c.company_logo);
+    const cnt = await prisma.companyName.count({ where: { company_logo: c.company_logo } });
+    if (cnt <= 1) {
+      if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+        try { await deleteObjectFromS3(c.company_logo); } catch (e) {}
+      } else {
+        const p = path.join(uploadsDir, name);
+        try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+      }
+    }
+  }
+
+  if (c.brochure) {
+    const name = path.basename(c.brochure);
+    const cnt = await prisma.companyName.count({ where: { brochure: c.brochure } });
+    if (cnt <= 1) {
+      if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+        try { await deleteObjectFromS3(c.brochure); } catch (e) {}
+      } else {
+        const p = path.join(uploadsDir, name);
+        try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+      }
+    }
+  }
+
+  if (c.admin_signature) {
+    const name = path.basename(c.admin_signature);
+    const cnt = await companySvc.model.count({ where: { admin_signature: c.admin_signature } });
+    if (cnt <= 1) {
+      if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+        try { await deleteObjectFromS3(c.admin_signature); } catch (e) {}
+      } else {
+        const p = path.join(uploadsDir, name);
+        try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+      }
+    }
+  }
+}
+
+export default { listCompanies, getCompany, createCompany, updateCompany, deleteCompany, deleteCompanies };

@@ -34,7 +34,8 @@ export async function verifyCredentials(email, password) {
 
 export async function generateTokens(user) {
   const payload = serializeForJson({ sub: user.id, email: user.email, role_id: user.role_id });
-  const accessExpMin = parseInt(process.env.JWT_ACCESS_EXPIRATION_MINUTES || '30', 10);
+  // Default to 7 days (in minutes) when not set in environment
+  const accessExpMin = parseInt(process.env.JWT_ACCESS_EXPIRATION_MINUTES || String(7 * 24 * 60), 10);
   const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: `${accessExpMin}m` });
 
   const refreshRaw = generateRandomToken(48);

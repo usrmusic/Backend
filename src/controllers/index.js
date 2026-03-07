@@ -7,3 +7,4 @@ export { default as packageController } from './package.controller.js';
 export { default as companyController } from './company.controller.js'
 export { default as rolePermissionController } from './rolePermission.controller.js';
 export { default as emailContentController } from './emailContent.controller.js';
+export { default as enquiryController } from './enquiry.controller.js';

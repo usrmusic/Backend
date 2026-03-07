@@ -8,6 +8,9 @@ import packageRoutes from "./package.routes.js";
 import companyRoutes from "./company.routes.js"
 import rolePermissionRoutes from "./rolePermission.routes.js";
 import emailContentRoutes from "./emailContent.routes.js";
+import enquiryRoutes from "./enquiry.routes.js";
+
+
 const router = express.Router();
 
 const defaultRoutes = [
@@ -43,9 +46,17 @@ const defaultRoutes = [
     route: rolePermissionRoutes,
   },
   {
-    path:'/email-content',
+    path:'/email-content',  
     route: emailContentRoutes,
+  },
+  {
+    path: "/enquiry",
+    route: enquiryRoutes,
   }
+  // {
+  //   path:'/enquiry',
+  //   route: enquiryRoutes,
+  // }
   // {
   //   path: "/admin",
   //   route: rolePermissionRoutes,

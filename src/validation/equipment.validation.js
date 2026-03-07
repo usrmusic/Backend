@@ -69,6 +69,7 @@ export default{
     createEquipment,
     updateEquipment,
     deleteEquipment,
+    listEquipment,
     deleteManyEquipment,
     getEquipment,
 }

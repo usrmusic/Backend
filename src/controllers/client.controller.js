@@ -335,7 +335,7 @@ export const deleteManyClients = catchAsync(async (req, res) => {
 
 export const listclientdropdown = catchAsync(async (req, res) => {
   const clients = await userSvc.list({
-    where: { deleted_at: null },
+    filter: { deleted_at: null, role_id: BigInt(4) },
     select: { id: true, name: true },
   });
   res.json(serializeForJson(clients));

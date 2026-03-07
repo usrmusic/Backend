@@ -412,7 +412,19 @@ const deleteManyPackages = catchAsync(async (req, res) => {
   });
   res.json({ ok: true });
 });
-
+const getPackageDropdown = catchAsync(async (req, res) => {
+  const packages = await packageUserSvc.model.findMany({
+    where: { status: 'ACTIVE' },
+     select: {
+      id: true,
+      package_name: true,
+      user_id: true,
+      users: { select: { id: true, name: true } },
+    },
+    orderBy: { package_name: 'asc' },
+  });
+  res.json(serializeForJson(packages));
+})
 export default {
   listPackages,
   createPackage,
@@ -420,4 +432,5 @@ export default {
   getPackage,
   deletePackage,
   deleteManyPackages,
+  getPackageDropdown
 };

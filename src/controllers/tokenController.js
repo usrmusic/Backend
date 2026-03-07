@@ -47,7 +47,9 @@ export const refreshToken = async (req, res) => {
 
   // issue new access token
   const payload = serializeForJson({ sub: user.id, email: user.email, role_id: user.role_id });
-  const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: `${process.env.JWT_ACCESS_EXPIRATION_MINUTES || 30}m` });
+  // Default to 7 days (in minutes) when env var not provided
+  const accessExpMin = parseInt(process.env.JWT_ACCESS_EXPIRATION_MINUTES || String(7 * 24 * 60), 10);
+  const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: `${accessExpMin}m` });
 
   // rotate refresh token: create new and delete old
   const refreshRaw = generateRandomToken(48);
@@ -68,7 +70,7 @@ export const refreshToken = async (req, res) => {
   const cookiePath = process.env.REFRESH_COOKIE_PATH || '/api';
   res.cookie(cookieName, refreshRaw, { httpOnly: true, secure: cookieSecure, sameSite: cookieSameSite, path: cookiePath, maxAge: refreshDays * 24 * 60 * 60 * 1000 });
 
-  return res.json({ accessToken, expiresInMinutes: parseInt(process.env.JWT_ACCESS_EXPIRATION_MINUTES || '30', 10) });
+  return res.json({ accessToken, expiresInMinutes: accessExpMin });
 };
 
 export const signOut = async (req, res) => {

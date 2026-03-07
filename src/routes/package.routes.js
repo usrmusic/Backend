@@ -20,6 +20,8 @@ router
     validate(packageValidation.createPackage),
     packageController.createPackage,
   );
+router.route("/get-dropdown")
+  .get(verifyAccessToken, packageController.getPackageDropdown);
 router
   .route("/:id")
   .get(

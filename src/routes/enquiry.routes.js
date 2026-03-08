@@ -3,14 +3,35 @@ import { enquiryController } from "../controllers/index.js";
 import { enquiryValidation } from "../validation/index.js";
 import validate from "../middleware/validate.js";
 import { verifyAccessToken } from "../middleware/auth0.js";
+import {checkPermission} from "../middleware/authorize.js";
 const router = express.Router();
-
+const checkPermissions = [verifyAccessToken, checkPermission("manage all")];
 router
   .route("/")
-    .post(validate(enquiryValidation.createEnquiry), enquiryController.createEnquiry)
+    .get(checkPermissions, validate(enquiryValidation.listOpenEnquiries), enquiryController.listOpenEnquiries)
+    .post(checkPermissions, validate(enquiryValidation.createEnquiry),  enquiryController.createEnquiry)
+router.route('/add-note/:id')
+.post(checkPermissions, validate(enquiryValidation.addNote), enquiryController.addNote);
 router
 .route('/staff-equipment')
-.get(validate(enquiryValidation.staffEquipment), enquiryController.staffEquipment);
+.get(checkPermissions, validate(enquiryValidation.staffEquipment), enquiryController.staffEquipment);
+router.route('/get-email')
+  .get(checkPermission,validate(enquiryValidation.getEmail), enquiryController.getEmail)
+  
+router.route('/brochure')
+  .post(verifyAccessToken, checkPermission("manage all"), validate(enquiryValidation.sendEmail), enquiryController.sendBrochure);
+
+router.route('/email-update')
+  .post(verifyAccessToken, checkPermission("manage all"), validate(enquiryValidation.sendEmail), enquiryController.sendUpdateEmail);
+
+router.route('/quote')
+  .post(verifyAccessToken, checkPermission("manage all"), validate(enquiryValidation.sendEmail), enquiryController.sendQuote);
+
+router.route('/confirm-event/:id')
+  .post(verifyAccessToken, checkPermission("manage all"), validate(enquiryValidation.confirmEvent), enquiryController.confirmEvent);
+
+router.route('/confirm-event/email/:id')
+  .post(verifyAccessToken, checkPermission("manage all"), validate(enquiryValidation.sendEmail), enquiryController.sendEventConfirmationEmail);
   // .get(validate(enquiryValidation.createEnquiry),enquiryController.listEnquiries)
 // router.route('/open')
 //     .get(enquiryController.getOpenEnquiry)

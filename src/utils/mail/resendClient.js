@@ -14,12 +14,20 @@ async function sendEmail({ to, subject, html }) {
     return Promise.resolve({ ok: true, fallback: true });
   }
 
-  return client.emails.send({
-    from: fromEmail,
-    to,
-    subject,
-    html,
-  });
+  const timeoutMs = Number(process.env.RESEND_SEND_TIMEOUT_MS) || 8000;
+  const sendPromise = client.emails.send({ from: fromEmail, to, subject, html });
+
+  try {
+    const res = await Promise.race([
+      sendPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('resend_timeout')), timeoutMs)),
+    ]);
+    return res;
+  } catch (e) {
+    console.error('[resend] send failed or timed out', e?.message || e);
+    // Return a non-throwing result so callers that await won't hang the request
+    return { ok: false, error: String(e?.message || e) };
+  }
 }
 
 export default sendEmail;

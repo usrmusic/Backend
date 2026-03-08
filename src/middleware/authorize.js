@@ -62,6 +62,7 @@ export { loadPermissionsForUserId };
 export function checkPermission(permissionName) {
   return async function (req, res, next) {
     try {
+      console.log("hello")
       if (!req.user) return res.status(401).json({ error: 'missing_token' });
 
       // prefer numeric subject id from token

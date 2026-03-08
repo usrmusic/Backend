@@ -3,12 +3,27 @@ import Joi from "joi";
 const dateRegex = /^\d{2}-\d{2}-\d{4}$/; // DD-MM-YYYY
 const timeRegex = /^(?:[01]\d|2[0-3]):[0-5]\d$/; // HH:mm
 
-const clientSchema = Joi.object({
-  id: Joi.number().integer(),
-  email: Joi.string().email(),
-  name: Joi.string().allow('', null),
-  contact_number: Joi.string().allow('', null),
-  address: Joi.string().allow('', null),
+const allowedSortFields = [
+  'date',
+  'id',
+  'usr_name',
+  'usr_date',
+  'created_at',
+  'updated_at',
+  'total_cost_for_equipment',
+];
+
+const listOpenEnquiries = Joi.object({
+  query: Joi.object({
+    search: Joi.string().trim().max(100).allow('', null),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid(...allowedSortFields)
+      .optional()
+      .allow('', null),
+    sortOrder: Joi.string().valid('asc', 'desc').optional().default('asc'),
+  }).unknown(true),
 });
 
 const equipmentItem = Joi.object({
@@ -19,12 +34,9 @@ const equipmentItem = Joi.object({
   price_added_to_bill: Joi.number().allow(null),
   quantity: Joi.number().integer().allow(null),
   total_price: Joi.number().allow(null),
+  notes: Joi.string().allow('', null),
 });
 
-const arrayOrMapOfEquipment = Joi.alternatives().try(
-  Joi.array().items(equipmentItem),
-  Joi.object().pattern(Joi.string(), equipmentItem)
-);
 
 const createEnquiry = Joi.object({
   body: Joi.object({
@@ -35,53 +47,25 @@ const createEnquiry = Joi.object({
     event_date: Joi.string().pattern(dateRegex).required(),
     start_time: Joi.string().pattern(timeRegex).required(),
     end_time: Joi.string().pattern(timeRegex).required(),
-    deposit_ammount: Joi.number().allow(null),
-    venue_id: Joi.number().integer().required(),
-    new_venue_name: Joi.number().integer().allow(null),
+    deposit_amount: Joi.number().allow(null),
+    venue_id: Joi.number().integer().optional(),
+    new_venue_name: Joi.string().allow('', null).optional(),
     event_details: Joi.string().allow('', null),
     dj_name: Joi.string().allow('', null),
     dj_package_name: Joi.string().allow('', null),
     total_cost: Joi.number().allow(null),
     dj_cost: Joi.number().allow(null),
-    equipmentData: arrayOrMapOfEquipment,
-    extra_data: arrayOrMapOfEquipment,
+    equipment_data: Joi.array().items(equipmentItem).allow(null),
+    extra_data: Joi.array().items(equipmentItem).allow(null),
     rig_notes_data: Joi.array().items(Joi.object({
       equipment_id: Joi.number().integer().allow(null),
-      rig_note: Joi.string().allow('', null),
+      rig_notes: Joi.string().allow('', null),
     })).allow(null),
   }),
 });
 
-const sendBrochure = Joi.object({
-  body: Joi.object({
-    id: Joi.number().integer().optional(),
-    userId: Joi.number().integer().optional(),
-    eventId: Joi.number().integer().optional(),
-    event_id: Joi.number().integer().optional(),
-    companyNameId: Joi.number().integer().optional(),
-    companyId: Joi.number().integer().optional(),
-    companyName: Joi.string().optional(),
-    subject: Joi.string().optional(),
-    body: Joi.string().optional(),
-    email: Joi.string().email().optional(),
-  }).unknown(true),
-});
 
-const sendQuote = Joi.object({
-  body: Joi.object({
-    id: Joi.number().integer().optional(),
-    userId: Joi.number().integer().optional(),
-    details: Joi.array().items(Joi.object({ id: Joi.number().integer().required(), amount: Joi.number().optional() })).required(),
-    companyNameId: Joi.number().integer().optional(),
-    companyId: Joi.number().integer().optional(),
-    companyName: Joi.string().optional(),
-    subject: Joi.string().optional(),
-    body: Joi.string().optional(),
-    email: Joi.string().email().optional(),
-  }).unknown(true),
-});
-
-const sendInvoice = sendQuote.keys({});
+// const sendInvoice = sendQuote.keys({});
 
 const deleteOpenEnquiry = Joi.object({
   body: Joi.object({
@@ -93,16 +77,7 @@ const deleteOpenEnquiry = Joi.object({
   }).unknown(true),
 });
 
-const addDepositStore = Joi.object({
-  body: Joi.object({
-    event_id: Joi.number().integer().required(),
-    payment_method_id: Joi.number().integer().required(),
-    amount: Joi.number().required(),
-    names_id: Joi.alternatives().try(Joi.number().integer(), Joi.string()).required(),
-    details: Joi.alternatives().try(Joi.string(), Joi.object()).required(),
-    date: Joi.date().optional(),
-  }).unknown(true),
-});
+
 
 const staffEquipment = Joi.object({
   params: Joi.object({
@@ -112,12 +87,58 @@ const staffEquipment = Joi.object({
   }),
 })
 
+const addNote = Joi.object({
+  params: Joi.object({
+    id: Joi.number().integer().optional(),
+  }).unknown(true),
+  query: Joi.object({
+    id: Joi.number().integer().optional(),
+  }).unknown(true),
+  body: Joi.object({
+    note: Joi.string().required(),
+  }).unknown(true),
+});
+
+const getEmail = Joi.object({
+  query: Joi.object({
+    email_name: Joi.string().required(),
+    event_id: Joi.number().integer().required(),
+  })
+});
+
+const sendEmail = Joi.object({
+  body: Joi.object({
+    event_id: Joi.number().integer().required(),
+    body: Joi.string().required(),
+    subject: Joi.string().required(),
+    company_name_id: Joi.number().integer().required(),
+  })
+});
+
+
+const confirmEvent = Joi.object({
+  params: Joi.object({
+    id: Joi.number().integer().required(),
+  }),
+  body: Joi.object({
+    event_date: Joi.string().pattern(dateRegex).required(),
+    company_name: Joi.string().required(),
+    deposit_amount: Joi.number().required(),
+    payment_method_id: Joi.number().integer().required(),
+  }),
+});
+
+
+
+
 export default {
+  listOpenEnquiries,
   createEnquiry,
-  sendBrochure,
-  sendQuote,
-  sendInvoice,
+  // sendInvoice,
   deleteOpenEnquiry,
-  addDepositStore,
+  confirmEvent,
   staffEquipment,
+  addNote,
+  getEmail,
+  sendEmail,
 };

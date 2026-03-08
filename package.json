@@ -31,11 +31,13 @@
     "joi": "^17.9.2",
     "jsonwebtoken": "^9.0.0",
     "jwks-rsa": "^2.0.5",
+    "marked": "^5.1.2",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.3.0",
     "node-cron": "^3.0.2",
     "pdfkit": "^0.13.0",
+    "puppeteer": "^24.38.0",
     "resend": "^1.1.0",
     "uuid": "^13.0.0"
   },

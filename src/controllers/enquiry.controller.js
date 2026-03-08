@@ -1197,6 +1197,56 @@ const confirmEvent = catchAsync(async (req, res) => {
 });
 
 const sendEventConfirmationEmail = catchAsync(async (req, res) => {
+  // payload may be nested under `body` when validated by Joi
+  const payload = (req.validated && req.validated.body)
+    ? req.validated.body
+    : (req.body && req.body.body)
+    ? req.body.body
+    : req.body || {};
+
+  const event_id = Number(payload.event_id || req.params.id || payload.id);
+  const bodyText = String(payload.body || "");
+  const subject = String(payload.subject || `Event #${event_id} Confirmation`);
+  const companyId = payload.company_name_id ? Number(payload.company_name_id) : null;
+
+  if (!event_id) return res.status(400).json({ error: "event_id_required" });
+
+  const event = await prisma.event.findUnique({
+    where: { id: event_id },
+    include: { users_events_user_idTousers: true, venues: true },
+  });
+
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  const user = event.users_events_user_idTousers || null;
+  const to = user?.email || payload.email || null;
+
+  let companyDetails = null;
+  if (companyId) {
+    companyDetails = await prisma.companyName.findUnique({ where: { id: BigInt(companyId) } }).catch(() => null);
+  }
+
+  const firstName = user?.name || "Client";
+  const clientHtml = renderConfirmedEvent({ first_name: firstName, body: bodyText, companyDetails: companyDetails || {} });
+
+  try {
+    if (to) await sendEmail({ to: [to], subject, html: clientHtml }).catch(() => {});
+  } catch (e) {
+    console.error('[sendEventConfirmationEmail] sendEmail failed', e?.message || e);
+  }
+
+  // create store note
+  await eventNoteService.createNote(prisma, {
+    eventId: event_id,
+    notes: `Email Sent - ${companyDetails?.name || ''}`,
+    created_by: req.user?.id || null,
+  }).catch(() => {});
+
+  const latestNote = await prisma.eventNote.findFirst({ where: { event_id }, orderBy: { id: 'desc' } }).catch(() => null);
+
+  const userData = user ? { name: user.name, email: user.email } : null;
+
+  res.json(serializeForJson({ success: true, data: userData, eventNotes: latestNote || null }));
 });
 
 

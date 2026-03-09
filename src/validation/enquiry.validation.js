@@ -116,27 +116,13 @@ const sendEmail = Joi.object({
 });
 
 
-const confirmEvent = Joi.object({
-  params: Joi.object({
-    id: Joi.number().integer().required(),
-  }),
-  body: Joi.object({
-    event_date: Joi.string().pattern(dateRegex).required(),
-    company_name: Joi.string().required(),
-    deposit_amount: Joi.number().required(),
-    payment_method_id: Joi.number().integer().required(),
-  }),
-});
-
 
 
 
 export default {
   listOpenEnquiries,
   createEnquiry,
-  // sendInvoice,
   deleteOpenEnquiry,
-  confirmEvent,
   staffEquipment,
   addNote,
   getEmail,

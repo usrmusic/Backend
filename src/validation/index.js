@@ -8,3 +8,4 @@ export { default as packageValidation } from "./package.validation.js";
 export { default as companyValidation } from "./company.validation.js";
 export { default as rolePermissionValidation } from "./rolePermission.validation.js";
 export { default as emailContentValidation } from "./emailContent.validation.js";
+export { default as confirmEventsValidation } from "./confirmEvents.validation.js";

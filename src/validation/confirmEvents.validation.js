@@ -45,10 +45,27 @@ const getConfirmEvent = Joi.object({
 });
 
 
+const refund = Joi.object({
+  query: Joi.object({
+    id: Joi.number().integer().required(),
+  }),
+  body: Joi.object({
+    refund_amount: Joi.number().required(),
+  })
+});
+
+const cancel = Joi.object({
+  query: Joi.object({ id: Joi.number().integer().required() }),
+  body: Joi.object({ refund_amount: Joi.number().optional() }),
+});
+
+
 export default {
     listConfirmEvents,
     confirmEvent,
     getConfirmEvent,
     sendEmail,
-    getEmail
+    getEmail,
+    refund,
+  cancel
 }

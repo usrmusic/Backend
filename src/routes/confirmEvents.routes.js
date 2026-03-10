@@ -23,6 +23,15 @@ router
     validate(confirmEventsValidation.sendEmail),
     confirmEventsController.sendInvoice,
   );
+// Download invoice (parity with Laravel POST /download-invoice)
+router
+  .route("/download-invoice/:id")
+  .post(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(confirmEventsValidation.downloadInvoice),
+    confirmEventsController.downloadInvoice,
+  );
 router
   .route("/refund")
   .post(
@@ -52,8 +61,13 @@ router
     checkPermission("manage all"),
     validate(confirmEventsValidation.confirmEvent),
     confirmEventsController.confirmEvent,
-  );
-
+  )
+  .put(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(confirmEventsValidation.updateEvent),
+    confirmEventsController.updateEvent
+  )
 router
   .route("/email/:id")
   .post(

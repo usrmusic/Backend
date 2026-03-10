@@ -1,0 +1,84 @@
+import prisma from "../utils/prismaClient.js";
+import catchAsync from "../utils/catchAsync.js";
+import { serializeForJson } from "../utils/serialize.js";
+import services from "../services/index.js";
+
+const todoSvc = services.get("todos");
+
+const listTodo = catchAsync(async (req, res) => {
+  const rawId = req.params?.id ?? req.query?.id ?? req.body?.id;
+  const event_id = Number(rawId) || null;
+  if (!event_id) return res.status(400).json({ error: 'event_id_required' });
+
+  // Use core CRUD service `list` with a filter for event_id
+  const todos = await todoSvc.list({ filter: { event_id } });
+  res.json(serializeForJson(todos));
+});
+
+const createTodo = catchAsync(async (req, res) => {
+  const rawId = req.params?.id ?? req.query?.id ?? req.body?.id;
+  const event_id = Number(rawId) || null;
+  if (!event_id) return res.status(400).json({ error: 'event_id_required' });
+
+  const todoData = {
+    event_id,
+    assigned_to: req.body.assigned_to,
+    action: req.body.action,
+    deadline: req.body.deadline,
+    comment: req.body.comment,
+    complete: req.body.complete,
+  };
+
+  const newTodo = await todoSvc.create(todoData);
+  res.status(201).json(serializeForJson(newTodo));
+});
+
+const updateTodo = catchAsync(async (req, res) => {
+  const eventId = Number(req.params?.eventId || req.body?.event_id) || null;
+  const todoId = Number(req.params?.todoId || req.body?.todoId) || null;
+  if (!eventId || !todoId) return res.status(400).json({ error: 'event_or_todo_id_required' });
+
+  // verify todo exists and belongs to event
+  const existing = await todoSvc.getById(todoId).catch(() => null);
+  if (!existing) return res.status(404).json({ error: 'todo_not_found' });
+  if (Number(existing.event_id) !== Number(eventId)) return res.status(400).json({ error: 'event_mismatch' });
+
+  const updateData = {
+    event_id: eventId,
+    assigned_to: req.body.assigned_to,
+    action: req.body.action,
+    deadline: req.body.deadline,
+    comment: req.body.comment,
+    complete: req.body.complete,
+  };
+
+  const updated = await todoSvc.update(todoId, updateData);
+  res.json(serializeForJson(updated));
+});
+
+const deleteTodo = catchAsync(async (req, res) => {
+  const eventId = Number(req.params?.eventId || req.query?.eventId || req.body?.event_id) || null;
+  const todoId = Number(req.params?.todoId || req.query?.todoId || req.body?.todoId) || null;
+  if (!todoId) return res.status(400).json({ error: 'todo_id_required' });
+
+  // optional: check event match
+  if (eventId) {
+    const existing = await todoSvc.getById(todoId).catch(() => null);
+    if (!existing) return res.status(404).json({ error: 'todo_not_found' });
+    if (Number(existing.event_id) !== Number(eventId)) return res.status(400).json({ error: 'event_mismatch' });
+  }
+
+  // determine force flag (query or body); accept 'true'|'1' string as well
+  const forceRaw = (req.validated && (req.validated.query?.force ?? req.validated.body?.force)) ?? req.query?.force ?? req.body?.force;
+  const force = forceRaw === true || forceRaw === 'true' || forceRaw === '1';
+
+  const result = await todoSvc.delete(todoId, { force }).catch(() => null);
+  res.json(serializeForJson({ success: true, deleted: result || null }));
+});
+
+export default {
+  listTodo,
+  createTodo,
+  updateTodo,
+  deleteTodo,
+};

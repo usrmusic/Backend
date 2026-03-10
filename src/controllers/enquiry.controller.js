@@ -13,6 +13,7 @@ import services from "../services/index.js";
 import genPassword from "../utils/genPassword.js";
 import userService from "../services/userService.js";
 import bcrypt from "bcrypt";
+import microsoftGraph from "../utils/microsoftGraph.js";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -346,19 +347,215 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data, meta: { page, perPage, total } }));
 });
 
-const updateOpenEnquiry = catchAsync(async (req, res) => {
+const updateEnquiry = catchAsync(async (req, res) => {
+  const id = Number(req.params.id || req.query.id || req.body.id);
   const body = req.validated || req.body || {};
-  const id = Number(body.id || body.eventId || req.body.id);
-  if (!Number.isFinite(id))
-    return res.status(400).json({ error: "id_required" });
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "id_required" });
 
-  const update = {};
-  ["brochure_emailed", "called", "send_media", "quoted"].forEach((k) => {
-    if (Object.prototype.hasOwnProperty.call(body, k)) update[k] = !!body[k];
+  // quick flags update if only simple flags provided — keep backwards compatible
+  const flagKeys = ["brochure_emailed", "called", "send_media", "quoted"];
+  const hasOnlyFlags = Object.keys(body).every((k) => flagKeys.includes(k) || k === "id");
+  if (hasOnlyFlags) {
+    const update = {};
+    flagKeys.forEach((k) => {
+      if (Object.prototype.hasOwnProperty.call(body, k)) update[k] = !!body[k];
+    });
+    const updated = await prisma.event.update({ where: { id }, data: update });
+    return res.json(serializeForJson({ success: true, data: updated }));
+  }
+
+  // full update parity with Laravel NewEnquiryController@update
+  const toUtcDateTime = (dateStr, timeStr) => {
+    if (!dateStr || !timeStr) return null;
+    const [d, m, y] = String(dateStr).split("-").map(Number);
+    const [hh, mm] = String(timeStr).split(":").map(Number);
+    if ([d, m, y].some(isNaN) || [hh, mm].some(isNaN)) return null;
+    return new Date(Date.UTC(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0));
+  };
+
+  const normalizeArrayField = (obj, keys) => {
+    for (const k of keys) {
+      const field = obj[k];
+      if (Array.isArray(field)) return field;
+      if (field && typeof field === "object")
+        return Object.keys(field).map((i) => field[i]);
+    }
+    return [];
+  };
+
+  const equipmentArray = normalizeArrayField(body, ["equipmentData", "equipment_data"]);
+  const extraArray = normalizeArrayField(body, ["extraData", "extra_data"]);
+  const rigNotesArray = normalizeArrayField(body, [
+    "rigNotesData",
+    "rig_notes_data",
+    "rigNotes_data",
+    "rig_notesData",
+  ]);
+
+  const makePackage = (p, eventId) => ({
+    equipment_id: p.equipment_id ? Number(p.equipment_id) : null,
+    equipment_order_id: p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
+    event_id: Number(eventId),
+    package_type_id: p.package_type_id !== undefined ? Number(p.package_type_id) : null,
+    sell_price: p.sell_price != null ? Number(p.sell_price) : null,
+    cost_price: p.cost_price != null ? Number(p.cost_price) : null,
+    notes: p.notes || null,
+    rig_notes: p.rig_notes ?? p.rigNotes ?? null,
+    payment_send: p.payment_send || null,
+    payment_date: p.payment_date ? new Date(p.payment_date) : null,
+    quantity: p.quantity != null ? Number(p.quantity) : null,
+    total_price: p.total_price != null ? Number(p.total_price) : null,
+    price_added_to_bill: p.price_added_to_bill != null ? Number(p.price_added_to_bill) : null,
+    created_at: new Date(),
   });
 
-  const updated = await prisma.event.update({ where: { id }, data: update });
-  res.json(serializeForJson({ success: true, data: updated }));
+  const existingEvent = await prisma.event.findUnique({ where: { id } }).catch(() => null);
+  if (!existingEvent) return res.status(404).json({ error: "event_not_found" });
+
+  // replicate Laravel update email uniqueness checks (uses previous user email as `userEmail`)
+  if (body.userEmail && body.email && body.userEmail !== body.email) {
+    const existingUserIdRow = await prisma.user.findUnique({ where: { email: body.userEmail } }).catch(() => null);
+    const existingUserId = existingUserIdRow ? Number(existingUserIdRow.id) : null;
+
+    const existingUserConflict = await prisma.user.findFirst({
+      where: {
+        email: body.email,
+        ...(existingUserId ? { id: { not: existingUserId } } : {}),
+        role_id: { notIn: [BigInt(1), BigInt(2), BigInt(3)] },
+      },
+    }).catch(() => null);
+
+    if (existingUserConflict) {
+      return res.status(402).json({ message: "you are trying to use another user mail ,pleace check your mail" });
+    }
+  }
+
+  // also disallow assigning an email that belongs to a non-client user
+  if (body.email) {
+    const userByEmail = await prisma.user.findUnique({ where: { email: body.email } }).catch(() => null);
+    if (userByEmail && Number(userByEmail.id) !== Number(existingEvent.user_id)) {
+      const roleIdVal = (() => { try { return userByEmail.role_id; } catch (e) { return null; }})();
+      if (roleIdVal && (roleIdVal !== BigInt(4) && String(roleIdVal) !== '4')) {
+        return res.status(400).json({ error: "This email is already attached with Dj" });
+      }
+    }
+  }
+
+  const eventDateDb = toDbDate(body.event_date || body.date || existingEvent.date);
+  const eventDateObj = eventDateDb ? new Date(eventDateDb) : existingEvent.date;
+  const startTimeObj = toUtcDateTime(body.event_date || body.date || eventDateDb, body.start_time || body.start_time_input || body.startTime || null) || existingEvent.start_time;
+  const endTimeObj = toUtcDateTime(body.event_date || body.date || eventDateDb, body.end_time || body.end_time_input || body.endTime || null) || existingEvent.end_time;
+
+  const result = await prisma.$transaction(async (tx) => {
+    // reset contract if dj/package/date changed
+    const shouldResetContract =
+      (body.dj_name && Number(body.dj_name) !== Number(existingEvent.dj_id)) ||
+      (body.dj_package_name && body.dj_package_name !== existingEvent.dj_package_name) ||
+      (eventDateObj && existingEvent.date && new Date(existingEvent.date).toISOString() !== new Date(eventDateObj).toISOString());
+    if (shouldResetContract) {
+      try { await tx.event.update({ where: { id }, data: { contract_signed_at: null } }); } catch (e) {}
+    }
+
+    // update event
+    const evUpdateData = {};
+    if (body.dj_name !== undefined) evUpdateData.dj_id = body.dj_name ? Number(body.dj_name) : null;
+    if (body.dj_package_name !== undefined) evUpdateData.dj_package_name = body.dj_package_name || null;
+    if (eventDateObj) evUpdateData.date = eventDateObj;
+    if (startTimeObj) evUpdateData.start_time = startTimeObj;
+    if (endTimeObj) evUpdateData.end_time = endTimeObj;
+    if (body.event_details !== undefined) evUpdateData.details = body.event_details || null;
+    if (body.venue_id !== undefined) evUpdateData.venue_id = body.new_venue_id ? Number(body.new_venue_id) : body.venue_id ? Number(body.venue_id) : null;
+    if (body.total_cost_for_equipment !== undefined || body.total_cost !== undefined)
+      evUpdateData.total_cost_for_equipment = (body.total_cost_for_equipment ?? body.total_cost) != null ? String(body.total_cost_for_equipment ?? body.total_cost) : null;
+    if (body.dj_cost_price !== undefined || body.dj_cost !== undefined) evUpdateData.dj_cost_price_for_event = (body.dj_cost_price ?? body.dj_cost) != null ? Number(body.dj_cost_price ?? body.dj_cost) : null;
+    if (body.deposit_amount !== undefined) evUpdateData.deposit_amount = body.deposit_amount != null ? body.deposit_amount : null;
+
+    const updatedEvent = await tx.event.update({ where: { id }, data: evUpdateData });
+
+    // update user fields (client)
+    try {
+      const userId = Number(updatedEvent.user_id || existingEvent.user_id);
+      if (userId && (body.name !== undefined || body.email !== undefined || body.contact_number !== undefined || body.address !== undefined)) {
+        const udata = {};
+        if (body.name !== undefined) udata.name = body.name;
+        if (body.email !== undefined) udata.email = body.email;
+        if (body.contact_number !== undefined) udata.contact_number = body.contact_number || null;
+        if (body.address !== undefined) udata.address = body.address || null;
+        await tx.user.update({ where: { id: userId }, data: udata }).catch(() => {});
+      }
+    } catch (e) {}
+
+    // remove existing event packages and recreate
+    try {
+      await tx.eventPackage.deleteMany({ where: { event_id: Number(id) } });
+    } catch (e) {}
+
+    for (const p of equipmentArray) {
+      const pkg = makePackage(p, id);
+      try { await tx.eventPackage.create({ data: pkg }); } catch (e) {}
+    }
+    for (const p of extraArray) {
+      const pkg = makePackage(p, id);
+      try { await tx.eventPackage.create({ data: pkg }); } catch (e) {}
+    }
+
+    // apply rig notes
+    for (const r of rigNotesArray) {
+      const equipId = r.equipment_id ?? r.equipmentId ?? r.equipment;
+      const notes = r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote ?? null;
+      if (!equipId) continue;
+      try {
+        await tx.eventPackage.updateMany({ where: { event_id: Number(id), equipment_id: Number(equipId) }, data: { rig_notes: notes } });
+      } catch (e) {}
+    }
+
+    // VAT handling
+    try {
+      if (updatedEvent.names_id) {
+        const company = await tx.companyName.findUnique({ where: { id: BigInt(Number(updatedEvent.names_id)) } }).catch(() => null);
+        if (company && company.vat != null && updatedEvent.is_vat_available_for_the_event === 1) {
+          const vatPercentage = (company.vat_percentage || 0) / 100;
+          const eventTotalWithoutVat = Number(body.total_cost_for_equipment ?? updatedEvent.total_cost_for_equipment ?? 0);
+          const vatValue = eventTotalWithoutVat * vatPercentage;
+          const totalWithVat = eventTotalWithoutVat * (1 + vatPercentage);
+          await tx.event.update({ where: { id }, data: { total_cost_for_equipment: String(totalWithVat), event_amount_without_vat: eventTotalWithoutVat, vat_value: vatValue } }).catch(() => {});
+        }
+      }
+    } catch (e) {}
+
+    // payment status
+    try {
+      const totalCostRow = await tx.event.findUnique({ where: { id }, select: { total_cost_for_equipment: true } }).catch(() => null);
+      const totalCost = totalCostRow ? Number(totalCostRow.total_cost_for_equipment || 0) : 0;
+      const paymentAgg = await tx.eventPayment.aggregate({ where: { event_id: Number(id) }, _sum: { amount: true } }).catch(() => ({ _sum: { amount: 0 } }));
+      const totalPayment = Number(paymentAgg._sum.amount || 0);
+      const paymentSent = totalPayment === totalCost ? 1 : 0;
+      await tx.event.update({ where: { id }, data: { is_event_payment_fully_paid: paymentSent } }).catch(() => {});
+    } catch (e) {}
+
+    // create an update note for the event (no activity log here)
+    await eventNoteService.createNote(tx, { eventId: Number(id), notes: 'Updated as an enquiry', created_by: req.user?.id || null }).catch(()=>{});
+
+    return await tx.event.findUnique({ where: { id } });
+  });
+
+  // Microsoft calendar sync (best-effort) — mirror Laravel EventUpdate dispatch
+  try {
+    const me = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(id) } }).catch(() => null);
+    if (me && me.microsoft_event_id) {
+      const startIso = result?.start_time ? new Date(result.start_time).toISOString() : (result?.date ? new Date(result.date).toISOString() : null);
+      const endIso = result?.end_time ? new Date(result.end_time).toISOString() : null;
+      await microsoftGraph.updateEvent(me.microsoft_event_id, {
+        subject: result?.dj_package_name || `Event ${id}`,
+        content: result?.details || '',
+        startIso,
+        endIso,
+        location: result?.venues?.venue || null,
+      }).catch(() => null);
+    }
+  } catch (e) {}
+
+  res.json(serializeForJson({ success: true, data: result }));
 });
 
 // const sendQuote = catchAsync(async (req, res) => {
@@ -475,41 +672,41 @@ const sendInvoice = catchAsync(async (req, res) => {
   res.json(serializeForJson({ message: "Invoice sent", event: result }));
 });
 
-const deleteOpenEnquiry = catchAsync(async (req, res) => {
-  const body = req.validated || req.body || {};
-  const ids = Array.isArray(body.ids)
-    ? body.ids.map(Number)
-    : body.ids
-      ? [Number(body.ids)]
-      : [];
-  const userId = Number(body.userId || body.user_id || 0) || null;
-  if (!ids.length) return res.status(400).json({ error: "ids_required" });
+// const deleteEnquiry = catchAsync(async (req, res) => {
+//   const body = req.validated || req.body || {};
+//   const ids = Array.isArray(body.ids)
+//     ? body.ids.map(Number)
+//     : body.ids
+//       ? [Number(body.ids)]
+//       : [];
+//   const userId = Number(body.userId || body.user_id || 0) || null;
+//   if (!ids.length) return res.status(400).json({ error: "ids_required" });
 
-  const result = await prisma.$transaction(async (tx) => {
-    // remove activity_log entries if table exists — use raw SQL safely
-    try {
-      await tx.$executeRaw`DELETE FROM activity_log WHERE subject_id IN (${ids.join(",")}) AND log_name = 'a notes'`;
-    } catch (e) {}
+//   const result = await prisma.$transaction(async (tx) => {
+//     // remove activity_log entries if table exists — use raw SQL safely
+//     try {
+//       await tx.$executeRaw`DELETE FROM activity_log WHERE subject_id IN (${ids.join(",")}) AND log_name = 'a notes'`;
+//     } catch (e) {}
 
-    const user = userId
-      ? await tx.user.findUnique({ where: { id: userId } })
-      : null;
-    const userEventCount = user
-      ? await tx.event.count({ where: { user_id: userId } })
-      : 0;
+//     const user = userId
+//       ? await tx.user.findUnique({ where: { id: userId } })
+//       : null;
+//     const userEventCount = user
+//       ? await tx.event.count({ where: { user_id: userId } })
+//       : 0;
 
-    if (user && userEventCount === ids.length) {
-      await tx.user.delete({ where: { id: userId } });
-      await tx.event.deleteMany({ where: { id: { in: ids } } });
-      return { success: true, id: userId };
-    } else {
-      await tx.event.deleteMany({ where: { id: { in: ids } } });
-      return { success: true, ids };
-    }
-  });
+//     if (user && userEventCount === ids.length) {
+//       await tx.user.delete({ where: { id: userId } });
+//       await tx.event.deleteMany({ where: { id: { in: ids } } });
+//       return { success: true, id: userId };
+//     } else {
+//       await tx.event.deleteMany({ where: { id: { in: ids } } });
+//       return { success: true, ids };
+//     }
+//   });
 
-  res.json(serializeForJson(result));
-});
+//   res.json(serializeForJson(result));
+// });
 
 
 const staffEquipment = catchAsync(async (req, res) => {
@@ -914,6 +1111,102 @@ const sendQuote = catchAsync(async (req, res) => {
   res.json(serializeForJson({ message: "Quote sent", event: result, pdfUrl: pdfUrl || null }));
 });
 
+const deleteEnquiry = catchAsync(async (req, res) => {
+  // Expect only `id` in params; fetch remaining data from DB
+  const eventId = Number(req.params?.id);
+  if (!Number.isFinite(eventId)) return res.status(400).json({ error: "event_id_required" });
+
+  // Feature flag: if true, soft-delete users by setting `deleted_at` instead of hard delete
+  const useSoftDeleteForUsers = String(process.env.USE_SOFT_DELETE_FOR_USERS || "false").toLowerCase() === "true";
+
+  const result = await prisma.$transaction(async (tx) => {
+    const event = await tx.event.findUnique({ where: { id: eventId } });
+    if (!event) return { success: false, error: 'Event not found' };
+
+    const userId = Number(event.user_id) || null;
+    const user = userId ? await tx.user.findUnique({ where: { id: userId } }) : null;
+    const userEventCount = user ? await tx.event.count({ where: { user_id: userId } }) : 0;
+
+    if (user && userEventCount === 1 && Number(event.user_id) === Number(userId)) {
+      if (useSoftDeleteForUsers) {
+        // If User model supports `deleted_at`, set it (soft-delete)
+        try {
+          await tx.user.update({ where: { id: userId }, data: { deleted_at: new Date() } });
+        } catch (e) {
+          // fallback to hard delete if update fails
+          await tx.user.delete({ where: { id: userId } }).catch(() => {});
+        }
+      } else {
+        await tx.user.delete({ where: { id: userId } }).catch(() => {});
+      }
+      await tx.event.delete({ where: { id: eventId } }).catch(() => {});
+      return { success: true, id: userId };
+    } else {
+      await tx.event.delete({ where: { id: eventId } }).catch(() => {});
+      return { success: true, id: eventId };
+    }
+  });
+
+  res.json(serializeForJson(result));
+});
+const deleteManyEnquiries = catchAsync(async (req, res) => {
+  const idsRaw = req.body.ids || req.query.ids || req.params.ids || null;
+  if (!idsRaw) return res.status(400).json({ error: "ids_required" });
+
+  // support multiple input shapes for `ids` param:
+  // - array: [1,2]
+  // - comma-separated string: "1,2,3"
+  // - JSON array string: "[1,2,3]"
+  const parseIds = (raw) => {
+    if (Array.isArray(raw)) return raw.map(Number).filter(Number.isFinite);
+    if (raw == null) return [];
+    if (typeof raw === "string") {
+      const s = raw.trim();
+      // try JSON array first
+      if ((s.startsWith("[") || s.startsWith("\"")) ) {
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) return parsed.map(Number).filter(Number.isFinite);
+        } catch (e) {}
+      }
+      // comma-separated values
+      return s.split(",").map((x) => Number(x.trim())).filter(Number.isFinite);
+    }
+    // single numeric-like value
+    const n = Number(raw);
+    return Number.isFinite(n) ? [n] : [];
+  };
+
+  const ids = parseIds(idsRaw);
+  if (!ids.length) return res.status(400).json({ error: "ids_required" });
+
+  const useSoftDeleteForUsers = String(process.env.USE_SOFT_DELETE_FOR_USERS || "false").toLowerCase() === "true";
+
+  const result = await prisma.$transaction(async (tx) => {
+    const events = await tx.event.findMany({ where: { id: { in: ids } } });
+    const primaryUserId = events.length ? Number(events[0].user_id) || null : null;
+    const user = primaryUserId ? await tx.user.findUnique({ where: { id: primaryUserId } }) : null;
+    const userEventCount = user ? await tx.event.count({ where: { user_id: primaryUserId } }) : 0;
+
+    if (user && userEventCount === ids.length) {
+      if (useSoftDeleteForUsers) {
+        try {
+          await tx.user.update({ where: { id: primaryUserId }, data: { deleted_at: new Date() } });
+        } catch (e) {
+          await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
+        }
+      } else {
+        await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
+      }
+      await tx.event.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+      return { success: true, id: primaryUserId };
+    } else {
+      await tx.event.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+      return { success: true, ids };
+    }
+  });
+  res.json(serializeForJson(result));
+});
 
 
 
@@ -921,10 +1214,11 @@ const sendQuote = catchAsync(async (req, res) => {
 export default {
   listOpenEnquiries,
   createEnquiry,
-  updateOpenEnquiry,
+  updateEnquiry,
   sendQuote,
   sendInvoice,
-  deleteOpenEnquiry,
+  deleteEnquiry,
+  deleteManyEnquiries,
   staffEquipment,
   addNote,
   getEmail,

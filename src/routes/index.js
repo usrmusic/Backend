@@ -10,7 +10,7 @@ import rolePermissionRoutes from "./rolePermission.routes.js";
 import emailContentRoutes from "./emailContent.routes.js";
 import enquiryRoutes from "./enquiry.routes.js";
 import confirmEventsRoutes from "./confirmEvents.routes.js";
-
+import todoRoutes from "./todo.routes.js";
 
 const router = express.Router();
 
@@ -57,6 +57,10 @@ const defaultRoutes = [
   {
     path: "/confirm-event",
     route: confirmEventsRoutes
+  },
+  {
+    path:'/todos',
+    route: todoRoutes,
   }
   // {
   //   path:'/enquiry',

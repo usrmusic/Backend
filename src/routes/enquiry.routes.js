@@ -71,6 +71,27 @@ router
     validate(enquiryValidation.sendEmail),
     enquiryController.sendQuote,
   );
+
+router.route("/:id")
+  .put(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(enquiryValidation.updateEnquiry),
+    enquiryController.updateEnquiry,
+  )
+  .delete(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(enquiryValidation.deleteEnquiry),
+    enquiryController.deleteEnquiry,
+  );
+
+router.route("/delete-many/:ids").delete(
+  verifyAccessToken,
+  checkPermission("manage all"),
+  validate(enquiryValidation.deleteManyEnquiries),
+  enquiryController.deleteManyEnquiries,
+);
 // .get(validate(enquiryValidation.createEnquiry),enquiryController.listEnquiries)
 // router.route('/open')
 //     .get(enquiryController.getOpenEnquiry)

@@ -2,7 +2,12 @@ import prisma from '../utils/prismaClient.js';
 import catchAsync from '../utils/catchAsync.js';
 import { serializeForJson } from '../utils/serialize.js';
 import eventNoteService from '../services/eventNoteService.js';
-import { getSignedGetUrl } from '../utils/s3Client.js';
+import { getSignedGetUrl, uploadStreamToS3 } from '../utils/s3Client.js';
+import generatePdfBufferFromHtml from '../utils/pdfGenerator.js';
+import renderSendQuote from '../templates/sendQuoteTemplate.js';
+import renderInvoice from '../templates/invoiceTemplate.js';
+import sendEmail from '../utils/mail/resendClient.js';
+import microsoftGraph from '../utils/microsoftGraph.js';
 
 // Confirm open enquiry: create payment + invoice + set event as confirmed
 const confirmEvent = catchAsync(async (req, res) => {
@@ -462,13 +467,375 @@ const getConfirmEvent = catchAsync(async (req, res) => {
 });
 
 const sendInvoice = catchAsync(async (req, res) => {
+  const body = req.validated || req.body || {};
+  const userId = Number(body.id || body.userId) || null;
+  let details = Array.isArray(body.details) ? body.details : [];
+  const eventId = Number(body.event_id || (details[0] && details[0].id) || body.eventId || 0);
+  const companyId = Number(body.company_name_id || body.companyNameId || 0) || null;
+
+  if (!eventId) return res.status(400).json({ error: 'event_id_required' });
+
+  // fetch event VAT/amount fields
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+
+  const enrichedDetails = details.map((d) => ({
+    ...d,
+    is_vat_available_for_the_event: event?.is_vat_available_for_the_event,
+    event_amount_without_vat: event?.event_amount_without_vat,
+    vat_value: event?.vat_value,
+    total_cost_for_equipment: event?.total_cost_for_equipment,
+  }));
+
+  const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+  const to = user?.email || body.email || null;
+  const company = companyId ? await prisma.companyName.findUnique({ where: { id: BigInt(companyId) } }).catch(() => null) : null;
+  const companyName = company?.name || body.companyName || '';
+
+  // load template
+  const template = await prisma.emailContent.findFirst({ where: { email_name: "SEND INVOICE-CONFIRMED" } }).catch(() => null);
+  const subject = body.subject || template?.subject || `Invoice for event #${eventId}`;
+  let raw = body.body || template?.body || `Invoice for event ${eventId}`;
+  if (raw && body.amount) raw = String(raw).replace("{--amount--}", String(body.amount));
+
+  // render email/html for invoice (reuse quote renderer for layout parity)
+  const fullEvent = await prisma.event.findUnique({ where: { id: eventId }, include: { users_events_user_idTousers: true, venues: true } }).catch(() => null);
+  const first_name = (details[0]?.user?.name) || fullEvent?.users_events_user_idTousers?.name || 'Client';
+  const contract_token = (details[0]?.contract_token) || fullEvent?.contract_token || null;
+
+  const companyDetails = {
+    company_logo: company?.company_logo || company?.logo || company?.brochure || null,
+    name: company?.name || '',
+    vat: company?.vat ?? null,
+    vat_percentage: company?.vat_percentage ?? null,
+    contact_name: company?.contact_name || company?.contact || null,
+    address_name: company?.address_name || null,
+    street: company?.street || null,
+    city: company?.city || null,
+    postal_code: company?.postal_code || null,
+    telephone_number: company?.telephone_number || company?.telephone || null,
+    email: company?.email || null,
+    website: company?.website || null,
+    instagram: company?.instagram || null,
+    facebook: company?.facebook || null,
+  };
+
+  const renderedBodyHtml = raw ? (function () { try { return raw; } catch (e) { return String(raw).replace(/\n/g, '<br>'); } })() : '';
+  // Render invoice HTML that more closely matches Laravel's pdf.invoice layout
+  const invoiceHtml = renderInvoice({ event: fullEvent || event, companyDetails, rawBody: raw || renderedBodyHtml, enrichedDetails });
+
+  // generate PDF buffer
+  let pdfBuffer = null;
+  try {
+    pdfBuffer = await generatePdfBufferFromHtml(emailHtml);
+  } catch (e) {
+    console.error('[confirmEvents.sendInvoice] PDF generation failed', e?.message || e);
+  }
+
+    // upload PDF to S3 and get signed link
+  let pdfKey = null;
+  let pdfUrl = null;
+  if (pdfBuffer) {
+    const key = `invoices/${eventId}-${Date.now()}.pdf`;
+    try {
+      await uploadStreamToS3(pdfBuffer, key, 'application/pdf');
+      pdfKey = key;
+      pdfUrl = await getSignedGetUrl(key);
+    } catch (e) {
+      console.error('[confirmEvents.sendInvoice] PDF upload failed', e?.message || e);
+      pdfBuffer = null;
+    }
+  }
+
+  // update event and send email (store S3 key, return presigned link in email)
+  const result = await prisma.$transaction(async (tx) => {
+    if (companyId)
+      await tx.event.update({ where: { id: eventId }, data: { names_id: companyId, contract_pdf_url: pdfKey || undefined } });
+
+    const finalHtml = pdfUrl ? `${invoiceHtml}<p><a href="${pdfUrl}">Download Invoice (PDF)</a></p>` : invoiceHtml;
+    // format subject to match Laravel when company present
+    const companyNameForSubject = company?.name || companyDetails?.name || '';
+    const now = new Date();
+    const subjectFormatted = companyNameForSubject ? `${companyNameForSubject} Invoice : ${String(now.getDate()).padStart(2,'0')}/${String(now.getMonth()+1).padStart(2,'0')}/${now.getFullYear()}` : (body.subject || template?.subject || `Invoice for event #${eventId}`);
+    if (to) await sendEmail({ to, subject: subjectFormatted, html: finalHtml }).catch(() => {});
+
+    await eventNoteService.createNote(tx, { eventId, notes: `Invoice Sent - ${companyName}`, created_by: req.user?.id || null });
+    return await tx.event.findUnique({ where: { id: eventId } });
+  });
+
+  res.json(serializeForJson({ message: 'Invoice sent', event: result, pdfUrl: pdfUrl || null }));
 
 });
+
+const downloadInvoice = catchAsync(async (req, res) => {
+  const params = req.validated || req.params || {};
+  const eventId = Number((params.params && params.params.id) || params.id || req.params.id || 0);
+  if (!eventId) return res.status(400).json({ error: 'event_id_required' });
+
+  const event = await prisma.event.findUnique({ where: { id: eventId }, include: { users_events_user_idTousers: true, venues: true } }).catch(() => null);
+  if (!event) return res.status(404).json({ error: 'event_not_found' });
+
+  // company details if present
+  let companyDetails = null;
+  if (event.names_id) {
+    companyDetails = await prisma.companyName.findUnique({ where: { id: BigInt(event.names_id) } }).catch(() => null);
+  }
+
+  // prepare invoice HTML using existing renderer
+  const invoiceHtml = renderInvoice({ event, companyDetails: companyDetails || {}, rawBody: '' , enrichedDetails: [] });
+
+  let pdfBuffer = null;
+  try {
+    pdfBuffer = await generatePdfBufferFromHtml(invoiceHtml);
+  } catch (e) {
+    console.error('[confirmEvents.downloadInvoice] PDF generation failed', e?.message || e);
+    return res.status(500).json({ error: 'pdf_generation_failed' });
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename=invoice-${eventId}.pdf`);
+  return res.send(pdfBuffer);
+});
+
+const refund = catchAsync(async (req, res) => {
+  const params = req.query || {};
+  const body = (req.validated && req.validated.body) ? req.validated.body : req.body || {};
+  const eventId = Number(params.id || body.event_id || 0);
+  const refundAmount = Number(body.refund_amount || body.amount || 0) || 0;
+
+  if (!eventId) return res.status(400).json({ error: 'event_id_required' });
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return res.status(404).json({ error: 'event_not_found' });
+
+  const previous = event.refund_amount ? Number(event.refund_amount) : 0;
+  const newRefund = previous + refundAmount;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.event.update({ where: { id: eventId }, data: { refund_amount: newRefund } });
+    // create a note recording the refund
+    await eventNoteService.createNote(tx, {
+      eventId,
+      notes: `Refund processed - ${refundAmount}`,
+      created_by: req.user?.id || null,
+    }).catch(() => {});
+    return await tx.event.findUnique({ where: { id: eventId } });
+  });
+
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
+const cancelEvent = catchAsync(async (req, res) => {
+  const params = req.query || {};
+  const body = (req.validated && req.validated.body) ? req.validated.body : req.body || {};
+  const eventId = Number(params.id || body.event_id || 0);
+  const refundAmount = Number(body.refund_amount || body.amount || 0) || 0;
+
+  if (!eventId) return res.status(400).json({ error: 'event_id_required' });
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return res.status(404).json({ error: 'event_not_found' });
+
+  const previousRefund = event.refund_amount ? Number(event.refund_amount) : 0;
+  const newRefundAmount = previousRefund + refundAmount;
+
+  // find CANCELLED status id if available
+  let cancelledStatusId = null;
+  try {
+    const statusRow = await prisma.event_statuses.findFirst({ where: { status: 'CANCELLED' } });
+    if (statusRow && statusRow.id) cancelledStatusId = statusRow.id;
+  } catch (e) {
+    // ignore
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const data = { refund_amount: newRefundAmount };
+    if (cancelledStatusId) data.event_status_id = cancelledStatusId;
+    await tx.event.update({ where: { id: eventId }, data });
+
+    await eventNoteService.createNote(tx, {
+      eventId,
+      notes: `Event cancelled - refund ${refundAmount}`,
+      created_by: req.user?.id || null,
+    }).catch(() => {});
+
+    // best-effort: if there's a microsoft events table entry, attempt any cleanup (no-op here)
+    return await tx.event.findUnique({ where: { id: eventId } });
+  });
+  // best-effort: delete any Microsoft calendar events and remove their DB records
+  try {
+    const msEvents = await prisma.microsoftEvent.findMany({ where: { event_id: BigInt(eventId) } }).catch(() => []);
+    for (const me of msEvents || []) {
+      try {
+        if (me.microsoft_event_id) {
+          await microsoftGraph.deleteEvent(me.microsoft_event_id).catch(() => null);
+        }
+      } catch (e) {}
+      try {
+        await prisma.microsoftEvent.delete({ where: { id: me.id } }).catch(() => null);
+      } catch (e) {}
+    }
+  } catch (e) {}
+
+  // send cancellation emails to client and admins (best-effort)
+  try {
+    const eventRow = await prisma.event.findUnique({ where: { id: eventId }, include: { users_events_user_idTousers: true } });
+    const user = eventRow?.users_events_user_idTousers || null;
+    const template = await prisma.emailContent.findFirst({ where: { email_name: "EVENT CANCELLED" } }).catch(() => null);
+    const subject = template?.subject || `Event Cancelled - #${eventId}`;
+    const bodyHtml = template?.body || `<p>Your event #${eventId} has been cancelled.</p>${refundAmount ? `<p>Refund: ${refundAmount}</p>` : ''}`;
+    if (user && user.email) {
+      await sendEmail({ to: [user.email], subject, html: bodyHtml }).catch(() => {});
+    }
+
+    const admins = await prisma.user.findMany({ where: { role_id: BigInt(2), is_email_send: true } });
+    const adminEmails = admins.map((a) => a.email).filter(Boolean);
+    if (adminEmails.length) {
+      const adminHtml = `<p>Event #${eventId} was cancelled.</p><p>Refund: ${refundAmount}</p>`;
+      await sendEmail({ to: adminEmails, subject: `Event Cancelled - #${eventId}`, html: adminHtml }).catch(() => {});
+    }
+  } catch (e) {}
+
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
+const updateEvent = catchAsync(async (req, res) => {
+  // Prefer validated payload from middleware; fall back to raw params/body
+  const payload = req.validated || { params: req.params || {}, body: req.body || {} };
+  const params = payload.params || {};
+  const body = payload.body || {};
+  const eventId = Number(params.id || 0);
+
+  // normalize date: accept Laravel-style 'Y-m-d' or 'DD-MM-YYYY'
+  let dateVal = null;
+  try {
+    if (body.date) {
+      const s = String(body.date).trim();
+      const ymd = /^\d{4}-\d{2}-\d{2}$/;
+      const dmy = /^\d{2}-\d{2}-\d{4}$/;
+      if (ymd.test(s)) {
+        const [y, m, d] = s.split('-').map((n) => Number(n));
+        if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
+          dateVal = new Date(y, m - 1, d);
+        }
+      } else if (dmy.test(s)) {
+        const [dd, mm, yyyy] = s.split('-').map((n) => Number(n));
+        if (!Number.isNaN(dd) && !Number.isNaN(mm) && !Number.isNaN(yyyy)) {
+          dateVal = new Date(yyyy, mm - 1, dd);
+        }
+      }
+    }
+  } catch (e) {
+    dateVal = null;
+  }
+
+  // helper: convert date + HH:mm -> UTC Date
+  const parseTimeToUtcDate = (dateOnly, timeStr) => {
+    if (!timeStr) return null;
+    const [hh, mm] = String(timeStr).split(':').map((v) => Number(v));
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+    const base = dateOnly instanceof Date ? dateOnly : new Date();
+    const local = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mm, 0);
+    return new Date(local.toISOString());
+  };
+
+  const startTimeVal = parseTimeToUtcDate(dateVal, body.start_time);
+  const endTimeVal = parseTimeToUtcDate(dateVal, body.end_time);
+
+
+  const allowedEventFields = new Set([
+    'videography','caterer','decor','couple_name','entrance_song_style','cake_song_who_feeds','first_dance','do','date','start_time','end_time','venue_id','access_time','event_date_contact','no_of_guests','deposit_amount','brief_itinerary','stag_songs','hen_songs','dont','usr_name','usr_date','photo_usb_provided','guests_upstanding','refund_amount'
+  ]);
+
+  const eventUpdateData = {};
+  for (const key of Object.keys(body)) {
+    if (allowedEventFields.has(key)) {
+      // Prisma expects `no_of_guests` as a string in the DB schema.
+      if (key === 'no_of_guests') {
+        eventUpdateData[key] = body[key] != null ? String(body[key]) : null;
+      } else {
+        eventUpdateData[key] = body[key];
+      }
+    }
+  }
+  // prevent overwriting created_by from client
+  if ('created_by' in eventUpdateData) delete eventUpdateData.created_by;
+  if (dateVal) eventUpdateData.date = dateVal;
+  if (startTimeVal) eventUpdateData.start_time = startTimeVal;
+  if (endTimeVal) eventUpdateData.end_time = endTimeVal;
+  // ensure access_time stored as provided or null
+  eventUpdateData.access_time = body.access_time ? String(body.access_time) : null;
+
+  // update user info (first_name, email, phone_number)
+  const userUpdateData = {};
+  if (body.first_name) userUpdateData.name = body.first_name;
+  if (body.email) userUpdateData.email = body.email;
+  if (body.phone_number) userUpdateData.contact_number = String(body.phone_number);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const ev = await tx.event.findUnique({ where: { id: eventId } });
+    if (!ev) return null;
+
+    if (Object.keys(userUpdateData).length && ev.user_id) {
+      try {
+        await tx.user.update({ where: { id: ev.user_id }, data: userUpdateData }).catch(() => {});
+      } catch (e) {}
+    }
+
+    // best-effort: map dj_name to dj_id if provided
+    try {
+      if (body.dj_name) {
+        const djName = String(body.dj_name).trim();
+        let foundDj = await tx.user.findFirst({ where: { name: djName } }).catch(() => null);
+        if (!foundDj) {
+          foundDj = await tx.user.findFirst({ where: { name: { contains: djName } } }).catch(() => null);
+        }
+        if (foundDj && foundDj.id) {
+          eventUpdateData.dj_id = foundDj.id;
+        }
+      }
+    } catch (e) {}
+
+    const ev2 = await tx.event.update({ where: { id: eventId }, data: eventUpdateData }).catch(() => null);
+
+    console.log(ev2)
+    // add event note
+    try {
+      await eventNoteService.createNote(tx, { eventId, notes: 'updated', created_by: req.user?.id || null }).catch(() => {});
+    } catch (e) {}
+
+    return ev2;
+  });
+
+  if (!updated) return res.status(404).json({ error: 'event_not_found' });
+
+  // best-effort: if we have a Microsoft calendar mapping, update the external event
+  try {
+    const fresh = await prisma.event.findUnique({ where: { id: eventId }, include: { users_events_user_idTousers: true, venues: true } });
+    if (fresh) {
+      const ms = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(eventId) } }).catch(() => null);
+      if (ms && ms.microsoft_event_id) {
+        const startIso = fresh.start_time ? new Date(fresh.start_time).toISOString() : fresh.date ? new Date(fresh.date).toISOString() : null;
+        const endIso = fresh.end_time ? new Date(fresh.end_time).toISOString() : fresh.date ? new Date(fresh.date).toISOString() : null;
+        const subject = `USRMusic Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || 'Client'}`;
+        const content = fresh.details || '';
+        const location = fresh.venues?.venue || '';
+        await microsoftGraph.updateEvent(ms.microsoft_event_id, { subject, content, startIso, endIso, location }).catch(() => null);
+      }
+    }
+  } catch (e) {}
+
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
 
 export default {
   confirmEvent,
   listConfirmEvents,
   getConfirmEvent,
   sendEventConfirmationEmail,
-  sendInvoice
+  sendInvoice,
+  downloadInvoice,
+  updateEvent,
+  refund,
+  cancelEvent,
 };

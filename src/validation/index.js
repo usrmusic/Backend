@@ -9,3 +9,4 @@ export { default as companyValidation } from "./company.validation.js";
 export { default as rolePermissionValidation } from "./rolePermission.validation.js";
 export { default as emailContentValidation } from "./emailContent.validation.js";
 export { default as confirmEventsValidation } from "./confirmEvents.validation.js";
+export { default as todoValidation } from "./todo.validation.js";

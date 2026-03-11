@@ -53,7 +53,22 @@ export const pdfUpload = createUploadMiddleware({
 });
 
 export const mediaUpload = createUploadMiddleware({
+  // Accept common media and document types to mirror Laravel's MediaController
   allowedMimeTypes: [
+    // images
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+    // pdf / docs / text / spreadsheets
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+    // audio/video
     'audio/mpeg', // .mp3
     'audio/mp3',
     'audio/wav',
@@ -62,6 +77,23 @@ export const mediaUpload = createUploadMiddleware({
     'video/quicktime',
   ],
   maxBytes: parseInt(process.env.MAX_UPLOAD_BYTES_MEDIA || String(200 * 1024 * 1024), 10), // default 200MB
+});
+
+export const fileUpload = createUploadMiddleware({
+  allowedMimeTypes: [
+    'image/jpeg',
+    'image/png',
+    'image/jpg',
+    'application/pdf',
+    'application/msword', // .doc
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+    'application/vnd.ms-excel', // .xls
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'text/plain', // .txt
+    'audio/mpeg',
+    'video/mp4',
+  ],
+  maxBytes: parseInt(process.env.MAX_UPLOAD_BYTES || String(50 * 1024 * 1024), 10), // default 50MB (Laravel parity)
 });
 
 export default { createUploadMiddleware, imageUpload, pdfUpload };

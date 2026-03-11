@@ -10,3 +10,4 @@ export { default as emailContentController } from './emailContent.controller.js'
 export { default as enquiryController } from './enquiry.controller.js';
 export { default as confirmEventsController } from './confirmEvents.controller.js';
 export { default as todoController } from './todo.controller.js';
+export { default as fileUploadController } from './fileUpload.controller.js';

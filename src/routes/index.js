@@ -11,6 +11,7 @@ import emailContentRoutes from "./emailContent.routes.js";
 import enquiryRoutes from "./enquiry.routes.js";
 import confirmEventsRoutes from "./confirmEvents.routes.js";
 import todoRoutes from "./todo.routes.js";
+import fileUploadRoutes from "./fileUpload.routes.js";
 
 const router = express.Router();
 
@@ -61,6 +62,10 @@ const defaultRoutes = [
   {
     path:'/todos',
     route: todoRoutes,
+  },
+  {
+    path:'/files',
+    route: fileUploadRoutes,
   }
   // {
   //   path:'/enquiry',

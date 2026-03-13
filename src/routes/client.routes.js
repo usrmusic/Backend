@@ -13,7 +13,7 @@ const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
 
 router
   .route("/")
-  .get(validate(clientValidation.listClients), protectAdmin, clientController.listClients)
+  .get(protectAdmin, validate(clientValidation.listClients), clientController.listClients)
   .post(
     upload.single('profile_photo'),
     validate(clientValidation.createClient),

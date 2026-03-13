@@ -86,5 +86,5 @@ export default {
   deleteManyUsers,
   forgotPassword,
   verifyEmail,
-  listUsers
+  listUsers,
 };

@@ -211,6 +211,7 @@ const deleteUser = catchAsync(async (req, res) => {
 });
 
 const deleteManyUsers = catchAsync(async (req, res) => {
+  console.log("hello")
   let ids = [];
   if (req.params && req.params.ids) {
     if (Array.isArray(req.params.ids)) {

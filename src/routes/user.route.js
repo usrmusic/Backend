@@ -1,6 +1,6 @@
 import express from "express";
 import { imageUpload } from "../utils/multerConfig.js";
-import tokenController from "../controllers/tokenController.js";
+import {tokenController} from "../controllers/index.js";
 import { allowOwnerOr } from "../middleware/authorize.js";
 const upload = imageUpload;
 import { verifyAccessToken } from "../middleware/auth0.js";
@@ -33,7 +33,7 @@ router
   );
 router
   .route("/delete-many")
-  .post(
+  .delete(
     verifyAccessToken,
     validate(userValidation.deleteManyUsers),
     checkPermission("manage all"),

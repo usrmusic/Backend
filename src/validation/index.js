@@ -11,3 +11,6 @@ export { default as emailContentValidation } from "./emailContent.validation.js"
 export { default as confirmEventsValidation } from "./confirmEvents.validation.js";
 export { default as todoValidation } from "./todo.validation.js";
 export { default as fileUploadValidation } from "./fileUpload.validation.js";
+export { default as calendarValidation } from "./calendar.validation.js";
+export { default as reportsValidation } from "./reports.validation.js";
+export { default as rigListValidation } from "./rigList.validation.js";

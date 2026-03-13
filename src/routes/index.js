@@ -5,13 +5,16 @@ import venueRoutes from "./venue.routes.js";
 import supplierRoutes from "./supplier.routes.js";
 import equipmentRoutes from "./equipment.routes.js";
 import packageRoutes from "./package.routes.js";
-import companyRoutes from "./company.routes.js"
+import companyRoutes from "./company.routes.js";
 import rolePermissionRoutes from "./rolePermission.routes.js";
 import emailContentRoutes from "./emailContent.routes.js";
 import enquiryRoutes from "./enquiry.routes.js";
 import confirmEventsRoutes from "./confirmEvents.routes.js";
 import todoRoutes from "./todo.routes.js";
 import fileUploadRoutes from "./fileUpload.routes.js";
+import calendarRoutes from "./calendar.routes.js";
+import rigListRoutes from "./rigList.routes.js";
+import reportRoutes from "./reports.routes.js";
 
 const router = express.Router();
 
@@ -22,7 +25,7 @@ const defaultRoutes = [
   },
   {
     path: "/client",
-    route: clientRoute
+    route: clientRoute,
   },
   {
     path: "/venue",
@@ -39,16 +42,17 @@ const defaultRoutes = [
   {
     path: "/package",
     route: packageRoutes,
-  },{
+  },
+  {
     path: "/company",
-    route: companyRoutes
+    route: companyRoutes,
   },
   {
     path: "/roles-permissions",
     route: rolePermissionRoutes,
   },
   {
-    path:'/email-content',  
+    path: "/email-content",
     route: emailContentRoutes,
   },
   {
@@ -57,88 +61,28 @@ const defaultRoutes = [
   },
   {
     path: "/confirm-event",
-    route: confirmEventsRoutes
+    route: confirmEventsRoutes,
   },
   {
-    path:'/todos',
+    path: "/todos",
     route: todoRoutes,
   },
   {
-    path:'/files',
+    path: "/files",
     route: fileUploadRoutes,
-  }
-  // {
-  //   path:'/enquiry',
-  //   route: enquiryRoutes,
-  // }
-  // {
-  //   path: "/admin",
-  //   route: rolePermissionRoutes,
-  // },
-  // {
-  //   path: "/clients",
-  //   route: clientRoutes,
-  // },
-  // {
-  //   path: "/venues",
-  //   route: venueRoutes,
-  // },
-  // {
-  //   path: "/suppliers",
-  //   route: supplierRoutes,
-  // },
-  // {
-  //   path: "/company",
-  //   route: companyRoutes,
-  // },
-  // {
-  //   path: "/equipment",
-  //   route: equipmentRoutes,
-  // },
-  // {
-  //   path: "/enquiry",
-  //   route: enquiryRoutes,
-  // },
-  // {
-  //   path: "/packages/",
-  //   route: packageRoutes,
-  // },
-  // {
-  //   path: "/payments",
-  //   route: paymentRoutes,
-  // },
-  // {
-  //   path: "/email",
-  //   route: emailContentRoutes,
-  // },
-  // {
-  //   path: "/rig-list",
-  //   route: rigListRoutes,
-  // },
-  // {
-  //   path: "/contracts",
-  //   route: contractRoutes,
-  // },
-  // {
-  //   path: "/reports",
-  //   route: reportsRoutes,
-  // },
-  // {
-  //   path: "/todos",
-  //   route: todoRoutes,
-  // },
-  // {
-  //   path: "/signatures",
-  //   route: signatureRoutes,
-  // },
-  // {
-  //   path: "/calendar",
-  //   route: calendarRoutes,
-  // },
-  // {
-  //   path: "/files",
-  //   route: filesRoutes,
-  // },
+  },
+  {
+    path: "/calendar",
+    route: calendarRoutes,
+  },
+  {
+    path: "/rig-list",
+    route: rigListRoutes,
+  },
+  {
+    path: "/reports",
+    route: reportRoutes,
+  },
 ];
 
 defaultRoutes.forEach((route) => {

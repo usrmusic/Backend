@@ -11,3 +11,7 @@ export { default as enquiryController } from './enquiry.controller.js';
 export { default as confirmEventsController } from './confirmEvents.controller.js';
 export { default as todoController } from './todo.controller.js';
 export { default as fileUploadController } from './fileUpload.controller.js';
+export { default as calendarController } from './calendar.controller.js';
+export { default as reportsController } from './reports.controller.js';
+export { default as rigListController } from './rigList.controller.js';
+export { default as tokenController } from './token.controller.js';

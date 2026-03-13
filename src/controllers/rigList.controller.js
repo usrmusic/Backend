@@ -1,8 +1,9 @@
 import prisma from '../utils/prismaClient.js';
 import catchAsync from '../utils/catchAsync.js';
 import { parseFilterSort } from '../utils/queryHelpers.js';
+import { serializeForJson } from '../utils/serialize.js';
 
-export const rigListEvent = catchAsync(async (req, res) => {
+export const listEvents = catchAsync(async (req, res) => {
   const opts = parseFilterSort(req.query || {});
   const today = new Date();
   const isoDate = today.toISOString().slice(0, 10);
@@ -16,20 +17,17 @@ export const rigListEvent = catchAsync(async (req, res) => {
     select: {
       id: true,
       date: true,
-      user_id: true,
-      venue_id: true,
-      access_time: true,
       venues: { select: { id: true, venue: true } },
       users_events_user_idTousers: { select: { id: true, name: true } },
     },
   });
 
   // Return JSON list (frontend can render a view)
-  res.json({ data: events });
+  res.json(serializeForJson({ data: events }));
 });
 
 export const getEvent = catchAsync(async (req, res) => {
-  const eventId = req.query.event_id ? Number(req.query.event_id) : null;
+  const eventId = req.query.id ? Number(req.query.id) : null;
   if (!eventId) return res.status(400).json({ error: 'event_id_required' });
 
   const event = await prisma.event.findUnique({
@@ -56,11 +54,12 @@ export const getEvent = catchAsync(async (req, res) => {
     include: { equipment: true },
   });
 
-  res.json({ event, packages });
+  res.json(serializeForJson({ event, packages }));
 });
 
 export const StoreRigListNotes = catchAsync(async (req, res) => {
-  const { id, notes, van, crew } = req.body || {};
+  const id = req.params && req.params.id ? Number(req.params.id) : req.query && req.query.id ? Number(req.query.id) : null;
+  const { notes, van, crew } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id_required' });
 
   const existing = await prisma.event.findUnique({ where: { id: Number(id) } });
@@ -80,4 +79,4 @@ export const StoreRigListNotes = catchAsync(async (req, res) => {
   res.json({ success: true });
 });
 
-export default { rigListEvent, getEvent, StoreRigListNotes };
+export default { listEvents, getEvent, StoreRigListNotes };

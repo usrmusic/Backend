@@ -277,6 +277,15 @@ export const updateClient = catchAsync(async (req, res) => {
 
 export const deleteClient = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
+  const forceVal = (req.params && req.params.force !== undefined ? req.params.force : req.query && req.query.force !== undefined ? req.query.force : req.body && req.body.force !== undefined ? req.body.force : undefined);
+  const force = (forceVal === true || forceVal === 'true' || forceVal === '1');
+
+  if (force) {
+    // Force permanent delete
+    await userSvc.delete(id, { force: true });
+    return res.json({ ok: true, forced: true });
+  }
+
   // Prevent deleting client if they have associated events (match Laravel behavior)
   const hasEvent = await prisma.event.findFirst({ where: { user_id: id } });
   if (hasEvent)
@@ -318,7 +327,8 @@ export const deleteManyClients = catchAsync(async (req, res) => {
   // Support force delete via body.force or query.force (true/"true"/"1")
   const force =
     (req.body && (req.body.force === true || req.body.force === "true" || req.body.force === "1")) ||
-    (req.query && (req.query.force === "true" || req.query.force === "1"));
+    (req.query && (req.query.force === "true" || req.query.force === "1")) ||
+      (req.params && (req.params.force === "true" || req.params.force === "1"));
 
   if (force) {
     const del = await prisma.user.deleteMany({ where: { id: { in: numericIds } } });
@@ -330,7 +340,7 @@ export const deleteManyClients = catchAsync(async (req, res) => {
     where: { id: { in: numericIds } },
     data: { deleted_at: now, updated_by: req.user ? Number(req.user.id) : null },
   });
-  res.json({ ok: true, softDeleted: true, forced: false });
+  res.json({ ok: true, softDeleted: true, forced: false, count: updates.count });
 });
 
 export const listclientdropdown = catchAsync(async (req, res) => {

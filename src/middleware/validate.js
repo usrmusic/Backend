@@ -17,8 +17,18 @@ const validate = (schema = {}) => (req, res, next) => {
       const described = typeof schema.describe === 'function' ? schema.describe() : null;
       const schemaKeys = described && described.keys ? Object.keys(described.keys) : ['params', 'query', 'body'];
       const obj = {};
-      if (schemaKeys.includes('params')) obj.params = req.params || {};
-      if (schemaKeys.includes('query')) obj.query = req.query || {};
+      // If schema expects params but none provided, allow falling back to query
+      if (schemaKeys.includes('params') && req.params && Object.keys(req.params).length) {
+        obj.params = req.params;
+      } else if (schemaKeys.includes('params') && req.query && Object.keys(req.query).length) {
+        obj.params = req.query;
+      }
+      // If schema expects query but none provided, allow falling back to params
+      if (schemaKeys.includes('query') && req.query && Object.keys(req.query).length) {
+        obj.query = req.query;
+      } else if (schemaKeys.includes('query') && req.params && Object.keys(req.params).length) {
+        obj.query = req.params;
+      }
       if (schemaKeys.includes('body')) obj.body = req.body || {};
 
       if (req.files && obj.body && typeof obj.body === 'object') {
@@ -44,8 +54,18 @@ const validate = (schema = {}) => (req, res, next) => {
     // Backwards-compatible behavior for plain descriptor objects
     const validSchema = pick(schema, ['params', 'query', 'body']);
     const obj = {};
-    if (validSchema.params) obj.params = req.params || {};
-    if (validSchema.query) obj.query = req.query || {};
+    // Plain descriptor: if params schema exists but params empty, allow query fallback
+    if (validSchema.params && req.params && Object.keys(req.params).length) {
+      obj.params = req.params;
+    } else if (validSchema.params && req.query && Object.keys(req.query).length) {
+      obj.params = req.query;
+    }
+    // If query schema exists but query empty, allow params fallback
+    if (validSchema.query && req.query && Object.keys(req.query).length) {
+      obj.query = req.query;
+    } else if (validSchema.query && req.params && Object.keys(req.params).length) {
+      obj.query = req.params;
+    }
     if (validSchema.body) obj.body = req.body || {};
 
     if (req.files && obj.body && typeof obj.body === 'object') {

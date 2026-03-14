@@ -1,4 +1,3 @@
-import { query } from "express";
 import Joi from "joi";
 
 const getCalenderEvents = Joi.object({

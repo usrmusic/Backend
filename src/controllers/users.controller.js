@@ -253,22 +253,27 @@ const deleteManyUsers = catchAsync(async (req, res) => {
 
 const listUsers = catchAsync(async (req, res) => {
   // Pagination, sorting and search support
-  const perPage = Number(req.query.perPage || req.query.limit || 25);
-  const page = Number(req.query.page || 1);
+  const perPage = Number(req.query.perPage || req.query.limit || req.params.perPage || req.params.limit || 25);
+  const page = Number(req.query.page || req.params.page || 1);
   const sort =
     req.query.sort ||
     (req.query.sort_by
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
-      : undefined);
+      : undefined) ||
+      req.params.sort ||
+    (req.params.sort_by
+      ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}`
+      : undefined) ||
+    undefined;
 
   // build base filter (only active users)
   let filter = { deleted_at: null };
-  if (req.query.filter) {
+  if (req.query.filter || req.params.filter) {
     try {
       const parsed =
-        typeof req.query.filter === "string"
-          ? JSON.parse(req.query.filter)
-          : req.query.filter;
+        (typeof req.query.filter === "string" || typeof req.params.filter === "string")
+          ? JSON.parse(req.query.filter || req.params.filter)
+          : req.query.filter || req.params.filter;
       filter = { ...filter, ...parsed };
     } catch (e) {
       // ignore invalid JSON filter
@@ -276,7 +281,7 @@ const listUsers = catchAsync(async (req, res) => {
   }
 
   // search across name, email and contact_number
-  const q = req.query.search || req.query.q;
+  const q = req.query.search || req.query.q || req.params.search || req.params.q;
   if (q) {
     const s = String(q).trim();
     if (s.length) {

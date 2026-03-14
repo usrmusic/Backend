@@ -4,7 +4,6 @@ import { uploadFile, getDownloadUrl } from "../utils/uploadHelper.js";
 import { getSignedGetUrl } from "../utils/s3Client.js";
 import path from "path";
 import fs from "fs";
-import { logActivity } from "../utils/activityLogger.js";
 import services from "../services/index.js";
 import { serializeForJson } from "../utils/serialize.js";
 
@@ -206,8 +205,7 @@ export const listMedia = catchAsync(async (req, res) => {
   }
 
   // simple search on filename
-  if (req.query.search) filter.file_name = { contains: req.query.search };
-  if (req.query.event_id) filter.event_id = Number(req.query.event_id);
+  if (req.query.search) filter.display_name = { contains: req.query.search };
 
   const perPage = Number(req.query.perPage || req.query.limit || 25);
   const page = Number(req.query.page || 1);

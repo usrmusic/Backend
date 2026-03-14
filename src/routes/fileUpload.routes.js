@@ -24,7 +24,24 @@ router
     validate(fileUploadValidation.uploadfile),
     fileUploadController.uploadfile,
   );
-
+router
+  .route("/media")
+  .get(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(fileUploadValidation.listFiles),
+    fileUploadController.listMedia,
+  )
+  .post(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    // accept either `media` or `file` form field to match frontend variations
+    mediaUpload.fields([
+      { name: "media", maxCount: 1 },
+      { name: "file", maxCount: 1 },
+    ]),
+    fileUploadController.uploadMedia,
+  );
 router
   .route("/uploads/:id")
   .get(
@@ -53,30 +70,14 @@ router
     validate(fileUploadValidation.downloadFile),
     fileUploadController.downloadFile,
   );
-
 router
-  .route("/media")
-  .get(
-    verifyAccessToken,
-    checkPermission("manage all"),
-    validate(fileUploadValidation.listFiles),
-    fileUploadController.listMedia,
-  )
-    .post(
-    verifyAccessToken,
-    checkPermission("manage all"),
-    // accept either `media` or `file` form field to match frontend variations
-    mediaUpload.fields([{ name: 'media', maxCount: 1 }, { name: 'file', maxCount: 1 }]),
-    fileUploadController.uploadMedia,
-  );
-router.route('/media/:id/')
+  .route("/media/:id/")
   .get(
     verifyAccessToken,
     checkPermission("manage all"),
     validate(fileUploadValidation.downloadFile),
     fileUploadController.downloadMedia,
-    )
-    
+  );
 
 // // List files (optional ?event_id)
 // router.get('/', verifyAccessToken, controller.listFiles);

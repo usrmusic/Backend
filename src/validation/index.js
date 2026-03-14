@@ -14,3 +14,4 @@ export { default as fileUploadValidation } from "./fileUpload.validation.js";
 export { default as calendarValidation } from "./calendar.validation.js";
 export { default as reportsValidation } from "./reports.validation.js";
 export { default as rigListValidation } from "./rigList.validation.js";
+export { default as dashboardValidation } from "./dashboard.validation.js";

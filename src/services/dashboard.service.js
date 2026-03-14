@@ -1,0 +1,148 @@
+import prisma from '../utils/prismaClient.js';
+
+const MONTH_LABELS = [
+	'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
+];
+
+function parseNumberLike(v) {
+	if (v == null) return 0;
+	if (typeof v === 'number') return v;
+	const s = String(v).replace(/[^0-9.\-]/g, '');
+	const n = parseFloat(s);
+	return Number.isFinite(n) ? n : 0;
+}
+
+async function getDashboardStats({ year = null } = {}) {
+	const now = new Date();
+	const targetYear = year || now.getFullYear();
+	const startOfYear = new Date(targetYear, 0, 1);
+	const endOfYear = new Date(targetYear, 11, 31, 23, 59, 59);
+
+	// fetch events in the year once and aggregate in-memory to minimize DB roundtrips
+	const events = await prisma.event.findMany({
+		where: { date: { gte: startOfYear, lte: endOfYear } },
+		select: {
+			id: true,
+			date: true,
+			profit: true,
+			event_status_id: true,
+			dj_id: true,
+			couple_name: true,
+			is_event_payment_fully_paid: true,
+			event_amount_without_vat: true,
+			event_cost: true,
+		},
+	});
+
+	// totals
+	const totalEvents = events.length;
+	const totalProfit = events.reduce((s, e) => s + parseNumberLike(e.profit), 0);
+
+	// monthly overview
+	const monthlyCounts = new Array(12).fill(0);
+	const monthlyProfits = new Array(12).fill(0);
+	events.forEach((e) => {
+		if (!e.date) return;
+		const d = new Date(e.date);
+		const m = d.getMonth();
+		monthlyCounts[m] += 1;
+		monthlyProfits[m] += parseNumberLike(e.profit);
+	});
+
+	// sales analytics: counts by status and DJ distribution
+	const statusCounts = {};
+	const djCounts = {};
+	for (const e of events) {
+		const st = String(e.event_status_id || 'unknown');
+		statusCounts[st] = (statusCounts[st] || 0) + 1;
+		const dj = e.dj_id ? String(e.dj_id) : 'unassigned';
+		djCounts[dj] = (djCounts[dj] || 0) + 1;
+	}
+
+	// pending payments (across DB) - top events where payment not fully paid
+	const pendingPayments = await prisma.event.findMany({
+		where: { is_event_payment_fully_paid: false },
+		select: {
+			id: true,
+			couple_name: true,
+			deposit_amount: true,
+			payment_date: true,
+			is_event_payment_fully_paid: true,
+			event_payments: { select: { amount: true } },
+		},
+		orderBy: { date: 'asc' },
+		take: 50,
+	});
+
+	const pending = pendingPayments.map((p) => {
+		const paid = (p.event_payments || []).reduce((s, it) => s + parseNumberLike(it.amount), 0);
+		const expected = parseNumberLike(p.deposit_amount) || 0;
+		return { id: p.id, couple_name: p.couple_name, expected, paid, outstanding: Math.max(0, expected - paid), payment_date: p.payment_date };
+	});
+
+	// open enquiries: attempt to match statuses that look like enquiry
+	const openEnquiries = await prisma.event.findMany({
+		where: { event_statuses: { status: { contains: 'enquiry' } } },
+		select: { id: true, couple_name: true, date: true },
+		orderBy: { date: 'desc' },
+		take: 50,
+	});
+
+	// counts
+	const openEnquiriesCount = await prisma.event.count({ where: { event_statuses: { status: { contains: 'enquiry' } } } });
+	const confirmedEventsCount = await prisma.event.count({ where: { event_statuses: { status: { contains: 'confirm' } } } });
+
+	// calendar events: events for current month
+	const curStart = new Date(now.getFullYear(), now.getMonth(), 1);
+	const curEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+	const calendarEvents = await prisma.event.findMany({
+		where: { date: { gte: curStart, lte: curEnd } },
+		select: { id: true, date: true, couple_name: true },
+		orderBy: { date: 'asc' },
+		take: 200,
+	});
+
+	// recent notes
+	const notes = await prisma.eventNote.findMany({
+		orderBy: { created_at: 'desc' },
+		take: 10,
+		select: { id: true, event_id: true, notes: true, created_at: true, created_by: true },
+	});
+
+	return {
+		year: targetYear,
+		totalEvents,
+		openEnquiriesCount,
+		confirmedEventsCount,
+		totalProfit,
+		monthly: {
+			labels: MONTH_LABELS,
+			counts: monthlyCounts,
+			profits: monthlyProfits,
+		},
+		salesAnalytics: { statusCounts, djCounts },
+		pendingPayments: pending,
+		openEnquiries,
+		calendarEvents,
+		recentNotes: notes,
+	};
+}
+
+async function recalculateProfits({ force = false } = {}) {
+	// Fetch events (optionally only those missing profit)
+	const where = force ? {} : { profit: null };
+	const events = await prisma.event.findMany({ where, select: { id: true, event_amount_without_vat: true, event_cost: true } });
+
+	let updated = 0;
+	for (const e of events) {
+		const revenue = parseNumberLike(e.event_amount_without_vat);
+		const cost = parseNumberLike(e.event_cost);
+		const profit = revenue - cost;
+		await prisma.event.update({ where: { id: e.id }, data: { profit } });
+		updated += 1;
+	}
+
+	return { updated };
+}
+
+export default { getDashboardStats, recalculateProfits };

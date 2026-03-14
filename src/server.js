@@ -2,6 +2,7 @@ import 'dotenv/config';
 import app from './app.js';
 import prisma from './utils/prismaClient.js';
 import startCompleteEventsJob from './jobs/completeEventsJob.js';
+import startRecalculateProfitsJob from './jobs/recalculateProfitsJob.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -11,6 +12,7 @@ const server = app.listen(PORT, () => {
 
 // start background jobs
 const completeEventsTask = startCompleteEventsJob();
+const recalcProfitsTask = startRecalculateProfitsJob();
 
 // Handle listen errors (e.g., port already in use)
 server.on('error', async (err) => {
@@ -53,6 +55,7 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('exit', () => {
   try {
     if (completeEventsTask && typeof completeEventsTask.stop === 'function') completeEventsTask.stop();
+    if (recalcProfitsTask && typeof recalcProfitsTask.stop === 'function') recalcProfitsTask.stop();
   } catch (e) {
     // ignore
   }

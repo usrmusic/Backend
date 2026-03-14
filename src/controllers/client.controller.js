@@ -181,8 +181,7 @@ export const updateClient = catchAsync(async (req, res) => {
     "address",
     "profile_photo",
     "status",
-    "event_date",
-    "eventdates",
+    // do not pass event date(s) through to user update (handled separately below)
   ];
   const data = {};
   for (const k of allowed) {

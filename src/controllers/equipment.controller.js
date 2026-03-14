@@ -9,12 +9,41 @@ const supplierSvc = services.get("supplier");
 
 
 const listEquipment = catchAsync(async (req, res) => {
+  // Support `filter` (JSON), `search`/`q`, pagination and sorting query params
+  const perPage = Number(req.query.perPage || req.query.limit || req.params.perPage || req.params.limit || 25);
+  const page = Number(req.query.page || req.params.page || 1);
+  const sort =
+    req.query.sort ||
+    (req.query.sort_by ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}` : undefined)
+    || (req.params.sort_by ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}` : undefined);
+
+  let filter = {};
+  if (req.query.filter || req.params.filter) {
+    try {
+      const parsed =( typeof req.query.filter === "string" || typeof req.params.filter === "string") ? JSON.parse(req.query.filter || req.params.filter) : req.query.filter || req.params.filter;
+      filter = { ...filter, ...parsed };
+    } catch (e) {
+      // ignore invalid filter JSON and fall back to empty filter
+    }
+  }
+
+  // Optional text search across equipment name and linked supplier name
+  const q = req.query.search || req.query.q || req.params.search || req.params.q;
+  if (q && String(q).trim().length) {
+    const s = String(q).trim();
+    filter.OR = [
+      { name: { contains: s } },
+      { suppliers: { is: { name: { contains: s } } } },
+    ];
+  }
+
   if (equipmentSvc && typeof equipmentSvc.list === "function") {
-    const items = await equipmentSvc.list({});
-    const total = equipmentSvc.model && typeof equipmentSvc.model.count === "function"
-      ? await equipmentSvc.model.count().catch(() => 0)
-      : (Array.isArray(items) ? items.length : 0);
-    return res.json({ data: serializeForJson(items), meta: { total, page: 1, perPage: items.length || 0 } });
+    const items = await equipmentSvc.list({ filter, perPage, page, sort });
+    const total =
+      equipmentSvc.model && typeof equipmentSvc.model.count === "function"
+        ? await equipmentSvc.model.count({ where: filter }).catch(() => 0)
+        : (Array.isArray(items) ? items.length : 0);
+    return res.json({ data: serializeForJson(items), meta: { total, page, perPage } });
   }
   res.status(501).json({ error: "not_implemented" });
 });

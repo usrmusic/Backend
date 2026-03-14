@@ -5,7 +5,7 @@ import services from '../services/index.js';
 const eventSvc = services.get('event');
 
 const getCalenderEvents = catchAsync(async (req, res) => {
-    const { year } = req.query;
+    const { year } = req.query || req.params || {};
     const today = new Date();
 
     const filter = {};

@@ -34,14 +34,14 @@ router
   .route("/:id")
   .get(protectAdmin, clientController.getClient)
   .put(
+    protectAdmin,
     upload.single('profile_photo'),
     validate(clientValidation.updateClient),
-    protectAdmin,
     clientController.updateClient,
   )
   .delete(
-    validate(clientValidation.deleteClient),
     protectAdmin,
+    validate(clientValidation.deleteClient),
     clientController.deleteClient,
   );
 

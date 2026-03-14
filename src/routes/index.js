@@ -15,10 +15,15 @@ import fileUploadRoutes from "./fileUpload.routes.js";
 import calendarRoutes from "./calendar.routes.js";
 import rigListRoutes from "./rigList.routes.js";
 import reportRoutes from "./reports.routes.js";
+import dashboardRoutes from "./dashboard.routes.js";
 
 const router = express.Router();
 
 const defaultRoutes = [
+  {
+    path: "/dashboard",
+    route: dashboardRoutes,
+  },
   {
     path: "/user",
     route: userRoutes,

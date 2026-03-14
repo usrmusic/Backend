@@ -15,3 +15,4 @@ export { default as calendarController } from './calendar.controller.js';
 export { default as reportsController } from './reports.controller.js';
 export { default as rigListController } from './rigList.controller.js';
 export { default as tokenController } from './token.controller.js';
+export { default as dashboardController } from './dashboard.controller.js';

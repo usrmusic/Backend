@@ -3,19 +3,11 @@ import Joi from "joi";
 const createPackage = {
   body: Joi.object({
     user_id: Joi.number().integer().required(),
-    // package_type_id: Joi.number().integer().optional(),
+    
     package_name: Joi.string().trim().min(1).max(255).required(),
     cost_price: Joi.number().precision(2).min(0).required(),
     sell_price: Joi.number().precision(2).min(0).required(),
     status: Joi.string().valid('ACTIVE', 'INACTIVE').default('ACTIVE'),
-    // properties: Joi.array()
-    //   .items(
-    //     Joi.object({
-    //       property_id: Joi.number().integer().required(),
-    //       value: Joi.string().allow('', null).max(255),
-    //     })
-    //   )
-    //   .optional(),
     equipments: Joi.array()
       .items(
         Joi.object({
@@ -32,17 +24,10 @@ const updatePackage = {
   params: Joi.object({ id: Joi.number().integer().required() }),
   body: Joi.object({
     user_id: Joi.number().integer(),
-    // package_type_id: Joi.number().integer(),
     package_name: Joi.string().trim().min(1).max(255),
     cost_price: Joi.number().precision(2).min(0),
     sell_price: Joi.number().precision(2).min(0),
     status: Joi.string().valid('ACTIVE', 'INACTIVE'),
-    // properties: Joi.array().items(
-    //   Joi.object({
-    //     property_id: Joi.number().integer().required(),
-    //     value: Joi.string().allow('', null).max(255),
-    //   })
-    // ),
     equipments: Joi.array()
       .items(
         Joi.object({
@@ -63,7 +48,7 @@ const listPackages = {
   params: Joi.object({
     search: Joi.string().trim().max(200).allow('', null),
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).max(100).default(10),
+    perPage: Joi.number().integer().min(1).max(100).default(10),
     sortBy: Joi.string().valid('package_name', 'cost_price', 'sell_price', 'created_at').default('created_at'),
     sortOrder: Joi.string().valid('asc', 'desc').default('asc'),
   }),

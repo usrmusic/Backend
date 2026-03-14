@@ -13,12 +13,10 @@ const eventSvc = services.get("event");
 export const createClient = catchAsync(async (req, res) => {
   const { name, email, contact_number, status, event_date, address } =
     req.body || {};
-
-    console.log("createClient received data", { name, email, contact_number, status, event_date, address });
-
   // Normalize and require email
   const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
-  if (!normalizedEmail) return res.status(400).json({ error: "email_required" });
+  if (!normalizedEmail)
+    return res.status(400).json({ error: "email_required" });
 
   // Check uniqueness
   const existing = await userService.getUserByEmail(normalizedEmail);
@@ -55,7 +53,7 @@ export const createClient = catchAsync(async (req, res) => {
     email: normalizedEmail,
     password: hashed,
     password_text: plainPassword,
-    contact_number: contact_number || '',
+    contact_number: contact_number || "",
     address: address || null,
     // is_email_send: false,
     profile_photo: profilePhotoUrl,
@@ -123,7 +121,7 @@ export const createClient = catchAsync(async (req, res) => {
 export const listClients = catchAsync(async (req, res) => {
   // Build filter from query params
   let filter = { deleted_at: null, role_id: BigInt(4) };
-  if (req.query.filter) {
+  if (req.query.filter || req.params.filter) {
     try {
       const parsed =
         typeof req.query.filter === "string"
@@ -134,19 +132,29 @@ export const listClients = catchAsync(async (req, res) => {
       // ignore invalid JSON filter
     }
   }
-  if (req.query.name)
-    filter.name = { contains: req.query.name };
-  if (req.query.email)
-    filter.email = { contains: req.query.email };
-  if (req.query.role_id) filter.role_id = BigInt(req.query.role_id);
+  if(req.params.search || req.query.search) {
+    const search = req.params.search || req.query.search;
+    filter = {
+      ...filter,
+      OR: [
+        { name: { contains: search } },
+        { email: { contains: search } },
+      ],
+    };
+  }
 
-  const perPage = Number(req.query.perPage || req.query.limit || 25);
-  const page = Number(req.query.page || 1);
+  const perPage = Number(req.query.perPage || req.query.limit || req.params.perPage || req.params.limit || 10);
+  const page = Number(req.query.page || req.params.page || 1);
   const sort =
     req.query.sort ||
     (req.query.sort_by
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
-      : undefined);
+      : undefined) ||
+    req.params.sort ||
+    (req.params.sort_by
+      ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}`
+      : undefined) ||
+    undefined;
 
   const users = await userSvc.list({ filter, perPage, page, sort });
   const count = await userSvc.model.count({ where: filter });
@@ -208,8 +216,7 @@ export const updateClient = catchAsync(async (req, res) => {
     const existing = await prisma.user.findFirst({
       where: { email: data.email, id: { not: id } },
     });
-    if (existing)
-      return res.status(409).json({ error: "email_taken" });
+    if (existing) return res.status(409).json({ error: "email_taken" });
   }
 
   // Handle profile photo upload (if present)
@@ -276,8 +283,15 @@ export const updateClient = catchAsync(async (req, res) => {
 
 export const deleteClient = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
-  const forceVal = (req.params && req.params.force !== undefined ? req.params.force : req.query && req.query.force !== undefined ? req.query.force : req.body && req.body.force !== undefined ? req.body.force : undefined);
-  const force = (forceVal === true || forceVal === 'true' || forceVal === '1');
+  const forceVal =
+    req.params && req.params.force !== undefined
+      ? req.params.force
+      : req.query && req.query.force !== undefined
+        ? req.query.force
+        : req.body && req.body.force !== undefined
+          ? req.body.force
+          : undefined;
+  const force = forceVal === true || forceVal === "true" || forceVal === "1";
 
   if (force) {
     // Force permanent delete
@@ -303,8 +317,14 @@ export const deleteManyClients = catchAsync(async (req, res) => {
   if (Array.isArray(req.body && req.body.ids)) ids = req.body.ids;
   else if (req.body && typeof req.body.ids === "string")
     ids = req.body.ids.split(",").map((s) => s.trim());
-  else if (req.params && req.params.ids) ids = String(req.params.ids).split(",").map((s) => s.trim());
-  else if (req.query && req.query.ids) ids = String(req.query.ids).split(",").map((s) => s.trim());
+  else if (req.params && req.params.ids)
+    ids = String(req.params.ids)
+      .split(",")
+      .map((s) => s.trim());
+  else if (req.query && req.query.ids)
+    ids = String(req.query.ids)
+      .split(",")
+      .map((s) => s.trim());
 
   if (!Array.isArray(ids) || ids.length === 0)
     return res.status(400).json({ error: "ids_required" });
@@ -325,21 +345,34 @@ export const deleteManyClients = catchAsync(async (req, res) => {
 
   // Support force delete via body.force or query.force (true/"true"/"1")
   const force =
-    (req.body && (req.body.force === true || req.body.force === "true" || req.body.force === "1")) ||
+    (req.body &&
+      (req.body.force === true ||
+        req.body.force === "true" ||
+        req.body.force === "1")) ||
     (req.query && (req.query.force === "true" || req.query.force === "1")) ||
-      (req.params && (req.params.force === "true" || req.params.force === "1"));
+    (req.params && (req.params.force === "true" || req.params.force === "1"));
 
   if (force) {
-    const del = await prisma.user.deleteMany({ where: { id: { in: numericIds } } });
+    const del = await prisma.user.deleteMany({
+      where: { id: { in: numericIds } },
+    });
     return res.json({ ok: true, count: del.count, forced: true });
   }
 
   const now = new Date();
   const updates = await prisma.user.updateMany({
     where: { id: { in: numericIds } },
-    data: { deleted_at: now, updated_by: req.user ? Number(req.user.id) : null },
+    data: {
+      deleted_at: now,
+      updated_by: req.user ? Number(req.user.id) : null,
+    },
   });
-  res.json({ ok: true, softDeleted: true, forced: false, count: updates.count });
+  res.json({
+    ok: true,
+    softDeleted: true,
+    forced: false,
+    count: updates.count,
+  });
 });
 
 export const listclientdropdown = catchAsync(async (req, res) => {

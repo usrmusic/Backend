@@ -11,7 +11,6 @@ import microsoftGraph from '../utils/microsoftGraph.js';
 
 // Confirm open enquiry: create payment + invoice + set event as confirmed
 const confirmEvent = catchAsync(async (req, res) => {
-  console.log()
   const body = req.validated || req.body || {};
   const eventId = Number(req.params.id);
   // accept `company_name` (id) per new request shape, fall back to names_id
@@ -175,6 +174,7 @@ const confirmEvent = catchAsync(async (req, res) => {
     };
   });
 
+
   // Try to create a calendar event in Microsoft Graph (best-effort).
   try {
     // load event details
@@ -217,7 +217,6 @@ const confirmEvent = catchAsync(async (req, res) => {
       e?.message || e,
     );
   }
-  console.log("hello");
   // Send invoice/confirmation emails to client and admins (parity with Laravel)
   try {
     const event = await prisma.event.findUnique({
@@ -771,15 +770,24 @@ const updateEvent = catchAsync(async (req, res) => {
   if (body.email) userUpdateData.email = body.email;
   if (body.phone_number) userUpdateData.contact_number = String(body.phone_number);
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const ev = await tx.event.findUnique({ where: { id: eventId } });
-    if (!ev) return null;
-
-    if (Object.keys(userUpdateData).length && ev.user_id) {
-      try {
-        await tx.user.update({ where: { id: ev.user_id }, data: userUpdateData }).catch(() => {});
-      } catch (e) {}
-    }
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const ev = await tx.event.findUnique({ where: { id: eventId } });
+      if (!ev) return null;
+      if (Object.keys(userUpdateData).length && ev.user_id) {
+        try {
+          await tx.user.update({ where: { id: ev.user_id }, data: userUpdateData });
+        } catch (e) {
+          // Map Prisma unique-constraint to a clear error we can handle
+          if (e && e.code === 'P2002') {
+            const err = new Error('email_in_use');
+            err.code = 'EMAIL_IN_USE';
+            throw err;
+          }
+          throw e;
+        }
+      }
 
     // best-effort: map dj_name to dj_id if provided
     try {
@@ -797,14 +805,21 @@ const updateEvent = catchAsync(async (req, res) => {
 
     const ev2 = await tx.event.update({ where: { id: eventId }, data: eventUpdateData }).catch(() => null);
 
-    console.log(ev2)
+    console.log(ev2,'updated event');
     // add event note
     try {
       await eventNoteService.createNote(tx, { eventId, notes: 'updated', created_by: req.user?.id || null }).catch(() => {});
     } catch (e) {}
 
     return ev2;
-  });
+    });
+  } catch (e) {
+    if (e && (e.code === 'EMAIL_IN_USE' || e.code === 'P2002')) {
+      return res.status(400).json({ error: 'email_in_use' });
+    }
+    console.error('[updateEvent] transaction failed', e?.message || e);
+    return res.status(500).json({ error: 'update_failed' });
+  }
 
   if (!updated) return res.status(404).json({ error: 'event_not_found' });
 

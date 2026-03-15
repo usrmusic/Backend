@@ -67,6 +67,7 @@ export async function createUser({ name, email, contact_number, role_id, address
         html: `<p>Hello ${user.name || ''},</p><p>Your verification code (or link) is:</p><pre>${verifyToken}</pre><p>Or click: <a href="/verify?token=${verifyToken}">Verify email</a></p>`,
       });
       resendResult = sendRes;
+      console.log('userService.resendClient result', resendResult);
       if (sendRes && sendRes.ok && !sendRes.fallback) emailSent = true;
     } catch (err) {
       resendResult = err;

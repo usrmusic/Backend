@@ -294,7 +294,13 @@ const listUsers = catchAsync(async (req, res) => {
     }
   }
 
-  const users = await userSvc.list({ filter, perPage, page, sort });
+  const users = await userSvc.list({
+    filter,
+    perPage,
+    page,
+    sort,
+    include: { roles: { select: { name: true } } },
+  });
   const total = await prisma.user.count({ where: filter }).catch(() => 0);
 
   return res.json({

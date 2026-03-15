@@ -73,7 +73,9 @@ async function getDashboardStats({ year = null } = {}) {
 			deposit_amount: true,
 			payment_date: true,
 			is_event_payment_fully_paid: true,
-			event_payments: { select: { amount: true } },
+ 			event_payments: { select: { amount: true } },
+ 			users_events_user_idTousers: { select: { id: true, name: true, email: true } },
+			
 		},
 		orderBy: { date: 'asc' },
 		take: 50,
@@ -82,7 +84,8 @@ async function getDashboardStats({ year = null } = {}) {
 	const pending = pendingPayments.map((p) => {
 		const paid = (p.event_payments || []).reduce((s, it) => s + parseNumberLike(it.amount), 0);
 		const expected = parseNumberLike(p.deposit_amount) || 0;
-		return { id: p.id, couple_name: p.couple_name, expected, paid, outstanding: Math.max(0, expected - paid), payment_date: p.payment_date };
+		const clientName = p.users_events_user_idTousers?.name || null;
+		return { id: p.id, couple_name: p.couple_name, client_name: clientName, expected, paid, outstanding: Math.max(0, expected - paid), payment_date: p.payment_date };
 	});
 
 	// open enquiries: attempt to match statuses that look like enquiry

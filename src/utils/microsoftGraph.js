@@ -8,17 +8,17 @@ import qs from 'querystring';
 // - GRAPH_CLIENT_SECRET
 // - GRAPH_CALENDAR_USER_ID  (user principal or id to create events for)
 
-const tenant = process.env.GRAPH_TENANT_ID || null;
-const clientId = process.env.GRAPH_CLIENT_ID || null;
-const clientSecret = process.env.GRAPH_CLIENT_SECRET || null;
-const calendarUser = process.env.GRAPH_CALENDAR_USER_ID || null;
+const tenant = process.env.AZURE_TENANT_ID || null;
+const clientId = process.env.AZURE_CLIENT_ID || null;
+const clientSecret = process.env.AZURE_CLIENT_SECRET || null;
+const calendarUser = process.env.AZURE_CALENDAR_USER_ID || null;
 
 let cachedToken = null;
 let tokenExpiry = 0;
 
 async function getAccessToken() {
   if (!tenant || !clientId || !clientSecret) {
-    throw new Error('Microsoft Graph credentials not configured (GRAPH_TENANT_ID/GRAPH_CLIENT_ID/GRAPH_CLIENT_SECRET)');
+    throw new Error('Microsoft Graph credentials not configured (AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET)');
   }
   const now = Date.now() / 1000;
   if (cachedToken && tokenExpiry - 60 > now) return cachedToken;
@@ -39,7 +39,7 @@ async function getAccessToken() {
 }
 
 function ensureCalendarUser() {
-  if (!calendarUser) throw new Error('GRAPH_CALENDAR_USER_ID not set');
+  if (!calendarUser) throw new Error('AZURE_CALENDAR_USER_ID not set');
   return calendarUser;
 }
 

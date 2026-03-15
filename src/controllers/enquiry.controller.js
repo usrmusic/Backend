@@ -958,6 +958,7 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
   const raw = body.body || template?.body || `Update for event ${eventId}`;
   const html = String(raw).replace(/\n/g, '<br>');
 
+  console.log(html,'html');
   await sendEmail({ to: clientEmail, subject, html }).catch((e) => {
     console.error('[sendUpdateEmail] sendEmail failed', e?.message || e);
   });

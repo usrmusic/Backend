@@ -22,16 +22,18 @@ async function getDashboardStats({ year = null } = {}) {
 	const events = await prisma.event.findMany({
 		where: { date: { gte: startOfYear, lte: endOfYear } },
 		select: {
-			id: true,
-			date: true,
-			profit: true,
-			event_status_id: true,
-			dj_id: true,
-			couple_name: true,
-			is_event_payment_fully_paid: true,
-			event_amount_without_vat: true,
-			event_cost: true,
-		},
+				id: true,
+				date: true,
+				profit: true,
+				event_status_id: true,
+				dj_id: true,
+				couple_name: true,
+				is_event_payment_fully_paid: true,
+				event_amount_without_vat: true,
+				event_cost: true,
+				users_events_dj_idTousers: { select: { id: true, name: true } },
+				event_statuses: { select: { id: true, status: true } },
+			},
 	});
 
 	// totals
@@ -53,10 +55,13 @@ async function getDashboardStats({ year = null } = {}) {
 	const statusCounts = {};
 	const djCounts = {};
 	for (const e of events) {
-		const st = String(e.event_status_id || 'unknown');
-		statusCounts[st] = (statusCounts[st] || 0) + 1;
-		const dj = e.dj_id ? String(e.dj_id) : 'unassigned';
-		djCounts[dj] = (djCounts[dj] || 0) + 1;
+		// Prefer human-readable status name when available
+		const stName = e.event_statuses && e.event_statuses.status ? String(e.event_statuses.status) : String(e.event_status_id || 'unknown');
+		statusCounts[stName] = (statusCounts[stName] || 0) + 1;
+
+		// Prefer DJ name when available
+		const djName = e.users_events_dj_idTousers && e.users_events_dj_idTousers.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
+		djCounts[djName] = (djCounts[djName] || 0) + 1;
 	}
 
 	// pending payments (across DB) - top events where payment not fully paid

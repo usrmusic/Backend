@@ -6,7 +6,7 @@ const suppliersReport = Joi.object({
         startDate: Joi.string().optional(),
         endDate: Joi.string().optional(),
         search: Joi.string().optional(),
-        supplier_id: Joi.number().integer().required(),
+        supplier_id: Joi.number().integer().optional(),
         page: Joi.number().integer().min(1).optional(),
         perPage: Joi.number().integer().min(1).max(100).optional(),
         sort: Joi.string().optional(),

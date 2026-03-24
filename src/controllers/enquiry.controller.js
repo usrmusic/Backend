@@ -796,6 +796,17 @@ const staffEquipment = catchAsync(async (req, res) => {
         })
         .catch(() => []);
     }
+
+    // normalize package payload for frontend parity
+    // frontend expects `package_user_equipments` (plural) and `user` (singular)
+    if (equipments) {
+      if (Array.isArray(equipments.package_user_equipment) && !Array.isArray(equipments.package_user_equipments)) {
+        equipments.package_user_equipments = equipments.package_user_equipment;
+      }
+      if (equipments.users && !equipments.user) {
+        equipments.user = equipments.users;
+      }
+    }
   } catch (e) {
     console.error(
       "[enquiryController] staffEquipment check failed",

@@ -49,11 +49,45 @@ const suppliersReport = catchAsync(async (req, res) => {
 		where.date = new Date(q.event_date);
 	}
 
-	// time filters (treat times as 1970-01-01T<time>)
+	// time filters (accept either a time like '20:00' OR a date like '20/12/2025' or ISO)
 	if (q.event_start_time || q.event_end_time) {
-		where.start_time = where.start_time || {};
-		if (q.event_start_time) where.start_time.gte = new Date(`1970-01-01T${q.event_start_time}`);
-		if (q.event_end_time) where.start_time.lte = new Date(`1970-01-01T${q.event_end_time}`);
+		const parseTimeOrDate = (val) => {
+			if (!val) return null;
+			const s = String(val).trim();
+			// time pattern HH:mm or HH:mm:ss
+			if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) {
+				const d = new Date(`1970-01-01T${s}`);
+				return isNaN(d) ? null : { type: 'time', value: d };
+			}
+			// try ISO or JS-parsable date
+			const iso = new Date(s);
+			if (!isNaN(iso)) return { type: 'date', value: iso };
+			// try DD/MM/YYYY
+			const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+			if (m) {
+				const dd = Number(m[1]);
+				const mm = Number(m[2]) - 1;
+				const yyyy = Number(m[3]);
+				const d = new Date(yyyy, mm, dd);
+				if (!isNaN(d)) return { type: 'date', value: d };
+			}
+			return null;
+		};
+
+		const startParsed = parseTimeOrDate(q.event_start_time);
+		const endParsed = parseTimeOrDate(q.event_end_time);
+
+		// if either parsed value is a date, set date range instead
+		if ((startParsed && startParsed.type === 'date') || (endParsed && endParsed.type === 'date')) {
+			where.date = where.date || {};
+			if (startParsed && startParsed.type === 'date') where.date.gte = startParsed.value;
+			if (endParsed && endParsed.type === 'date') where.date.lte = endParsed.value;
+		} else {
+			// otherwise use start_time range (time-of-day)
+			where.start_time = where.start_time || {};
+			if (startParsed && startParsed.type === 'time') where.start_time.gte = startParsed.value;
+			if (endParsed && endParsed.type === 'time') where.start_time.lte = endParsed.value;
+		}
 	}
 
 	// venue name
@@ -97,7 +131,11 @@ const suppliersReport = catchAsync(async (req, res) => {
 			start_time: true,
 			end_time: true,
 			venues: { select: { id: true, venue: true } },
+			// include DJ relation so we can return the DJ name from dj_id
+			users_events_dj_idTousers: { select: { id: true, name: true } },
+			dj_id: true,
 			dj_package_name: true,
+			total_cost_for_equipment:true,
 			user_id: true,
 			names_id: true,
 			event_status_id: true,
@@ -150,6 +188,20 @@ const suppliersReport = catchAsync(async (req, res) => {
 
 		const costByEvent = new Map(costRows.map((r) => [Number(r.id), Number(r.total_cost_for_equipment || 0)]));
 
+		// build packagesByEvent and paymentsByEvent maps to avoid repeated filtering
+		const packagesByEvent = new Map();
+		for (const p of packages) {
+			const id = Number(p.event_id);
+			if (!packagesByEvent.has(id)) packagesByEvent.set(id, []);
+			packagesByEvent.get(id).push(p);
+		}
+
+		const paymentsByEvent = new Map();
+		for (const p of payments) {
+			const id = Number(p.event_id);
+			paymentsByEvent.set(id, (paymentsByEvent.get(id) || 0) + Number(p.amount || 0));
+		}
+
 
 	// fetch company names for events that reference names_id
 	const companyIds = Array.from(new Set(events.map((e) => e.names_id).filter(Boolean))).map((id) => BigInt(id));
@@ -161,29 +213,31 @@ const suppliersReport = catchAsync(async (req, res) => {
 
 	// assemble final payload
 	const data = events.map((ev) => {
-		const evPackages = packages.filter((p) => Number(p.event_id) === Number(ev.id));
-		const mappedPackages = evPackages.map((p) => ({
-			event_package_id: p.id,
-			event_package_name: p.package_types?.type || null,
-			cost_price: p.cost_price || null,
-			payment_send: p.payment_send || null,
-			payment_date: p.payment_date || null,
-			sort_order: p.equipment_order_id || null,
-			equipment_name: p.equipment?.name || null,
-			equipment_properties: (p.equipment?.equipment_properties || []).map((ep) => ({ name: ep.properties?.name || null, value: ep.value || null })),
-			quantity: p.quantity || null,
-		}));
+		const evPackages = packagesByEvent.get(Number(ev.id)) || [];
+
+		// flatten requirement (equipment names) and total quantity for parity with Laravel report
+		const requirement = evPackages.map((p) => p.equipment?.name || null).filter(Boolean).join(', ') || null;
+		const totalQuantity = evPackages.length ? evPackages.reduce((s, p) => s + Number(p.quantity || 0), 0) : null;
 
 		const company = ev.names_id ? companyById.get(String(BigInt(ev.names_id))) : null;
 
-		// payments for this event
-		const evPayments = payments.filter((p) => Number(p.event_id) === Number(ev.id));
-		const totalPaidForEvent = evPayments.reduce((s, r) => s + Number(r.amount || 0), 0);
-		const latestPaymentDate = evPayments.length ? evPayments.reduce((a, b) => (a.date > b.date ? a : b)).date : null;
+		// payments for this event (sum from map)
+		const totalPaidForEvent = paymentsByEvent.get(Number(ev.id)) || 0;
+		// latest payment date still requires scanning payments array (rare) — compute quickly
+		const latestPaymentDate = (() => {
+			const arr = payments.filter((p) => Number(p.event_id) === Number(ev.id));
+			return arr.length ? arr.reduce((a, b) => (a.date > b.date ? a : b)).date : null;
+		})();
+
+		// compute per-event total cost: prefer event.total_cost_for_equipment, fallback to summing package cost_price * quantity
+		const eventLevelCost = Number(costByEvent.get(Number(ev.id)) || 0);
+		const packageFallbackCost = evPackages.reduce((s, p) => s + (Number(p.cost_price || 0) * Number(p.quantity || 0)), 0);
+		const totalCostForEvent = eventLevelCost > 0 ? eventLevelCost : packageFallbackCost;
 
 		return {
 			event_id: ev.id,
 			name: ev.usr_name || null,
+			dj_name: ev.users_events_dj_idTousers?.name || null,
 			date: ev.date || null,
 			start_time: ev.start_time || null,
 			end_time: ev.end_time || null,
@@ -192,11 +246,14 @@ const suppliersReport = catchAsync(async (req, res) => {
 			user_id: ev.user_id || null,
 			event_status_id: ev.event_status_id || null,
 			payment_send: ev.payment_send || null,
-			payment_date: ev.payment_date || null,
-			payment: totalPaidForEvent,
-			latest_payment_date: latestPaymentDate || null,
+			payment_received: totalPaidForEvent,
+			payment_date: latestPaymentDate || null,
+			// top-level requirement + quantity (flattened)
+			requirement: requirement,
+			quantity: totalQuantity,
+			total_cost: totalCostForEvent,
 			company_name: company ? company.name : null,
-			event_packages: mappedPackages,
+			// event_packages: mappedPackages,
 		};
 	});
 
@@ -205,7 +262,7 @@ const suppliersReport = catchAsync(async (req, res) => {
 	const totalEvents = await eventSvc.model.count({ where });
 	const remainingEvents = await eventSvc.model.count({ where: { ...where, date: { gte: today } } });
 
-	// total cost (sum event.total_cost_for_equipment, fallback to package totals)
+	// total cost (sum event.total_cost_for_equipment, fallback to package totals) — use packagesByEvent
 	let totalCost = 0;
 	for (const id of eventIds) {
 		const c = Number(costByEvent.get(Number(id)) || 0);
@@ -213,8 +270,7 @@ const suppliersReport = catchAsync(async (req, res) => {
 			totalCost += c;
 			continue;
 		}
-		// fallback: sum package cost_price * quantity
-		const pkgs = packages.filter((p) => Number(p.event_id) === Number(id));
+		const pkgs = packagesByEvent.get(Number(id)) || [];
 		for (const p of pkgs) {
 			totalCost += (Number(p.cost_price) || 0) * (Number(p.quantity) || 0);
 		}
@@ -309,7 +365,17 @@ const adminReport = catchAsync(async (req, res) => {
 
 	// fetch event packages for aggregation
 	const eventPackages = eventIds.length
-		? await prisma.eventPackage.findMany({ where: { event_id: { in: eventIds } }, select: { event_id: true, package_type_id: true, sell_price: true, cost_price: true, quantity: true } })
+		? await prisma.eventPackage.findMany({
+			  where: { event_id: { in: eventIds } },
+			  select: {
+				  event_id: true,
+				  package_type_id: true,
+				  sell_price: true,
+				  cost_price: true,
+				  quantity: true,
+				  equipment: { select: { cost_price: true } },
+			  },
+		  })
 		: [];
 
 	// fetch payments grouped per event
@@ -345,8 +411,23 @@ const adminReport = catchAsync(async (req, res) => {
 	const data = events.map((ev) => {
 		const pkgs = pkgByEvent.get(Number(ev.id)) || [];
 		const event_packages_sum_sell_price = pkgs.filter((x) => Number(x.package_type_id) === 2).reduce((s, r) => s + Number(r.sell_price || 0), 0);
-		const extra_cost_price_total = pkgs.filter((x) => Number(x.package_type_id) === 2).reduce((s, r) => s + (Number(r.cost_price || 0) * Number(r.quantity || 0)), 0);
-		const basic_cost_price_total = pkgs.filter((x) => Number(x.package_type_id) === 1).reduce((s, r) => s + (Number(r.cost_price || 0) * Number(r.quantity || 0)), 0);
+
+		// compute package totals using Laravel parity rule:
+		// when event_status_id IN (1,2) use equipment.cost_price * quantity
+		// when event_status_id IN (3,4) use event_package.cost_price * quantity
+		const extra_cost_price_total = pkgs
+			.filter((x) => Number(x.package_type_id) === 2)
+			.reduce((s, r) => {
+				const pkgCost = (ev.event_status_id === 3 || ev.event_status_id === 4) ? Number(r.cost_price || 0) : Number(r.equipment?.cost_price || 0);
+				return s + pkgCost * Number(r.quantity || 0);
+			}, 0);
+
+		const basic_cost_price_total = pkgs
+			.filter((x) => Number(x.package_type_id) === 1)
+			.reduce((s, r) => {
+				const pkgCost = (ev.event_status_id === 3 || ev.event_status_id === 4) ? Number(r.cost_price || 0) : Number(r.equipment?.cost_price || 0);
+				return s + pkgCost * Number(r.quantity || 0);
+			}, 0);
 
 		// dj cost price logic
 		let dj_cost_price = 0;
@@ -361,28 +442,33 @@ const adminReport = catchAsync(async (req, res) => {
 		const cost = basic_cost_price_total + extra_cost_price_total + dj_cost_price;
 		const payment_sum = paymentsByEvent.get(Number(ev.id)) || 0;
 
+		// map to requested flattened fields
+		const companyName = ev.names_id ? adminCompanyById.get(String(BigInt(ev.names_id))) : null;
+		const clientName = ev.users_events_user_idTousers?.name || null;
+		const djName = ev.users_events_dj_idTousers?.name || null;
+		const eventDate = ev.date || null;
+		const eventStatus = ev.event_status_id || null;
+		const venueName = ev.venues?.venue || null;
+		const totalPrice = Number(ev.event_cost || cost || 0);
+		const totalCost = Number(cost || 0);
+		const extraCost = Number(ev.extra_cost || 0);
+		const profit = Number(ev.profit || 0);
+		const paymentReceived = Number(payment_sum || 0);
+		const paymentRemaining = totalPrice - paymentReceived;
+
 		return {
-			id: ev.id,
-			event_cost: ev.event_cost || cost,
-			user_id: ev.user_id || null,
-			refund_amount: ev.refund_amount || 0,
-			event_status_id: ev.event_status_id || null,
-			date: ev.date || null,
-			extra_cost: ev.extra_cost || null,
-			profit: ev.profit || null,
-			venue_id: ev.venue_id || null,
-			venue: ev.venues?.venue || null,
-			dj_first_name: ev.users_events_dj_idTousers?.name || null,
-			name: ev.users_events_user_idTousers?.name || null,
-			company_name: ev.names_id || null,
-			sell_price: event_packages_sum_sell_price,
-			dj_cost_price,
-			total_cost_for_equipment: ev.total_cost_for_equipment || null,
-			deposit_amount: payment_sum,
-			event_packages_sum_sell_price,
-			extra_cost_price_total,
-			basic_cost_price_total,
-			cost,
+			company_name: companyName,
+			client_name: clientName,
+			event_date: eventDate,
+			event_status: eventStatus,
+			dj_name: djName,
+			venue_name: venueName,
+			total_price: totalPrice,
+			total_cost: totalCost,
+			extra_cost: extraCost,
+			profit: profit,
+			payment_received: paymentReceived,
+			payment_remaining: paymentRemaining,
 		};
 	});
 
@@ -390,8 +476,8 @@ const adminReport = catchAsync(async (req, res) => {
 	const totalEvents = await eventSvc.model.count({ where });
 	const today = new Date();
 	const remainingEvents = await eventSvc.model.count({ where: { ...where, date: { gte: today } } });
-	const totalCost = data.reduce((s, r) => s + Number(r.cost || 0), 0);
-	const totalPaid = data.reduce((s, r) => s + Number(r.deposit_amount || 0), 0);
+	const totalCost = data.reduce((s, r) => s + Number(r.total_cost || 0), 0);
+	const totalPaid = data.reduce((s, r) => s + Number(r.payment_received || 0), 0);
 	const remaining = totalCost - totalPaid;
 
 	res.json(

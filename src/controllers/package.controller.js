@@ -392,13 +392,41 @@ const deletePackage = catchAsync(async (req, res) => {
 });
 
 const deleteManyPackages = catchAsync(async (req, res) => {
-  const idsParam = req.params.ids;
-  if (!idsParam) return res.status(400).json({ error: "ids_required" });
-  const ids = idsParam
-    .split(",")
-    .map((s) => Number(s.trim()))
-    .filter((n) => !Number.isNaN(n));
+  let idsParam = req.params?.ids ?? (req.body && req.body.ids);
+  if (idsParam == null) return res.status(400).json({ error: "ids_required" });
+
+  // Normalize the incoming `ids` which may be a string ("1,2,3"),
+  // an array ([1,2,3]), a single number (1), or a JSON string ("[1,2]").
+  let idsArray = [];
+  if (Array.isArray(idsParam)) {
+    idsArray = idsParam;
+  } else if (typeof idsParam === "string") {
+    const trimmed = idsParam.trim();
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) idsArray = parsed;
+        else idsArray = [parsed];
+      } catch (e) {
+        // fallback to comma-split
+        idsArray = trimmed.replace(/^\[|\]$/g, "").split(",");
+      }
+    } else {
+      idsArray = trimmed.length ? trimmed.split(",") : [];
+    }
+  } else if (typeof idsParam === "number") {
+    idsArray = [idsParam];
+  } else if (typeof idsParam === "object" && idsParam !== null) {
+    // If an object was passed (e.g., { ids: [...] }) try to extract array
+    if (Array.isArray(idsParam.ids)) idsArray = idsParam.ids;
+    else idsArray = [idsParam];
+  }
+
+  const ids = idsArray
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n));
   if (ids.length === 0) return res.status(400).json({ error: "invalid_ids" });
+
   const force = req.body && req.body.force === true;
   await prisma.$transaction(async (tx) => {
     await tx.package_user_equipment.deleteMany({ where: { package_user_id: { in: ids } } });

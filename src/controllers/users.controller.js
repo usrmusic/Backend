@@ -212,43 +212,50 @@ const deleteUser = catchAsync(async (req, res) => {
 });
 
 const deleteManyUsers = catchAsync(async (req, res) => {
-  console.log("hello")
-  let ids = [];
-  if (req.params && req.params.ids) {
-    if (Array.isArray(req.params.ids)) {
-      ids = req.params.ids.map((v) => Number(v));
-    } else {
-      const raw = String(req.params.ids).trim();
+  let idsParam = req.body?.ids;
+  if (idsParam == null) return res.status(400).json({ error: "ids_required" });
+
+  let idsArray = [];
+  if (Array.isArray(idsParam)) {
+    idsArray = idsParam;
+  } else if (typeof idsParam === "string") {
+    const raw = idsParam.trim();
+    if (raw.startsWith("[") && raw.endsWith("]")) {
       try {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) ids = parsed.map((v) => Number(v));
-        else ids = [Number(parsed)];
+        if (Array.isArray(parsed)) idsArray = parsed;
+        else idsArray = [parsed];
       } catch (e) {
-        ids = raw
-          .split(",")
-          .map((s) => Number(s.trim()))
-          .filter((n) => !Number.isNaN(n));
+        idsArray = raw.replace(/^\[|\]$/g, "").split(",");
       }
+    } else {
+      idsArray = raw.length ? raw.split(",") : [];
     }
+  } else if (typeof idsParam === "number") {
+    idsArray = [idsParam];
+  } else if (typeof idsParam === "object" && idsParam !== null) {
+    if (Array.isArray(idsParam.ids)) idsArray = idsParam.ids;
+    else idsArray = [idsParam];
   }
+
+  const ids = idsArray
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n));
 
   if (!Array.isArray(ids) || ids.length === 0)
     return res.status(400).json({ error: "ids_required" });
 
-  // Support `force` option from params (e.g., route may include a `force` param)
+  // Support `force` option from body
   const force = !!(
-    req.params &&
-    (req.params.force === true ||
-      req.params.force === "true" ||
-      req.params.force === "1")
+    req.body &&
+    (req.body.force === true || req.body.force === "true" || req.body.force === "1")
   );
 
   // Delegate deletion to the CoreCrudService (userSvc)
   const result = await userSvc.deleteMany(ids, { force });
 
   // Normalize response
-  const count =
-    result && typeof result.count === "number" ? result.count : undefined;
+  const count = result && typeof result.count === "number" ? result.count : undefined;
   res.json({ ok: true, count });
 });
 

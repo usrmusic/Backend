@@ -33,10 +33,10 @@ router
   );
 router
   .route("/delete-many")
-  .delete(
+  .post(
     verifyAccessToken,
-    validate(userValidation.deleteManyUsers),
     checkPermission("manage all"),
+    validate(userValidation.deleteManyUsers),
     userController.deleteManyUsers,
   );
 router

@@ -62,7 +62,7 @@ router.route('/:id')
     companyController.deleteCompany,
   );
 
-router.route("/delete-many/:ids").delete(
+router.route("/delete-many").post(
   checkPermissions,
   validate(companyValidation.deleteCompanies),
   companyController.deleteCompanies,

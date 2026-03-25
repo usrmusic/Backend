@@ -59,8 +59,7 @@ const deletePackage = {
 };
 
 const deleteManyPackages = {
-  params: Joi.object({ ids: Joi.alternatives().try(Joi.array().items(Joi.number().integer()), Joi.string()).required() }),
-  body: Joi.object({ force: Joi.boolean().optional() }).optional(),
+  body: Joi.object({ ids: Joi.alternatives().try(Joi.array().items(Joi.number().integer()), Joi.string()).required(), force: Joi.boolean().optional() }).optional(),
 };
 
 export default {

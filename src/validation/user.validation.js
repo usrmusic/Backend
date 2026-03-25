@@ -60,7 +60,7 @@ const deleteUser = {
 };
 
 const deleteManyUsers = {
-  params: Joi.object({
+  body: Joi.object({
     ids: Joi.array().items(Joi.number().integer()).min(1).required(),
     force: Joi.boolean().default(false),
   }),

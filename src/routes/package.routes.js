@@ -40,8 +40,8 @@ router
     packageController.deletePackage,
   );
 router
-  .route("/delete-many/:ids")
-  .delete(
+  .route("/delete-many")
+  .post(
     protectAdmin,
     validate(packageValidation.deleteManyPackages),
     packageController.deleteManyPackages,

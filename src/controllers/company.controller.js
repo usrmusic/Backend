@@ -249,6 +249,10 @@ const deleteCompany = catchAsync(async (req, res) => {
   res.json({ ok: true });
 });
 
+export const listCompanyDropdown = catchAsync(async (req, res) => {
+  const items = await companySvc.model.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  res.json({ data: serializeForJson(items) });
+});
 // Helper: remove uploaded files for a company record (handles s3/local and shared refs)
 async function removeCompanyFiles(c) {
   const uploadsDir = getUploadsDir();
@@ -292,4 +296,5 @@ async function removeCompanyFiles(c) {
   }
 }
 
-export default { listCompanies, getCompany, createCompany, updateCompany, deleteCompany, deleteCompanies };
+
+export default { listCompanies, getCompany, createCompany, updateCompany, deleteCompany, deleteCompanies, listCompanyDropdown };

@@ -39,6 +39,7 @@ router
     validate(companyValidation.createCompany),
     companyController.createCompany,
   );
+router.route("/get-dropdown").get(checkPermissions, companyController.listCompanyDropdown);
 
 router.route('/:id')
   .get(

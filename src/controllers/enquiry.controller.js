@@ -25,7 +25,6 @@ const createEnquiry = catchAsync(async (req, res) => {
   let venue = null;
   let client = null;
   let event = null;
-  console.log(data.new_venue_name);
   if (!data.venue_id && data.new_venue_name) {
     try {
       venue = await venueSvc.create({
@@ -294,6 +293,7 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
     perPage,
     select: {
       id: true,
+      details: true,
       date: true,
       usr_name: true,
       brochure_emailed: true,
@@ -338,7 +338,7 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
     const evNotes = notes.filter((n) => Number(n.event_id) === Number(ev.id));
     return {
       ...ev,
-      event_packages: evPackages,
+      // event_packages: evPackages,
       event_notes: evNotes,
       last_note: evNotes.length ? evNotes[0] : null,
     };
@@ -800,6 +800,40 @@ const staffEquipment = catchAsync(async (req, res) => {
     // normalize package payload for frontend parity
     // frontend expects `package_user_equipments` (plural) and `user` (singular)
     if (equipments) {
+      // If Prisma relation mapping is out-of-sync the nested `equipment` may be null.
+      // In that case, load equipment lines via raw SQL (same approach used in package.controller).
+      const needsRawLoad = !Array.isArray(equipments.package_user_equipment) ||
+        equipments.package_user_equipment.some((p) => !p || !p.equipment || !p.equipment.id);
+
+      if (needsRawLoad) {
+        try {
+          const equipmentRows = await prisma.$queryRaw`
+            SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
+                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+            FROM package_user_equipment p
+            LEFT JOIN equipment e ON e.id = p.equipment_id
+            WHERE p.package_user_id = ${Number(equipments.id)}
+          `;
+
+          equipments.package_user_equipment = (equipmentRows || []).map((r) => ({
+            package_user_id: r.package_user_id,
+            equipment_id: r.equipment_id,
+            equipment_order_id: r.equipment_order_id,
+            quantity: r.quantity,
+            equipment: r.equipment_id
+              ? {
+                  id: Number(r.equipment_id),
+                  name: r.equipment_name,
+                  cost_price: r.equipment_cost_price,
+                  sell_price: r.equipment_sell_price,
+                }
+              : null,
+          }));
+        } catch (e) {
+          // if raw query fails, leave package_user_equipment as-is
+        }
+      }
+
       if (Array.isArray(equipments.package_user_equipment) && !Array.isArray(equipments.package_user_equipments)) {
         equipments.package_user_equipments = equipments.package_user_equipment;
       }

@@ -747,27 +747,53 @@ const staffEquipment = catchAsync(async (req, res) => {
     }
 
     // Fetch package definition for this user/package via core CRUD
-    var equipments = await packageUserSvc.model
-      .findFirst({
-        where: {
-          user_id: staffId || undefined,
-          package_name: pkgName || undefined,
-        },
-        include: {
-          users: { select: { id: true, name: true, email: true } },
-          package_user_properties: true,
-          package_user_equipment: {
-            include: {
-              equipment: {
-                include: {
-                  equipment_properties: { include: { properties: true } },
-                },
-              },
+        // Load base package without `package_user_equipment` relation because
+        // some environments (production DB) may not expose the expected relation
+        // columns — querying it directly can raise ``column does not exist``.
+        var equipments = await packageUserSvc.model
+          .findFirst({
+            where: {
+              user_id: staffId || undefined,
+              package_name: pkgName || undefined,
             },
-          },
-        },
-      })
-      .catch(() => null);
+            include: {
+              users: { select: { id: true, name: true, email: true } },
+              package_user_properties: true,
+              // intentionally omit package_user_equipment to avoid schema mismatch
+            },
+          })
+          .catch(() => null);
+
+        // If we found a package, always load equipment lines via raw SQL to avoid
+        // Prisma relation mapping issues (parity with package.controller.js).
+        if (equipments && equipments.id) {
+          try {
+            const equipmentRows = await prisma.$queryRaw`
+              SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
+                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+              FROM package_user_equipment p
+              LEFT JOIN equipment e ON e.id = p.equipment_id
+              WHERE p.package_user_id = ${Number(equipments.id)}
+            `;
+
+            equipments.package_user_equipment = (equipmentRows || []).map((r) => ({
+              package_user_id: r.package_user_id,
+              equipment_id: r.equipment_id,
+              equipment_order_id: r.equipment_order_id,
+              quantity: r.quantity,
+              equipment: r.equipment_id
+                ? {
+                    id: Number(r.equipment_id),
+                    name: r.equipment_name,
+                    cost_price: r.equipment_cost_price,
+                    sell_price: r.equipment_sell_price,
+                  }
+                : null,
+            }));
+          } catch (e) {
+            // leave package_user_equipment undefined on failure
+          }
+        }
 
     // compute equipment ids present in the package
     const equipmentIds =

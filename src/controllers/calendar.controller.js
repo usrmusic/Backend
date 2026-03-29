@@ -20,7 +20,18 @@ const getCalenderEvents = catchAsync(async (req, res) => {
 
     const events = await eventSvc.list({
         filter,
-        select: { id: true, date: true },
+        select: {
+            id: true,
+            date: true,
+            user_id: true,
+            venue_id: true,
+            venues: {
+                select: { id: true, venue: true },
+            },
+            users_events_user_idTousers: {
+                select: { id: true, name: true, profile_photo: true },
+            },
+        },
         perPage: 1000,
         sort: 'date:asc',
     });

@@ -475,118 +475,125 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
 
 const getConfirmEvent = catchAsync(async (req, res) => {
   const event_id = Number(req.params.id);
+  if (!event_id) return res.status(400).json({ error: "invalid_id" });
 
-  // load event with related data including any event-specific uploads
-  // include contracts and their signatures so we can presign any stored keys
-  const event = await prisma.event
-    .findUnique({
-      where: { id: event_id },
-      include: {
-        users_events_user_idTousers: true,
-        venues: true,
-        event_package: true,
-        event_payments: true,
-        // load related file uploads attached to this event
-        file_uploads: { include: { users: true, events: true } },
-        contracts: { include: { signatures: true } },
-      },
-    })
-    .catch(() => null);
+  // Batch independent reads in a single transaction to reduce DB round-trips
+  const [event, globalFiles, notes, todos] = await prisma
+    .$transaction([
+      prisma.event.findUnique({
+        where: { id: event_id },
+        include: {
+          users_events_user_idTousers: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } },
+          venues: true,
+          event_package: true,
+          event_payments: true,
+          file_uploads: { include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } },
+          contracts: { include: { signatures: true } },
+        },
+      }),
+      prisma.fileUpload.findMany({ where: { event_id: null, general: true }, include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } }),
+      prisma.eventNote.findMany({ where: { event_id }, orderBy: { id: 'asc' } }),
+      prisma.todos.findMany({ where: { event_id }, orderBy: { id: 'asc' } }),
+    ])
+    .catch(() => [null, [], [], []]);
 
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
-  // fetch global files (where event_id is null and general = true)
-  const globalFiles = await prisma.fileUpload
-    .findMany({
-      where: { event_id: null, general: true },
-      include: { users: true, events: true },
-    })
-    .catch(() => []);
+  // merge global files with event uploads
+  event.file_uploads = (Array.isArray(event.file_uploads) ? event.file_uploads : []).concat(globalFiles || []);
 
-  // merge event-specific uploads with global files (preserve array shape)
-  const eventFiles = Array.isArray(event.file_uploads)
-    ? event.file_uploads
-    : [];
-  const mergedFiles = eventFiles.concat(globalFiles || []);
-  // attach merged files to the response under the same key used elsewhere
-  event.file_uploads = mergedFiles;
+  // merged presign pipeline: contracts (pdf + signatures), company admin signature, contract_pdf_url (best-effort)
+  try {
+    const presignTasks = [];
 
-  // presign contract PDFs and signature images (best-effort)
-  if (Array.isArray(event.contracts)) {
-    for (const contract of event.contracts) {
-      if (contract && contract.signed_pdf_path) {
-        try {
-          contract.signed_pdf_url = await getSignedGetUrl(
-            contract.signed_pdf_path,
+    // contracts and their signatures
+    if (Array.isArray(event.contracts)) {
+      for (const contract of event.contracts) {
+        if (contract?.signed_pdf_path) {
+          presignTasks.push(
+            getSignedGetUrl(String(contract.signed_pdf_path))
+              .then((url) => {
+                contract.signed_pdf_url = url;
+              })
+              .catch(() => {
+                contract.signed_pdf_url = null;
+              }),
           );
-        } catch (e) {
-          contract.signed_pdf_url = null;
         }
-      }
-      if (Array.isArray(contract.signatures)) {
-        for (const sig of contract.signatures) {
-          if (sig && sig.signature_path) {
-            try {
-              sig.signature_url = await getSignedGetUrl(sig.signature_path);
-            } catch (e) {
-              sig.signature_url = null;
+        if (Array.isArray(contract.signatures)) {
+          for (const sig of contract.signatures) {
+            if (sig?.signature_path) {
+              presignTasks.push(
+                getSignedGetUrl(String(sig.signature_path))
+                  .then((url) => {
+                    sig.signature_url = url;
+                  })
+                  .catch(() => {
+                    sig.signature_url = null;
+                  }),
+              );
             }
           }
         }
       }
     }
-  }
 
-  // attach company name details (including admin signature presign)
-  if (event.names_id) {
-    try {
-      const company = await prisma.companyName
+    // company fetch + admin signature
+    if (event.names_id) {
+      const companyPromise = prisma.companyName
         .findUnique({ where: { id: BigInt(event.names_id) } })
-        .catch(() => null);
-      if (company) {
-        if (company.admin_signature) {
-          try {
-            company.admin_signature_url = await getSignedGetUrl(
-              company.admin_signature,
-            );
-          } catch (e) {
-            company.admin_signature_url = null;
+        .catch(() => null)
+        .then(async (company) => {
+          if (!company) return null;
+          if (company.admin_signature) {
+            try {
+              company.admin_signature_url = await getSignedGetUrl(String(company.admin_signature));
+            } catch {
+              company.admin_signature_url = null;
+            }
           }
-        }
+          return company;
+        })
+        .then((company) => {
+          if (company) event.company_names = company;
+        })
+        .catch(() => {});
+      presignTasks.push(companyPromise);
+    }
 
-        // presign any contract PDF stored directly on the event row (contract_pdf_url)
-        try {
-          if (event.contract_pdf_url) {
+    // contract_pdf_url
+    if (event.contract_pdf_url) {
+      presignTasks.push(
+        (async () => {
+          try {
             let key = null;
             try {
               const u = new URL(String(event.contract_pdf_url));
               key = u.pathname.replace(/^\//, "");
-            } catch (e) {
-              // not a full URL, assume it's already a stored key
+            } catch {
               key = String(event.contract_pdf_url);
             }
             if (key) {
               try {
-                event.contract_pdf_url = await getSignedGetUrl(key);
-              } catch (e) {
-                // leave original value if presign fails
+                const signed = await getSignedGetUrl(key);
+                event.contract_pdf_url = signed;
+              } catch {
+                // leave original
               }
             }
-          }
-        } catch (e) {}
-        // match Laravel shape: attach as `company_names`
-        event.company_names = company;
-      }
-    } catch (e) {}
+          } catch (e) {}
+        })(),
+      );
+    }
+
+    await Promise.allSettled(presignTasks);
+  } catch (e) {
+    // swallow presign errors (best-effort)
   }
 
-        // attach event notes list
-        try {
-          const notes = await prisma.eventNote.findMany({ where: { event_id }, orderBy: { id: 'asc' } }).catch(() => []);
-          event.event_notes = notes || [];
-        } catch (e) {
-          event.event_notes = [];
-        }
+  // attach notes and todos fetched in the transaction
+  event.event_notes = notes || [];
+  event.todos = todos || [];
 
   res.json(serializeForJson({ success: true, data: event }));
 });

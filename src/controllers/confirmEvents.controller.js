@@ -580,6 +580,14 @@ const getConfirmEvent = catchAsync(async (req, res) => {
     } catch (e) {}
   }
 
+        // attach event notes list
+        try {
+          const notes = await prisma.eventNote.findMany({ where: { event_id }, orderBy: { id: 'asc' } }).catch(() => []);
+          event.event_notes = notes || [];
+        } catch (e) {
+          event.event_notes = [];
+        }
+
   res.json(serializeForJson({ success: true, data: event }));
 });
 

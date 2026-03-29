@@ -72,6 +72,18 @@ const createEnquiry = catchAsync(async (req, res) => {
   };
   const startTimeObj = toUtcDateTime(data.event_date, data.start_time);
   const endTimeObj = toUtcDateTime(data.event_date, data.end_time);
+  // resolve DJ id from provided dj_name (or accept dj_id if provided)
+  let djId = null;
+  try {
+    if (data.dj_id) {
+      djId = Number(data.dj_id);
+    } else if (data.dj_name) {
+      const djUser = await prisma.user.findFirst({ where: { name: data.dj_name } }).catch(() => null);
+      if (djUser && djUser.id) djId = Number(djUser.id);
+    }
+  } catch (e) {
+    djId = null;
+  }
   event = await prisma.event.findFirst({
     where: {
       date: eventDateObj,
@@ -102,6 +114,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       deposit_amount: data.deposit_amount != null ? data.deposit_amount : null,
       details: data.event_details || null,
       dj_package_name: data.dj_package_name || null,
+      dj_id: djId != null ? djId : undefined,
       total_cost_for_equipment:
         data.total_cost != null ? String(data.total_cost) : null,
       dj_cost_price_for_event:
@@ -133,6 +146,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       deposit_amount: data.deposit_amount != null ? data.deposit_amount : null,
       details: data.event_details || null,
       dj_package_name: data.dj_package_name || null,
+      dj_id: djId != null ? djId : null,
       total_cost_for_equipment:
         data.total_cost != null ? String(data.total_cost) : null,
       dj_cost_price_for_event:

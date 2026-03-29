@@ -16,6 +16,14 @@ router
     confirmEventsController.listConfirmEvents,
   );
 router
+  .route("/completed")
+  .get(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(confirmEventsValidation.listConfirmEvents),
+    confirmEventsController.listCompletedConfirmEvents,
+  );
+router
   .route("/send-invoice")
   .post(
     verifyAccessToken,

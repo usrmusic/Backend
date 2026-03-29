@@ -18,7 +18,8 @@ app.use(express.urlencoded({ extended: true }));
 const allowedOrigins = [
 	'http://localhost:3000',
 	'https://usrmusic.com',
-	'http://usrmusic.com'
+	'http://usrmusic.com',
+	'https://usr-music.vercel.app'
 ];
 
 app.use(

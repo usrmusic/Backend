@@ -104,6 +104,22 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
   res.status(501).json({ error: "not_implemented" });
 });
 
+const getEquipmentDropdown = catchAsync(async (req, res) => {
+  const items = await equipmentSvc.model
+    .findMany({
+      select: {
+        id: true,
+        name: true,
+      },
+      where: { status: "ACTIVE" },
+      orderBy: { name: "asc" },
+    })
+    .catch(() => []);
+
+  res.json(serializeForJson(items));
+});
+
+
 export default {
   listEquipment,
   getEquipment,
@@ -111,4 +127,5 @@ export default {
   updateEquipment,
   deleteEquipment,
   deleteManyEquipment,
+  getEquipmentDropdown,
 };

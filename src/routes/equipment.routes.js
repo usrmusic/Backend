@@ -20,6 +20,9 @@ router
     equipmentController.createEquipment,
   );
 router
+  .route("/get-dropdown")
+  .get(verifyAccessToken, equipmentController.getEquipmentDropdown);
+router
   .route("/:id")
   .get(
     protectAdmin,

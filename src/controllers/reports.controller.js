@@ -293,190 +293,223 @@ const suppliersReport = catchAsync(async (req, res) => {
 
 const adminReport = catchAsync(async (req, res) => {
 	const q = req.query || {};
-	const { where: baseWhere = {}, orderBy, take, skip } = parseFilterSort(q);
+	const { orderBy, take } = parseFilterSort(q);
 	const page = Number(q.page || q.p || 1) || 1;
 	const perPage = Number(q.perPage || q.per_page || q.limit || take || 1000) || (take || 1000);
+	const offset = (Math.max(page, 1) - 1) * Math.max(perPage, 1);
 
-	// build where
-	const where = { ...baseWhere };
-	if (q.startDate || q.endDate) {
-		where.date = where.date || {};
-		if (q.startDate) where.date.gte = new Date(q.startDate);
-		if (q.endDate) where.date.lte = new Date(q.endDate);
+	const whereClauses = [];
+	const params = [];
+
+	if (q.startDate) {
+		whereClauses.push('e.date >= ?');
+		params.push(new Date(q.startDate));
 	}
-	if (q.event_date) where.date = new Date(q.event_date);
-	if (q.event_status) where.event_status_id = Number(q.event_status);
+	if (q.endDate) {
+		whereClauses.push('e.date <= ?');
+		params.push(new Date(q.endDate));
+	}
+	if (q.event_date) {
+		whereClauses.push('e.date = ?');
+		params.push(new Date(q.event_date));
+	}
+	if (q.event_status !== undefined && q.event_status !== null && q.event_status !== '') {
+		whereClauses.push('e.event_status_id = ?');
+		params.push(Number(q.event_status));
+	}
 	if (q.search) {
 		const s = String(q.search).trim();
 		if (s) {
-			where.OR = where.OR || [];
-			where.OR.push(
-				{ usr_name: { contains: s } },
-				{ venues: { is: { venue: { contains: s } } } },
-				{ users_events_user_idTousers: { is: { OR: [{ name: { contains: s } }, { email: { contains: s } }, { contact_number: { contains: s } }] } } },
-			);
+			whereClauses.push('(u_client.name LIKE ? OR u_client.email LIKE ? OR u_client.contact_number LIKE ? OR v.venue LIKE ?)');
+			const like = `%${s}%`;
+			params.push(like, like, like, like);
 		}
 	}
-	if (q.venue_name) where.venues = { is: { venue: { contains: String(q.venue_name) } } };
-
-	// company_name filter: resolve matching company ids then filter names_id
+	if (q.venue_name) {
+		whereClauses.push('v.venue LIKE ?');
+		params.push(`%${String(q.venue_name).trim()}%`);
+	}
 	if (q.company_name) {
-		const companies = await prisma.companyName.findMany({ where: { name: { contains: String(q.company_name) } }, select: { id: true } });
-		const ids = companies.map((c) => c.id);
-		if (ids.length) where.names_id = { in: ids };
+		whereClauses.push('c.name LIKE ?');
+		params.push(`%${String(q.company_name).trim()}%`);
+	}
+	if (q.dj_name) {
+		whereClauses.push('u_dj.name LIKE ?');
+		params.push(`%${String(q.dj_name).trim()}%`);
 	}
 
-	// dj_name filter
-	if (q.dj_name) where.users_events_dj_idTousers = { is: { name: { contains: String(q.dj_name) } } };
-
-	// numeric/range filters direct mapping
-	if (q.total_price !== undefined) where.total_cost_for_equipment = Number(q.total_price);
-	if (q.cost !== undefined) where.total_cost_for_equipment = Number(q.cost);
-	if (q.extra_cost !== undefined) where.extra_cost = Number(q.extra_cost);
-	if (q.profit !== undefined) where.profit = Number(q.profit);
-
-	// pagination + fetch events
-	const events = await eventSvc.list({
-		filter: where,
-		select: {
-			id: true,
-			event_cost: true,
-			user_id: true,
-			refund_amount: true,
-			event_status_id: true,
-			date: true,
-			extra_cost: true,
-			profit: true,
-			venue_id: true,
-			venues: { select: { id: true, venue: true } },
-			users_events_user_idTousers: { select: { id: true, name: true } },
-			users_events_dj_idTousers: { select: { id: true, name: true } },
-			dj_id: true,
-			dj_package_name: true,
-			dj_cost_price_for_event: true,
-			total_cost_for_equipment: true,
-		},
-		sort: typeof orderBy === 'object' ? Object.keys(orderBy)[0] + ':' + Object.values(orderBy)[0] : undefined,
-		page,
-		perPage,
-	});
-
-	const eventIds = events.map((e) => e.id);
-
-	// fetch event packages for aggregation
-	const eventPackages = eventIds.length
-		? await prisma.eventPackage.findMany({
-			  where: { event_id: { in: eventIds } },
-			  select: {
-				  event_id: true,
-				  package_type_id: true,
-				  sell_price: true,
-				  cost_price: true,
-				  quantity: true,
-				  equipment: { select: { cost_price: true } },
-			  },
-		  })
-		: [];
-
-	// fetch payments grouped per event
-	const payments = eventIds.length
-		? await prisma.eventPayment.findMany({ where: { event_id: { in: eventIds } }, select: { event_id: true, amount: true } })
-		: [];
-
-	// fetch package_users for DJs (to determine dj package cost_price)
-	const djIds = Array.from(new Set(events.map((e) => Number(e.dj_id)).filter(Boolean)));
-	const packageUsers = djIds.length
-		? await prisma.package_users.findMany({ where: { user_id: { in: djIds } }, select: { user_id: true, package_name: true, cost_price: true, sell_price: true } })
-		: [];
-
-	// aggregate per-event values
-	const pkgByEvent = new Map();
-	for (const p of eventPackages) {
-		const id = Number(p.event_id);
-		if (!pkgByEvent.has(id)) pkgByEvent.set(id, []);
-		pkgByEvent.get(id).push(p);
+	if (q.total_price !== undefined && q.total_price !== null && q.total_price !== '') {
+		whereClauses.push('CAST(e.total_cost_for_equipment AS DECIMAL(12,2)) = ?');
+		params.push(Number(q.total_price));
+	}
+	if (q.cost !== undefined && q.cost !== null && q.cost !== '') {
+		whereClauses.push('CAST(e.total_cost_for_equipment AS DECIMAL(12,2)) = ?');
+		params.push(Number(q.cost));
+	}
+	if (q.extra_cost !== undefined && q.extra_cost !== null && q.extra_cost !== '') {
+		whereClauses.push('e.extra_cost = ?');
+		params.push(Number(q.extra_cost));
+	}
+	if (q.profit !== undefined && q.profit !== null && q.profit !== '') {
+		whereClauses.push('e.profit = ?');
+		params.push(Number(q.profit));
 	}
 
-	const paymentsByEvent = new Map();
-	for (const p of payments) {
-		const id = Number(p.event_id);
-		paymentsByEvent.set(id, (paymentsByEvent.get(id) || 0) + Number(p.amount || 0));
-	}
+	const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-	const pkgUserMap = new Map();
-	for (const pu of packageUsers) {
-		pkgUserMap.set(`${pu.user_id}::${pu.package_name}`, pu);
-	}
+	const sortFieldRaw = typeof orderBy === 'object' && orderBy ? Object.keys(orderBy)[0] : undefined;
+	const sortDirectionRaw = typeof orderBy === 'object' && orderBy ? String(Object.values(orderBy)[0] || 'desc') : 'desc';
+	const sortDirection = sortDirectionRaw.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+	const sortMap = {
+		id: 'event_id',
+		date: 'event_date',
+		event_status_id: 'event_status',
+		client_name: 'client_name',
+		dj_name: 'dj_name',
+		venue_name: 'venue_name',
+		total_price: 'total_price',
+		total_cost: 'total_cost',
+		extra_cost: 'extra_cost',
+		profit: 'profit',
+		payment_received: 'payment_received',
+		payment_remaining: 'payment_remaining',
+	};
+	const safeSortField = sortMap[sortFieldRaw] || 'event_date';
 
-	const data = events.map((ev) => {
-		const pkgs = pkgByEvent.get(Number(ev.id)) || [];
-		const event_packages_sum_sell_price = pkgs.filter((x) => Number(x.package_type_id) === 2).reduce((s, r) => s + Number(r.sell_price || 0), 0);
+	const sql = `
+		WITH filtered_events AS (
+			SELECT
+				e.id,
+				e.event_cost,
+				e.event_status_id,
+				e.date,
+				e.extra_cost,
+				e.profit,
+				e.dj_id,
+				e.dj_package_name,
+				e.dj_cost_price_for_event,
+				e.total_cost_for_equipment,
+				u_client.name AS client_name,
+				u_dj.name AS dj_name,
+				v.venue AS venue_name,
+				c.name AS company_name
+			FROM events e
+			LEFT JOIN users u_client ON u_client.id = e.user_id
+			LEFT JOIN users u_dj ON u_dj.id = e.dj_id
+			LEFT JOIN venues v ON v.id = e.venue_id
+			LEFT JOIN company_names c ON c.id = e.names_id
+			${whereSql}
+		),
+		pkg_agg AS (
+			SELECT
+				ep.event_id,
+				SUM(
+					CASE
+						WHEN ep.package_type_id = 1 THEN
+							(CASE WHEN fe.event_status_id IN (3,4) THEN COALESCE(ep.cost_price, 0) ELSE COALESCE(eq.cost_price, 0) END) * COALESCE(ep.quantity, 0)
+						ELSE 0
+					END
+				) AS basic_cost_total,
+				SUM(
+					CASE
+						WHEN ep.package_type_id = 2 THEN
+							(CASE WHEN fe.event_status_id IN (3,4) THEN COALESCE(ep.cost_price, 0) ELSE COALESCE(eq.cost_price, 0) END) * COALESCE(ep.quantity, 0)
+						ELSE 0
+					END
+				) AS extra_cost_total
+			FROM event_package ep
+			JOIN filtered_events fe ON fe.id = ep.event_id
+			LEFT JOIN equipment eq ON eq.id = ep.equipment_id
+			GROUP BY ep.event_id
+		),
+		payments_agg AS (
+			SELECT event_id, SUM(COALESCE(amount, 0)) AS payment_received
+			FROM event_payments
+			WHERE event_id IN (SELECT id FROM filtered_events)
+			GROUP BY event_id
+		),
+		dj_pkg AS (
+			SELECT user_id, package_name, MAX(COALESCE(cost_price, 0)) AS cost_price
+			FROM package_users
+			GROUP BY user_id, package_name
+		),
+		final_rows AS (
+			SELECT
+				fe.company_name,
+				fe.client_name,
+				fe.date AS event_date,
+				fe.event_status_id AS event_status,
+				fe.dj_name,
+				fe.venue_name,
+				COALESCE(
+					fe.event_cost,
+					COALESCE(pa.basic_cost_total, 0) + COALESCE(pa.extra_cost_total, 0) +
+					(CASE WHEN fe.event_status_id IN (3,4) THEN COALESCE(fe.dj_cost_price_for_event, 0) ELSE COALESCE(dp.cost_price, 0) END),
+					0
+				) AS total_price,
+				(
+					COALESCE(pa.basic_cost_total, 0) + COALESCE(pa.extra_cost_total, 0) +
+					(CASE WHEN fe.event_status_id IN (3,4) THEN COALESCE(fe.dj_cost_price_for_event, 0) ELSE COALESCE(dp.cost_price, 0) END)
+				) AS total_cost,
+				COALESCE(fe.extra_cost, 0) AS extra_cost,
+				COALESCE(fe.profit, 0) AS profit,
+				COALESCE(pay.payment_received, 0) AS payment_received,
+				(
+					COALESCE(
+						fe.event_cost,
+						COALESCE(pa.basic_cost_total, 0) + COALESCE(pa.extra_cost_total, 0) +
+						(CASE WHEN fe.event_status_id IN (3,4) THEN COALESCE(fe.dj_cost_price_for_event, 0) ELSE COALESCE(dp.cost_price, 0) END),
+						0
+					) - COALESCE(pay.payment_received, 0)
+				) AS payment_remaining,
+				fe.id AS event_id,
+				COUNT(*) OVER() AS total_count,
+				SUM(CASE WHEN fe.date >= CURDATE() THEN 1 ELSE 0 END) OVER() AS remaining_events_count
+			FROM filtered_events fe
+			LEFT JOIN pkg_agg pa ON pa.event_id = fe.id
+			LEFT JOIN payments_agg pay ON pay.event_id = fe.id
+			LEFT JOIN dj_pkg dp ON dp.user_id = fe.dj_id AND dp.package_name = fe.dj_package_name
+		)
+		SELECT
+			company_name,
+			client_name,
+			event_date,
+			event_status,
+			dj_name,
+			venue_name,
+			total_price,
+			total_cost,
+			extra_cost,
+			profit,
+			payment_received,
+			payment_remaining,
+			total_count,
+			remaining_events_count,
+			event_id
+		FROM final_rows
+		ORDER BY ${safeSortField} ${sortDirection}, event_id DESC
+		LIMIT ? OFFSET ?
+	`;
 
-		// compute package totals using Laravel parity rule:
-		// when event_status_id IN (1,2) use equipment.cost_price * quantity
-		// when event_status_id IN (3,4) use event_package.cost_price * quantity
-		const extra_cost_price_total = pkgs
-			.filter((x) => Number(x.package_type_id) === 2)
-			.reduce((s, r) => {
-				const pkgCost = (ev.event_status_id === 3 || ev.event_status_id === 4) ? Number(r.cost_price || 0) : Number(r.equipment?.cost_price || 0);
-				return s + pkgCost * Number(r.quantity || 0);
-			}, 0);
+	const rows = await prisma.$queryRawUnsafe(sql, ...params, Math.max(perPage, 1), offset);
 
-		const basic_cost_price_total = pkgs
-			.filter((x) => Number(x.package_type_id) === 1)
-			.reduce((s, r) => {
-				const pkgCost = (ev.event_status_id === 3 || ev.event_status_id === 4) ? Number(r.cost_price || 0) : Number(r.equipment?.cost_price || 0);
-				return s + pkgCost * Number(r.quantity || 0);
-			}, 0);
+	const data = (rows || []).map((r) => ({
+		company_name: r.company_name || null,
+		client_name: r.client_name || null,
+		event_date: r.event_date || null,
+		event_status: r.event_status || null,
+		dj_name: r.dj_name || null,
+		venue_name: r.venue_name || null,
+		total_price: Number(r.total_price || 0),
+		total_cost: Number(r.total_cost || 0),
+		extra_cost: Number(r.extra_cost || 0),
+		profit: Number(r.profit || 0),
+		payment_received: Number(r.payment_received || 0),
+		payment_remaining: Number(r.payment_remaining || 0),
+	}));
 
-		// dj cost price logic
-		let dj_cost_price = 0;
-		if (ev.event_status_id === 3 || ev.event_status_id === 4) {
-			dj_cost_price = Number(ev.dj_cost_price_for_event || 0);
-		} else {
-			const key = `${ev.dj_id}::${ev.dj_package_name}`;
-			const pu = pkgUserMap.get(key);
-			if (pu) dj_cost_price = Number(pu.cost_price || 0);
-		}
-
-		const cost = basic_cost_price_total + extra_cost_price_total + dj_cost_price;
-		const payment_sum = paymentsByEvent.get(Number(ev.id)) || 0;
-
-		// map to requested flattened fields
-		// lookup company by id and return its name (frontend expects string)
-		const companyName = ev.names_id ? companyById.get(String(BigInt(ev.names_id))) : null;
-		const clientName = ev.users_events_user_idTousers?.name || null;
-		const djName = ev.users_events_dj_idTousers?.name || null;
-		const eventDate = ev.date || null;
-		const eventStatus = ev.event_status_id || null;
-		const venueName = ev.venues?.venue || null;
-		const totalPrice = Number(ev.event_cost || cost || 0);
-		const totalCost = Number(cost || 0);
-		const extraCost = Number(ev.extra_cost || 0);
-		const profit = Number(ev.profit || 0);
-		const paymentReceived = Number(payment_sum || 0);
-		const paymentRemaining = totalPrice - paymentReceived;
-
-		return {
-			company_name: companyName ? companyName.name : null,
-			client_name: clientName,
-			event_date: eventDate,
-			event_status: eventStatus,
-			dj_name: djName,
-			venue_name: venueName,
-			total_price: totalPrice,
-			total_cost: totalCost,
-			extra_cost: extraCost,
-			profit: profit,
-			payment_received: paymentReceived,
-			payment_remaining: paymentRemaining,
-		};
-	});
-
-	// stats
-	const totalEvents = await eventSvc.model.count({ where });
-	const today = new Date();
-	const remainingEvents = await eventSvc.model.count({ where: { ...where, date: { gte: today } } });
+	const totalEvents = rows && rows.length ? Number(rows[0].total_count || 0) : 0;
+	const remainingEvents = rows && rows.length ? Number(rows[0].remaining_events_count || 0) : 0;
 	const totalCost = data.reduce((s, r) => s + Number(r.total_cost || 0), 0);
 	const totalPaid = data.reduce((s, r) => s + Number(r.payment_received || 0), 0);
 	const remaining = totalCost - totalPaid;

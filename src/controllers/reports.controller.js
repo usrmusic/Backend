@@ -443,7 +443,8 @@ const adminReport = catchAsync(async (req, res) => {
 		const payment_sum = paymentsByEvent.get(Number(ev.id)) || 0;
 
 		// map to requested flattened fields
-		const companyName = ev.names_id ? adminCompanyById.get(String(BigInt(ev.names_id))) : null;
+		// lookup company by id and return its name (frontend expects string)
+		const companyName = ev.names_id ? companyById.get(String(BigInt(ev.names_id))) : null;
 		const clientName = ev.users_events_user_idTousers?.name || null;
 		const djName = ev.users_events_dj_idTousers?.name || null;
 		const eventDate = ev.date || null;
@@ -457,7 +458,7 @@ const adminReport = catchAsync(async (req, res) => {
 		const paymentRemaining = totalPrice - paymentReceived;
 
 		return {
-			company_name: companyName,
+			company_name: companyName ? companyName.name : null,
 			client_name: clientName,
 			event_date: eventDate,
 			event_status: eventStatus,

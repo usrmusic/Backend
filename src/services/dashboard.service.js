@@ -146,8 +146,8 @@ async function getDashboardStats({ year = null } = {}) {
     const dateFilter = { gte: startOfYear, lte: endOfYear };
 
     /**
-     * 1. Primary Fetch: Aggregated Data
-     * We pull the fields needed for Turnover and Profit here.
+     * 1. Primary Fetch: Get all main event data for the year.
+     * We process these in-memory to avoid 12+ separate DB calls.
      */
     const events = await prisma.event.findMany({
         where: { date: dateFilter },
@@ -158,19 +158,24 @@ async function getDashboardStats({ year = null } = {}) {
             event_status_id: true,
             dj_id: true,
             couple_name: true,
-            event_amount_without_vat: true, // Used for Turnover calculation
+            is_event_payment_fully_paid: true,
+            event_amount_without_vat: true, // Used for Turnover
             vat_value: true,
+            event_cost: true,
             users_events_dj_idTousers: { select: { id: true, name: true } },
             event_statuses: { select: { id: true, status: true } },
         },
     });
 
-    // --- In-Memory Aggregations ---
-    let totalTurnover = 0;
+    // --- In-Memory Aggregations (Turnover, Profit, Monthly) ---
+    const totalEvents = events.length;
     let totalProfit = 0;
+    let totalTurnover = 0;
+
     const monthlyCounts = new Array(12).fill(0);
     const monthlyProfits = new Array(12).fill(0);
     const monthlyTurnover = new Array(12).fill(0);
+
     const statusCounts = {};
     const djCounts = {};
 
@@ -178,9 +183,11 @@ async function getDashboardStats({ year = null } = {}) {
         const netAmount = parseNumberLike(e.event_amount_without_vat);
         const profitAmount = parseNumberLike(e.profit);
         
+        // Update Totals
         totalTurnover += netAmount;
         totalProfit += profitAmount;
 
+        // Update Monthly Breakdown
         if (e.date) {
             const m = new Date(e.date).getMonth();
             monthlyCounts[m] += 1;
@@ -188,22 +195,23 @@ async function getDashboardStats({ year = null } = {}) {
             monthlyTurnover[m] += netAmount;
         }
 
-        const stName = e.event_statuses?.status || String(e.event_status_id || 'unknown');
+        // Sales Analytics (Status)
+        const stName = e.event_statuses?.status ? String(e.event_statuses.status) : String(e.event_status_id || 'unknown');
         statusCounts[stName] = (statusCounts[stName] || 0) + 1;
 
-        const djName = e.users_events_dj_idTousers?.name || (e.dj_id ? `DJ ID: ${e.dj_id}` : 'unassigned');
+        // Sales Analytics (DJ)
+        const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
     });
 
-    // Counts filtered by year (derived from memory to save DB calls)
     const openEnquiriesCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('enquiry')).length;
     const confirmedEventsCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('confirm')).length;
 
     /**
-     * 2. Secondary Queries (Parallelized for speed)
+     * 2. Secondary Queries: Executed in parallel via Promise.all
      */
-    const [pendingPaymentsRaw, openEnquiries, calendarEvents, notes] = await Promise.all([
-        // Pending: Now restricted by the selected year and includes status_id
+    const [pendingPaymentsRaw, openEnquiries, calendarEvents, recentNotes] = await Promise.all([
+        // Pending Payments: Filtered by year + includes status ID
         prisma.event.findMany({
             where: { is_event_payment_fully_paid: false, date: dateFilter },
             select: {
@@ -211,40 +219,38 @@ async function getDashboardStats({ year = null } = {}) {
                 couple_name: true,
                 deposit_amount: true,
                 payment_date: true,
-                event_status_id: true, // Included as requested
+                event_status_id: true,
                 event_payments: { select: { amount: true } },
-                users_events_user_idTousers: { select: { id: true, name: true } },
+                users_events_user_idTousers: { select: { id: true, name: true, email: true } },
             },
             orderBy: { date: 'asc' },
             take: 50,
         }),
-        // Open Enquiries: Restricted by year
+        // Open Enquiries List
         prisma.event.findMany({
             where: { event_statuses: { status: { contains: 'enquiry' } }, date: dateFilter },
             select: { id: true, couple_name: true, date: true },
             orderBy: { date: 'desc' },
             take: 50,
         }),
-        // Calendar: Now shows CONFIRMED events for the selected year
+        // Confirmed Calendar Events
         prisma.event.findMany({
-            where: { 
-                event_statuses: { status: { contains: 'confirm' } },
-                date: dateFilter 
-            },
+            where: { event_statuses: { status: { contains: 'confirm' } }, date: dateFilter },
             select: { id: true, date: true, couple_name: true },
             orderBy: { date: 'asc' },
             take: 200,
         }),
-        // Recent Notes: Linked to events in this year
+        // Notes related to this year's events
         prisma.eventNote.findMany({
-            where: { created_at: dateFilter },
+            where: { event_id: { in: events.map(e => e.id) } }, // Only notes for events fetched above
             orderBy: { created_at: 'desc' },
             take: 10,
+            select: { id: true, event_id: true, notes: true, created_at: true, created_by: true },
         })
     ]);
 
-    // Format pending payments
-    const pending = pendingPaymentsRaw.map((p) => {
+    // Map pending payments to include outstanding balance
+    const pendingPayments = pendingPaymentsRaw.map((p) => {
         const paid = (p.event_payments || []).reduce((s, it) => s + parseNumberLike(it.amount), 0);
         const expected = parseNumberLike(p.deposit_amount) || 0;
         return {
@@ -255,7 +261,7 @@ async function getDashboardStats({ year = null } = {}) {
             paid,
             outstanding: Math.max(0, expected - paid),
             payment_date: p.payment_date,
-            event_status_id: p.event_status_id // Returned to frontend
+            event_status_id: p.event_status_id
         };
     });
 
@@ -264,19 +270,19 @@ async function getDashboardStats({ year = null } = {}) {
         totalEvents,
         openEnquiriesCount,
         confirmedEventsCount,
-        totalTurnover, // New Field
+        totalTurnover,
         totalProfit,
         monthly: {
-            labels: MONTH_LABELS,
+            labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
             counts: monthlyCounts,
             profits: monthlyProfits,
-            turnover: monthlyTurnover, // Monthly turnover data
+            turnover: monthlyTurnover,
         },
         salesAnalytics: { statusCounts, djCounts },
-        pendingPayments: pending,
+        pendingPayments,
         openEnquiries,
         calendarEvents,
-        recentNotes: notes,
+        recentNotes
     };
 }
 

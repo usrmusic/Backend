@@ -228,14 +228,20 @@ async function getDashboardStats({ year = null } = {}) {
         // Open Enquiries List
         prisma.event.findMany({
             where: { event_statuses: { status: { contains: 'open' } }, date: dateFilter },
-            select: { id: true, couple_name: true, date: true },
+            select: {
+                id: true,
+                couple_name: true,
+                date: true,
+                users_events_dj_idTousers: { select: { id: true, name: true } },
+                users_events_user_idTousers: { select: { id: true, name: true } },
+            },
             orderBy: { date: 'desc' },
             take: 50,
         }),
         // Confirmed Calendar Events
         prisma.event.findMany({
             where: { event_statuses: { status: { contains: 'confirm' } }, date: dateFilter },
-            select: { id: true, date: true, couple_name: true },
+            select: { id: true, date: true },
             orderBy: { date: 'asc' },
             take: 200,
         }),

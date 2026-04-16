@@ -203,8 +203,7 @@ async function getDashboardStats({ year = null } = {}) {
         const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
     });
-
-    const openEnquiriesCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('enquiry')).length;
+    const openEnquiriesCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('open')).length;
     const confirmedEventsCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('confirm')).length;
 
     /**
@@ -228,7 +227,7 @@ async function getDashboardStats({ year = null } = {}) {
         }),
         // Open Enquiries List
         prisma.event.findMany({
-            where: { event_statuses: { status: { contains: 'enquiry' } }, date: dateFilter },
+            where: { event_statuses: { status: { contains: 'open' } }, date: dateFilter },
             select: { id: true, couple_name: true, date: true },
             orderBy: { date: 'desc' },
             take: 50,

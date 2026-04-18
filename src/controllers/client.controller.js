@@ -379,6 +379,8 @@ export const listclientdropdown = catchAsync(async (req, res) => {
   const clients = await userSvc.list({
     filter: { deleted_at: null, role_id: BigInt(4) },
     select: { id: true, name: true },
+    // request no pagination so dropdown gets the full set
+    perPage: null,
   });
   res.json(serializeForJson(clients));
 });

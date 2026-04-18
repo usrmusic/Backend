@@ -168,6 +168,11 @@ const deleteManyEnquiries = Joi.object({
       .required(),
   }),
 });
+const getEnquiry = Joi.object({
+  params: Joi.object({
+    id: Joi.number().integer().required(),
+  }),
+});
 
 export default {
   listOpenEnquiries,
@@ -178,6 +183,7 @@ export default {
   getEmail,
   sendEmail,
   updateEnquiry,
+  getEnquiry,
   deleteEnquiry,
   deleteManyEnquiries,
 };

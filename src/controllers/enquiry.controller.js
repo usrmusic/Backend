@@ -156,6 +156,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       created_by: req.user && req.user.id ? Number(req.user.id) : null,
       contract_token: uuidv4(),
       event_status_id: 1,
+      no_of_guests: data.guestCount != null ? Number(data.guestCount) : null,
     };
     event = await eventSvc.create(createPayload);
     // add initial note for newly created enquiry

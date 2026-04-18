@@ -896,6 +896,23 @@ const staffEquipment = catchAsync(async (req, res) => {
   );
 });
 
+const getEnquiryWithDetails = catchAsync(async (req, res) => {
+  const eventId = Number(req.params?.eventId || req.params?.id || req.query?.id || req.query?.event_id);
+  if (!Number.isFinite(eventId)) return res.status(400).json({ error: "event_id_required" });
+
+  const event = await eventSvc.getById(Number(eventId)).catch(() => null);
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  const packages = await prisma.eventPackage.findMany({
+    where: { event_id: eventId },
+    include: { equipment: true, package_types: true },
+  }).catch(() => []);
+
+  const notes = await prisma.eventNote.findMany({ where: { event_id: eventId }, orderBy: { id: "desc" } }).catch(() => []);
+
+  res.json(serializeForJson({ success: true, data: { ...event, event_packages: packages, event_notes: notes } }));
+});
+
 const addNote = catchAsync(async (req, res) => {
   const event_id = req.params?.id
     ? Number(req.params.id)
@@ -1307,6 +1324,7 @@ export default {
   deleteManyEnquiries,
   staffEquipment,
   addNote,
+  getEnquiryWithDetails,
   getEmail,
   sendBrochure,
   sendUpdateEmail,

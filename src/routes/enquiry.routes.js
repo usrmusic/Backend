@@ -73,6 +73,12 @@ router
   );
 
 router.route("/:id")
+  .get(
+    verifyAccessToken,
+    checkPermission('manage all'),
+    validate(enquiryValidation.getEnquiry),
+    enquiryController.getEnquiryWithDetails,
+  )
   .put(
     verifyAccessToken,
     checkPermission("manage all"),

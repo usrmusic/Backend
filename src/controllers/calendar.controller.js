@@ -19,7 +19,8 @@ const getCalenderEvents = catchAsync(async (req, res) => {
     }
 
     const events = await eventSvc.list({
-        filter,
+        // restrict to confirmed events only (match service implementation)
+        filter: { ...filter, event_statuses: { status: { contains: 'confirm' } } },
         select: {
             id: true,
             date: true,

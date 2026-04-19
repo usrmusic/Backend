@@ -70,37 +70,46 @@ const updateEvent = Joi.object({
     id: Joi.number().integer().required(),
   }),
   body: Joi.object({
-    first_name: Joi.string().required(),
-    email: Joi.string().email().required(),
-    phone_number: Joi.number().integer().required(),
-    dj_name: Joi.string().optional(),
-    videography: Joi.string().required(),
-    caterer: Joi.string().optional(),
-    decor: Joi.string().optional(),
-    couple_name: Joi.string().required(),
-    entrance_song_style: Joi.string().optional(),
-    cake_song_who_feeds: Joi.string().optional(),
-    first_dance: Joi.string().optional(),
-    do: Joi.string().optional(),
-    date: Joi.string().pattern(dateRegex).required(),
-    start_time: Joi.string().pattern(timeRegex).required(),
-    end_time: Joi.string().pattern(timeRegex).required(),
-    venue: Joi.string().optional(),
-    venue_id: Joi.number().integer().optional(),
-    access_time: Joi.string().optional(),
-    event_date_contact: Joi.string().optional(),
-    no_of_guests: Joi.number().optional(),
-    deposit_amount: Joi.number().optional(),
-    created_by: Joi.string().optional(),
-    brief_itinerary: Joi.string().optional(),
-    stag_songs: Joi.string().optional(),
-    hen_songs: Joi.string().optional(),
-    dont: Joi.string().optional(),
-    usr_name: Joi.string().optional(),
-    usr_date: Joi.string().optional(),
-    photo_usb_provided: Joi.string().optional(),
-    guests_upstanding: Joi.string().optional(),
-    refund_amount: Joi.number().optional(),
+    // User Info
+    first_name: Joi.string().allow('', null).optional(),
+    email: Joi.string().email().allow('', null).optional(),
+    phone_number: Joi.number().integer().optional(), // Numbers don't use .allow('')
+
+    // DJ & Vendors
+    dj_name: Joi.string().allow('', null).optional(),
+    videography: Joi.string().allow('', null).optional(),
+    caterer: Joi.string().allow('', null).optional(),
+    decor: Joi.string().allow('', null).optional(),
+
+    // Event Details
+    couple_name: Joi.string().allow('', null).optional(),
+    date: Joi.string().pattern(dateRegex).optional(),
+    start_time: Joi.string().pattern(timeRegex).optional(),
+    end_time: Joi.string().pattern(timeRegex).optional(),
+    venue: Joi.string().allow('', null).optional(),
+    venue_id: Joi.number().integer().allow(null).optional(),
+    access_time: Joi.string().allow('', null).optional(),
+    event_date_contact: Joi.string().allow('', null).optional(),
+    no_of_guests: Joi.number().allow(null).optional(),
+    deposit_amount: Joi.number().allow(null).optional(), // Must be a number, but can be null
+    refund_amount: Joi.number().allow(null).optional(),
+
+    // Music & Itinerary
+    entrance_song_style: Joi.string().allow('', null).optional(),
+    cake_song_who_feeds: Joi.string().allow('', null).optional(),
+    first_dance: Joi.string().allow('', null).optional(),
+    brief_itinerary: Joi.string().allow('', null).optional(),
+    stag_songs: Joi.string().allow('', null).optional(),
+    hen_songs: Joi.string().allow('', null).optional(),
+
+    // Preferences & Notes
+    do: Joi.string().allow('', null).optional(),
+    dont: Joi.string().allow('', null).optional(),
+    usr_name: Joi.string().allow('', null).optional(),
+    usr_date: Joi.string().allow('', null).optional(),
+    photo_usb_provided: Joi.string().allow('', null).optional(),
+    guests_upstanding: Joi.string().allow('', null).optional(),
+    created_by: Joi.string().allow('', null).optional(),
   }),
 });
 

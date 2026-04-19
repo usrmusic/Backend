@@ -958,8 +958,226 @@ const cancelEvent = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
+// const updateEvent = catchAsync(async (req, res) => {
+//   // Prefer validated payload from middleware; fall back to raw params/body
+//   const payload = req.validated || {
+//     params: req.params || {},
+//     body: req.body || {},
+//   };
+//   const params = payload.params || {};
+//   const body = payload.body || {};
+//   const eventId = Number(params.id || 0);
+
+//   // normalize date: accept Laravel-style 'Y-m-d' or 'DD-MM-YYYY'
+//   let dateVal = null;
+//   try {
+//     if (body.date) {
+//       const s = String(body.date).trim();
+//       const ymd = /^\d{4}-\d{2}-\d{2}$/;
+//       const dmy = /^\d{2}-\d{2}-\d{4}$/;
+//       if (ymd.test(s)) {
+//         const [y, m, d] = s.split("-").map((n) => Number(n));
+//         if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
+//           dateVal = new Date(y, m - 1, d);
+//         }
+//       } else if (dmy.test(s)) {
+//         const [dd, mm, yyyy] = s.split("-").map((n) => Number(n));
+//         if (!Number.isNaN(dd) && !Number.isNaN(mm) && !Number.isNaN(yyyy)) {
+//           dateVal = new Date(yyyy, mm - 1, dd);
+//         }
+//       }
+//     }
+//   } catch (e) {
+//     dateVal = null;
+//   }
+
+//   // helper: convert date + HH:mm -> UTC Date
+//   const parseTimeToUtcDate = (dateOnly, timeStr) => {
+//     if (!timeStr) return null;
+//     const [hh, mm] = String(timeStr)
+//       .split(":")
+//       .map((v) => Number(v));
+//     if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+//     const base = dateOnly instanceof Date ? dateOnly : new Date();
+//     const local = new Date(
+//       base.getFullYear(),
+//       base.getMonth(),
+//       base.getDate(),
+//       hh,
+//       mm,
+//       0,
+//     );
+//     return new Date(local.toISOString());
+//   };
+
+//   const startTimeVal = parseTimeToUtcDate(dateVal, body.start_time);
+//   const endTimeVal = parseTimeToUtcDate(dateVal, body.end_time);
+
+//   const allowedEventFields = new Set([
+//     "videography",
+//     "caterer",
+//     "decor",
+//     "couple_name",
+//     "entrance_song_style",
+//     "cake_song_who_feeds",
+//     "first_dance",
+//     "do",
+//     "date",
+//     "start_time",
+//     "end_time",
+//     "venue_id",
+//     "access_time",
+//     "event_date_contact",
+//     "no_of_guests",
+//     "deposit_amount",
+//     "brief_itinerary",
+//     "stag_songs",
+//     "hen_songs",
+//     "dont",
+//     "usr_name",
+//     "usr_date",
+//     "photo_usb_provided",
+//     "guests_upstanding",
+//     "refund_amount",
+//   ]);
+
+//   const eventUpdateData = {};
+//   for (const key of Object.keys(body)) {
+//     if (allowedEventFields.has(key)) {
+//       // Prisma expects `no_of_guests` as a string in the DB schema.
+//       if (key === "no_of_guests") {
+//         eventUpdateData[key] = body[key] != null ? String(body[key]) : null;
+//       } else {
+//         eventUpdateData[key] = body[key];
+//       }
+//     }
+//   }
+//   // prevent overwriting created_by from client
+//   if ("created_by" in eventUpdateData) delete eventUpdateData.created_by;
+//   if (dateVal) eventUpdateData.date = dateVal;
+//   if (startTimeVal) eventUpdateData.start_time = startTimeVal;
+//   if (endTimeVal) eventUpdateData.end_time = endTimeVal;
+//   // ensure access_time stored as provided or null
+//   eventUpdateData.access_time = body.access_time
+//     ? String(body.access_time)
+//     : null;
+
+//   // update user info (first_name, email, phone_number)
+//   const userUpdateData = {};
+//   if (body.first_name) userUpdateData.name = body.first_name;
+//   if (body.email) userUpdateData.email = body.email;
+//   if (body.phone_number)
+//     userUpdateData.contact_number = String(body.phone_number);
+
+//   let updated;
+//   try {
+//     updated = await prisma.$transaction(async (tx) => {
+//       const ev = await tx.event.findUnique({ where: { id: eventId } });
+//       if (!ev) return null;
+//       if (Object.keys(userUpdateData).length && ev.user_id) {
+//         try {
+//           await tx.user.update({
+//             where: { id: ev.user_id },
+//             data: userUpdateData,
+//           });
+//         } catch (e) {
+//           // Map Prisma unique-constraint to a clear error we can handle
+//           if (e && e.code === "P2002") {
+//             const err = new Error("email_in_use");
+//             err.code = "EMAIL_IN_USE";
+//             throw err;
+//           }
+//           throw e;
+//         }
+//       }
+
+//       // best-effort: map dj_name to dj_id if provided
+//       try {
+//         if (body.dj_name) {
+//           const djName = String(body.dj_name).trim();
+//           let foundDj = await tx.user
+//             .findFirst({ where: { name: djName } })
+//             .catch(() => null);
+//           if (!foundDj) {
+//             foundDj = await tx.user
+//               .findFirst({ where: { name: { contains: djName } } })
+//               .catch(() => null);
+//           }
+//           if (foundDj && foundDj.id) {
+//             eventUpdateData.dj_id = foundDj.id;
+//           }
+//         }
+//       } catch (e) {}
+
+//       const ev2 = await tx.event
+//         .update({ where: { id: eventId }, data: eventUpdateData })
+//         .catch(() => null);
+
+//       console.log(ev2, "updated event");
+//       // add event note
+//       try {
+//         await eventNoteService
+//           .createNote(tx, {
+//             eventId,
+//             notes: "updated",
+//             created_by: req.user?.id || null,
+//           })
+//           .catch(() => {});
+//       } catch (e) {}
+
+//       return ev2;
+//     });
+//   } catch (e) {
+//     if (e && (e.code === "EMAIL_IN_USE" || e.code === "P2002")) {
+//       return res.status(400).json({ error: "email_in_use" });
+//     }
+//     console.error("[updateEvent] transaction failed", e?.message || e);
+//     return res.status(500).json({ error: "update_failed" });
+//   }
+
+//   if (!updated) return res.status(404).json({ error: "event_not_found" });
+
+//   // best-effort: if we have a Microsoft calendar mapping, update the external event
+//   try {
+//     const fresh = await prisma.event.findUnique({
+//       where: { id: eventId },
+//       include: { users_events_user_idTousers: true, venues: true },
+//     });
+//     if (fresh) {
+//       const ms = await prisma.microsoftEvent
+//         .findFirst({ where: { event_id: BigInt(eventId) } })
+//         .catch(() => null);
+//       if (ms && ms.microsoft_event_id) {
+//         const startIso = fresh.start_time
+//           ? new Date(fresh.start_time).toISOString()
+//           : fresh.date
+//             ? new Date(fresh.date).toISOString()
+//             : null;
+//         const endIso = fresh.end_time
+//           ? new Date(fresh.end_time).toISOString()
+//           : fresh.date
+//             ? new Date(fresh.date).toISOString()
+//             : null;
+//         const subject = `USRMusic Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || "Client"}`;
+//         const content = fresh.details || "";
+//         const location = fresh.venues?.venue || "";
+//         await microsoftGraph
+//           .updateEvent(ms.microsoft_event_id, {
+//             subject,
+//             content,
+//             startIso,
+//             endIso,
+//             location,
+//           })
+//           .catch(() => null);
+//       }
+//     }
+//   } catch (e) {}
+
+//   res.json(serializeForJson({ success: true, data: updated }));
+// });
+
 const updateEvent = catchAsync(async (req, res) => {
-  // Prefer validated payload from middleware; fall back to raw params/body
   const payload = req.validated || {
     params: req.params || {},
     body: req.body || {},
@@ -968,213 +1186,150 @@ const updateEvent = catchAsync(async (req, res) => {
   const body = payload.body || {};
   const eventId = Number(params.id || 0);
 
-  // normalize date: accept Laravel-style 'Y-m-d' or 'DD-MM-YYYY'
+  // 1. Normalize Date
   let dateVal = null;
-  try {
-    if (body.date) {
-      const s = String(body.date).trim();
-      const ymd = /^\d{4}-\d{2}-\d{2}$/;
-      const dmy = /^\d{2}-\d{2}-\d{4}$/;
-      if (ymd.test(s)) {
-        const [y, m, d] = s.split("-").map((n) => Number(n));
-        if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d)) {
-          dateVal = new Date(y, m - 1, d);
-        }
-      } else if (dmy.test(s)) {
-        const [dd, mm, yyyy] = s.split("-").map((n) => Number(n));
-        if (!Number.isNaN(dd) && !Number.isNaN(mm) && !Number.isNaN(yyyy)) {
-          dateVal = new Date(yyyy, mm - 1, dd);
-        }
-      }
+  if (body.date) {
+    const s = String(body.date).trim();
+    const ymd = /^\d{4}-\d{2}-\d{2}$/; // YYYY-MM-DD
+    const dmy = /^\d{2}-\d{2}-\d{4}$/; // DD-MM-YYYY
+    if (ymd.test(s)) {
+      const [y, m, d] = s.split("-").map(Number);
+      dateVal = new Date(y, m - 1, d);
+    } else if (dmy.test(s)) {
+      const [dd, mm, yyyy] = s.split("-").map(Number);
+      dateVal = new Date(yyyy, mm - 1, dd);
     }
-  } catch (e) {
-    dateVal = null;
   }
 
-  // helper: convert date + HH:mm -> UTC Date
+  // 2. Helper: Time to UTC
   const parseTimeToUtcDate = (dateOnly, timeStr) => {
-    if (!timeStr) return null;
-    const [hh, mm] = String(timeStr)
-      .split(":")
-      .map((v) => Number(v));
-    if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+    if (!timeStr || timeStr === "") return null;
+    const [hh, mm] = String(timeStr).split(":").map(Number);
+    if (isNaN(hh) || isNaN(mm)) return null;
     const base = dateOnly instanceof Date ? dateOnly : new Date();
-    const local = new Date(
-      base.getFullYear(),
-      base.getMonth(),
-      base.getDate(),
-      hh,
-      mm,
-      0,
-    );
+    const local = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mm, 0);
     return new Date(local.toISOString());
   };
 
   const startTimeVal = parseTimeToUtcDate(dateVal, body.start_time);
   const endTimeVal = parseTimeToUtcDate(dateVal, body.end_time);
 
+  // 3. Define Allowed Fields & Type Casting
   const allowedEventFields = new Set([
-    "videography",
-    "caterer",
-    "decor",
-    "couple_name",
-    "entrance_song_style",
-    "cake_song_who_feeds",
-    "first_dance",
-    "do",
-    "date",
-    "start_time",
-    "end_time",
-    "venue_id",
-    "access_time",
-    "event_date_contact",
-    "no_of_guests",
-    "deposit_amount",
-    "brief_itinerary",
-    "stag_songs",
-    "hen_songs",
-    "dont",
-    "usr_name",
-    "usr_date",
-    "photo_usb_provided",
-    "guests_upstanding",
-    "refund_amount",
+    "videography", "caterer", "decor", "couple_name", "entrance_song_style",
+    "cake_song_who_feeds", "first_dance", "do", "dont", "date", "start_time",
+    "end_time", "venue_id", "access_time", "event_date_contact", "no_of_guests",
+    "deposit_amount", "brief_itinerary", "stag_songs", "hen_songs", "refund_amount"
   ]);
 
   const eventUpdateData = {};
+  
   for (const key of Object.keys(body)) {
     if (allowedEventFields.has(key)) {
-      // Prisma expects `no_of_guests` as a string in the DB schema.
+      const value = body[key];
+      
+      // Handle empty values
+      if (value === "" || value === undefined || value === null) {
+        eventUpdateData[key] = null;
+        continue;
+      }
+
+      // Explicit Casting for Prisma
       if (key === "no_of_guests") {
-        eventUpdateData[key] = body[key] != null ? String(body[key]) : null;
+        eventUpdateData[key] = String(value);
+      } else if (key === "deposit_amount" || key === "refund_amount") {
+        eventUpdateData[key] = parseFloat(value);
+      } else if (key === "venue_id") {
+        eventUpdateData[key] = parseInt(value, 10);
       } else {
-        eventUpdateData[key] = body[key];
+        eventUpdateData[key] = value;
       }
     }
   }
-  // prevent overwriting created_by from client
-  if ("created_by" in eventUpdateData) delete eventUpdateData.created_by;
+
+  // Apply parsed dates/times
   if (dateVal) eventUpdateData.date = dateVal;
   if (startTimeVal) eventUpdateData.start_time = startTimeVal;
   if (endTimeVal) eventUpdateData.end_time = endTimeVal;
-  // ensure access_time stored as provided or null
-  eventUpdateData.access_time = body.access_time
-    ? String(body.access_time)
-    : null;
 
-  // update user info (first_name, email, phone_number)
+  // 4. Update User Data
   const userUpdateData = {};
   if (body.first_name) userUpdateData.name = body.first_name;
   if (body.email) userUpdateData.email = body.email;
-  if (body.phone_number)
-    userUpdateData.contact_number = String(body.phone_number);
+  if (body.phone_number) userUpdateData.contact_number = String(body.phone_number);
 
   let updated;
   try {
     updated = await prisma.$transaction(async (tx) => {
       const ev = await tx.event.findUnique({ where: { id: eventId } });
-      if (!ev) return null;
+      if (!ev) throw new Error("EVENT_NOT_FOUND");
+
+      // Update linked User if details changed
       if (Object.keys(userUpdateData).length && ev.user_id) {
-        try {
-          await tx.user.update({
-            where: { id: ev.user_id },
-            data: userUpdateData,
-          });
-        } catch (e) {
-          // Map Prisma unique-constraint to a clear error we can handle
-          if (e && e.code === "P2002") {
-            const err = new Error("email_in_use");
-            err.code = "EMAIL_IN_USE";
-            throw err;
-          }
+        await tx.user.update({
+          where: { id: ev.user_id },
+          data: userUpdateData,
+        }).catch(e => {
+          if (e.code === 'P2002') throw new Error("EMAIL_IN_USE");
           throw e;
-        }
+        });
       }
 
-      // best-effort: map dj_name to dj_id if provided
-      try {
-        if (body.dj_name) {
-          const djName = String(body.dj_name).trim();
-          let foundDj = await tx.user
-            .findFirst({ where: { name: djName } })
-            .catch(() => null);
-          if (!foundDj) {
-            foundDj = await tx.user
-              .findFirst({ where: { name: { contains: djName } } })
-              .catch(() => null);
-          }
-          if (foundDj && foundDj.id) {
-            eventUpdateData.dj_id = foundDj.id;
-          }
-        }
-      } catch (e) {}
+      // Best-effort DJ mapping
+      if (body.dj_name) {
+        const djName = String(body.dj_name).trim();
+        const foundDj = await tx.user.findFirst({
+          where: { name: { contains: djName } }
+        });
+        if (foundDj) eventUpdateData.dj_id = foundDj.id;
+      }
 
-      const ev2 = await tx.event
-        .update({ where: { id: eventId }, data: eventUpdateData })
-        .catch(() => null);
+      // CRITICAL: Perform the update without the silent .catch()
+      const result = await tx.event.update({
+        where: { id: eventId },
+        data: eventUpdateData,
+      });
 
-      console.log(ev2, "updated event");
-      // add event note
-      try {
-        await eventNoteService
-          .createNote(tx, {
-            eventId,
-            notes: "updated",
-            created_by: req.user?.id || null,
-          })
-          .catch(() => {});
-      } catch (e) {}
+      // Log the update note
+      await eventNoteService.createNote(tx, {
+        eventId,
+        notes: "Event details updated via management portal",
+        created_by: req.user?.id || null,
+      }).catch(() => {});
 
-      return ev2;
+      return result;
     });
   } catch (e) {
-    if (e && (e.code === "EMAIL_IN_USE" || e.code === "P2002")) {
-      return res.status(400).json({ error: "email_in_use" });
-    }
-    console.error("[updateEvent] transaction failed", e?.message || e);
-    return res.status(500).json({ error: "update_failed" });
+    if (e.message === "EMAIL_IN_USE") return res.status(400).json({ error: "email_in_use" });
+    if (e.message === "EVENT_NOT_FOUND") return res.status(404).json({ error: "event_not_found" });
+    
+    console.error("[updateEvent] Transaction Error:", e);
+    return res.status(500).json({ error: "update_failed", details: e.message });
   }
 
-  if (!updated) return res.status(404).json({ error: "event_not_found" });
-
-  // best-effort: if we have a Microsoft calendar mapping, update the external event
+  // 5. External Sync (Microsoft Graph)
   try {
     const fresh = await prisma.event.findUnique({
       where: { id: eventId },
       include: { users_events_user_idTousers: true, venues: true },
     });
-    if (fresh) {
-      const ms = await prisma.microsoftEvent
-        .findFirst({ where: { event_id: BigInt(eventId) } })
-        .catch(() => null);
-      if (ms && ms.microsoft_event_id) {
-        const startIso = fresh.start_time
-          ? new Date(fresh.start_time).toISOString()
-          : fresh.date
-            ? new Date(fresh.date).toISOString()
-            : null;
-        const endIso = fresh.end_time
-          ? new Date(fresh.end_time).toISOString()
-          : fresh.date
-            ? new Date(fresh.date).toISOString()
-            : null;
-        const subject = `USRMusic Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || "Client"}`;
-        const content = fresh.details || "";
-        const location = fresh.venues?.venue || "";
-        await microsoftGraph
-          .updateEvent(ms.microsoft_event_id, {
-            subject,
-            content,
-            startIso,
-            endIso,
-            location,
-          })
-          .catch(() => null);
-      }
+    
+    const ms = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(eventId) } });
+    
+    if (ms?.microsoft_event_id && fresh) {
+      await microsoftGraph.updateEvent(ms.microsoft_event_id, {
+        subject: `Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || "Client"}`,
+        content: fresh.brief_itinerary || "",
+        startIso: fresh.start_time?.toISOString() || fresh.date?.toISOString(),
+        endIso: fresh.end_time?.toISOString() || fresh.date?.toISOString(),
+        location: fresh.venues?.venue || "",
+      }).catch(err => console.error("MS Graph Sync Failed:", err));
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Post-update sync error:", e);
+  }
 
-  res.json(serializeForJson({ success: true, data: updated }));
+  res.json({ success: true, data: serializeForJson(updated) });
 });
 
 export default {

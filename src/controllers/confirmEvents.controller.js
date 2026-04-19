@@ -801,12 +801,27 @@ const downloadInvoice = catchAsync(async (req, res) => {
     return res.status(500).json({ error: "pdf_generation_failed" });
   }
 
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename=invoice-${eventId}.pdf`,
-  );
-  return res.send(pdfBuffer);
+  // To avoid environments that accidentally JSON-serialize Buffers,
+  // return a JSON wrapper containing base64 PDF data. Frontend supports
+  // both direct PDF blobs and this JSON { pdfBuffer } fallback.
+  try {
+    const base64 = pdfBuffer ? pdfBuffer.toString("base64") : null;
+    return res.json(serializeForJson({ success: true, data: { pdfBuffer: base64, pdfUrl: null } }));
+  } catch (e) {
+    console.error("[confirmEvents.downloadInvoice] failed to send base64 PDF", e?.message || e);
+    // Fallback: attempt to send raw buffer with PDF headers
+    try {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=invoice-${eventId}.pdf`,
+      );
+      return res.send(pdfBuffer);
+    } catch (err) {
+      console.error("[confirmEvents.downloadInvoice] final fallback failed", err?.message || err);
+      return res.status(500).json({ error: "pdf_send_failed" });
+    }
+  }
 });
 
 const refund = catchAsync(async (req, res) => {

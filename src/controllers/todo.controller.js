@@ -1,9 +1,24 @@
 import prisma from "../utils/prismaClient.js";
+import { Prisma } from "@prisma/client";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
 
 const todoSvc = services.get("todos");
+
+async function resolveAssignedTo(id) {
+  const parsed = Number(id);
+  if (!parsed) return null;
+  const user = await prisma.user.findUnique({ where: { id: parsed } });
+  return user ? parsed : null;
+}
+
+async function resolveEventId(id) {
+  const parsed = Number(id);
+  if (!parsed) return null;
+  const event = await prisma.event.findUnique({ where: { id: parsed } });
+  return event ? parsed : null;
+}
 
 const listTodo = catchAsync(async (req, res) => {
   const rawId = req.params?.id ?? req.query?.id ?? req.body?.id;
@@ -17,12 +32,15 @@ const listTodo = catchAsync(async (req, res) => {
 
 const createTodo = catchAsync(async (req, res) => {
   const rawId = req.params?.id ?? req.query?.id ?? req.body?.id;
-  const event_id = Number(rawId) || null;
-  if (!event_id) return res.status(400).json({ error: 'event_id_required' });
+  const event_id = await resolveEventId(rawId);
+  if (!event_id) return res.status(400).json({ error: 'event_not_found' });
+
+  const assignedTo = await resolveAssignedTo(req.body.assigned_to);
+  if (!assignedTo) return res.status(400).json({ error: 'user_not_found' });
 
   const todoData = {
     event_id,
-    assigned_to: req.body.assigned_to,
+    assigned_to: assignedTo,
     action: req.body.action,
     deadline: req.body.deadline,
     comment: req.body.comment,
@@ -34,7 +52,7 @@ const createTodo = catchAsync(async (req, res) => {
 });
 
 const updateTodo = catchAsync(async (req, res) => {
-  const eventId = Number(req.params?.eventId || req.body?.event_id) || null;
+  const eventId = await resolveEventId(req.params?.eventId || req.body?.event_id);
   const todoId = Number(req.params?.todoId || req.body?.todoId) || null;
   if (!eventId || !todoId) return res.status(400).json({ error: 'event_or_todo_id_required' });
 
@@ -43,9 +61,12 @@ const updateTodo = catchAsync(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'todo_not_found' });
   if (Number(existing.event_id) !== Number(eventId)) return res.status(400).json({ error: 'event_mismatch' });
 
+  const assignedTo = await resolveAssignedTo(req.body.assigned_to);
+  if (!assignedTo) return res.status(400).json({ error: 'invalid_assigned_to' });
+
   const updateData = {
     event_id: eventId,
-    assigned_to: req.body.assigned_to,
+    assigned_to: assignedTo,
     action: req.body.action,
     deadline: req.body.deadline,
     comment: req.body.comment,

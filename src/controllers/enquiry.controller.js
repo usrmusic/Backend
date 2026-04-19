@@ -119,6 +119,7 @@ const createEnquiry = catchAsync(async (req, res) => {
         data.total_cost != null ? String(data.total_cost) : null,
       dj_cost_price_for_event:
         data.dj_cost != null ? Number(data.dj_cost) : null,
+      no_of_guests: data.no_of_guests != null ? String(data.no_of_guests) : null,
     });
     // connect with client and venue if not connected already
     if (!event.venues.some((v) => v.id === (venue?.id || data.venue_id))) {
@@ -156,7 +157,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       created_by: req.user && req.user.id ? Number(req.user.id) : null,
       contract_token: uuidv4(),
       event_status_id: 1,
-      no_of_guests: data.guestCount != null ? Number(data.guestCount) : null,
+      no_of_guests: data.guestCount != null ? String(data.guestCount) : data.no_of_guests != null ? String(data.no_of_guests) : null,
     };
     event = await eventSvc.create(createPayload);
     // add initial note for newly created enquiry
@@ -408,7 +409,14 @@ const updateEnquiry = catchAsync(async (req, res) => {
   ]);
 
   const makePackage = (p, eventId) => ({
-    equipment_id: p.equipment_id ? Number(p.equipment_id) : null,
+    equipment_id:
+      p.equipment_id != null
+        ? Number(p.equipment_id)
+        : p.equipment && p.equipment.id != null
+          ? Number(p.equipment.id)
+          : p.id != null
+            ? Number(p.id)
+            : null,
     equipment_order_id: p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
     event_id: Number(eventId),
     package_type_id: p.package_type_id !== undefined ? Number(p.package_type_id) : null,
@@ -461,10 +469,32 @@ const updateEnquiry = catchAsync(async (req, res) => {
   const startTimeObj = toUtcDateTime(body.event_date || body.date || eventDateDb, body.start_time || body.start_time_input || body.startTime || null) || existingEvent.start_time;
   const endTimeObj = toUtcDateTime(body.event_date || body.date || eventDateDb, body.end_time || body.end_time_input || body.endTime || null) || existingEvent.end_time;
 
+  let resolvedDjId =
+    existingEvent.dj_id != null ? Number(existingEvent.dj_id) : null;
+  if (body.dj_id !== undefined) {
+    const parsed =
+      body.dj_id === null || body.dj_id === "" ? null : Number(body.dj_id);
+    resolvedDjId = Number.isFinite(parsed) ? parsed : null;
+  } else if (body.dj_name !== undefined) {
+    const parsed =
+      body.dj_name === null || body.dj_name === ""
+        ? null
+        : Number(body.dj_name);
+    if (Number.isFinite(parsed)) {
+      resolvedDjId = parsed;
+    } else if (body.dj_name) {
+      const djUser = await prisma.user
+        .findFirst({ where: { name: body.dj_name } })
+        .catch(() => null);
+      resolvedDjId = djUser && djUser.id ? Number(djUser.id) : null;
+    }
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     // reset contract if dj/package/date changed
     const shouldResetContract =
-      (body.dj_name && Number(body.dj_name) !== Number(existingEvent.dj_id)) ||
+      ((body.dj_id !== undefined || body.dj_name !== undefined) &&
+        Number(resolvedDjId ?? 0) !== Number(existingEvent.dj_id ?? 0)) ||
       (body.dj_package_name && body.dj_package_name !== existingEvent.dj_package_name) ||
       (eventDateObj && existingEvent.date && new Date(existingEvent.date).toISOString() !== new Date(eventDateObj).toISOString());
     if (shouldResetContract) {
@@ -473,7 +503,9 @@ const updateEnquiry = catchAsync(async (req, res) => {
 
     // update event
     const evUpdateData = {};
-    if (body.dj_name !== undefined) evUpdateData.dj_id = body.dj_name ? Number(body.dj_name) : null;
+    if (body.dj_id !== undefined || body.dj_name !== undefined) {
+      evUpdateData.dj_id = resolvedDjId;
+    }
     if (body.dj_package_name !== undefined) evUpdateData.dj_package_name = body.dj_package_name || null;
     if (eventDateObj) evUpdateData.date = eventDateObj;
     if (startTimeObj) evUpdateData.start_time = startTimeObj;
@@ -484,6 +516,14 @@ const updateEnquiry = catchAsync(async (req, res) => {
       evUpdateData.total_cost_for_equipment = (body.total_cost_for_equipment ?? body.total_cost) != null ? String(body.total_cost_for_equipment ?? body.total_cost) : null;
     if (body.dj_cost_price !== undefined || body.dj_cost !== undefined) evUpdateData.dj_cost_price_for_event = (body.dj_cost_price ?? body.dj_cost) != null ? Number(body.dj_cost_price ?? body.dj_cost) : null;
     if (body.deposit_amount !== undefined) evUpdateData.deposit_amount = body.deposit_amount != null ? body.deposit_amount : null;
+    if (body.no_of_guests !== undefined || body.guestCount !== undefined) {
+      evUpdateData.no_of_guests =
+        body.guestCount != null
+          ? String(body.guestCount)
+          : body.no_of_guests != null
+            ? String(body.no_of_guests)
+            : null;
+    }
 
     const updatedEvent = await tx.event.update({ where: { id }, data: evUpdateData });
 
@@ -507,10 +547,12 @@ const updateEnquiry = catchAsync(async (req, res) => {
 
     for (const p of equipmentArray) {
       const pkg = makePackage(p, id);
+      if (!Number.isFinite(Number(pkg.equipment_id))) continue;
       try { await tx.eventPackage.create({ data: pkg }); } catch (e) {}
     }
     for (const p of extraArray) {
       const pkg = makePackage(p, id);
+      if (!Number.isFinite(Number(pkg.equipment_id))) continue;
       try { await tx.eventPackage.create({ data: pkg }); } catch (e) {}
     }
 

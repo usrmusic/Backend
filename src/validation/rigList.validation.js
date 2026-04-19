@@ -19,6 +19,7 @@ const storeNotes = Joi.object({
   }),
   body: Joi.object({
     notes: Joi.string().allow('', null).optional(),
+    note: Joi.string().allow('', null).optional(),
     van: Joi.string().allow('', null).optional(),
     crew: Joi.string().allow('', null).optional(),
   }),

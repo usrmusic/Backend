@@ -77,6 +77,12 @@ router
     checkPermission("manage all"),
     validate(fileUploadValidation.downloadFile),
     fileUploadController.downloadMedia,
+  )
+  .delete(
+    verifyAccessToken,
+    checkPermission("manage all"),
+    validate(fileUploadValidation.deleteFile),
+    fileUploadController.deleteMedia,
   );
 
 // // List files (optional ?event_id)

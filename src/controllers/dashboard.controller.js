@@ -30,7 +30,6 @@ const getEventsDropDown = catchAsync(async (req, res) => {
             couple_name: true,
             users_events_user_idTousers: { select: { id: true, name: true, } },
         },
-        perPage: null,
 
     });
 

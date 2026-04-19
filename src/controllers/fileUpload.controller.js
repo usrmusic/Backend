@@ -6,9 +6,47 @@ import path from "path";
 import fs from "fs";
 import services from "../services/index.js";
 import { serializeForJson } from "../utils/serialize.js";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import s3Client from "../utils/s3Client.js";
 
 const fileSvc = services.get("FileUpload");
 const mediaSvc = services.get("Media");
+
+async function streamFileFromS3(fileRecord, res) {
+  const filename = fileRecord.original_name || path.basename(fileRecord.file_name);
+
+  const command = new GetObjectCommand({
+    Bucket: process.env.AWS_S3_BUCKET_NAME,
+    Key: fileRecord.file_name, // S3 key e.g. "files/uuid-abc.pdf"
+  });
+
+  const s3Response = await s3Client.send(command);
+
+  // Forward headers from S3 so browser knows file type and size
+  if (s3Response.ContentType) {
+    res.setHeader("Content-Type", s3Response.ContentType);
+  }
+  if (s3Response.ContentLength) {
+    res.setHeader("Content-Length", s3Response.ContentLength);
+  }
+
+  // This tells the browser to download instead of display
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${encodeURIComponent(filename)}"`
+  );
+
+  // Stream directly — never loads whole file into memory
+  s3Response.Body.pipe(res);
+
+  // Handle stream errors
+  s3Response.Body.on("error", (err) => {
+    console.error("S3 stream error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "stream_failed" });
+    }
+  });
+}
 
 function getUploadsDir() {
   if (
@@ -168,26 +206,51 @@ const deleteFile = catchAsync(async (req, res) => {
   res.json({ success: true });
 });
 
+// export const downloadFile = catchAsync(async (req, res) => {
+//   const id = Number(req.params.id || req.query.id);
+//   const f = await prisma.fileUpload.findUnique({ where: { id } });
+//   if (!f) return res.status(404).json({ error: "not_found" });
+
+//   if (
+//     process.env.FILE_STORAGE &&
+//     process.env.FILE_STORAGE.toLowerCase() === "s3"
+//   ) {
+//     const url = await getSignedGetUrl(
+//       f.file_name,
+//       60 * 10,
+//       path.basename(f.file_name),
+//     );
+//     return res.json({ url });
+//   }
+
+//   const uploadsDir = getUploadsDir();
+//   const p = path.join(uploadsDir, f.file_name);
+//   if (!fs.existsSync(p))
+//     return res.status(404).json({ error: "file_not_found" });
+//   return res.download(p, path.basename(f.file_name));
+// });
+
+
+// fileController.js
+
 export const downloadFile = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id);
   const f = await prisma.fileUpload.findUnique({ where: { id } });
   if (!f) return res.status(404).json({ error: "not_found" });
 
-  if (
-    process.env.FILE_STORAGE &&
-    process.env.FILE_STORAGE.toLowerCase() === "s3"
-  ) {
-    const url = await getSignedGetUrl(f.file_name);
-    return res.json({ url });
+  if ((process.env.FILE_STORAGE || "").toLowerCase() === "s3") {
+    return streamFileFromS3(f, res);
   }
 
+  // Local storage
   const uploadsDir = getUploadsDir();
   const p = path.join(uploadsDir, f.file_name);
-  if (!fs.existsSync(p))
-    return res.status(404).json({ error: "file_not_found" });
-  return res.download(p, f.file_name);
+  if (!fs.existsSync(p)) return res.status(404).json({ error: "file_not_found" });
+  
+  const filename = f.original_name || path.basename(f.file_name);
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  return res.download(p, filename);
 });
-
 
 export const listMedia = catchAsync(async (req, res) => {
   // Build filter from query params

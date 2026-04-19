@@ -24,6 +24,7 @@ const listConfirmEvents = Joi.object({
     search: Joi.string().trim().max(100).allow("", null),
     perPage: Joi.number().integer().min(1).max(100).default(10),
     page: Joi.number().integer().min(1).default(1),
+    paymentStatus: Joi.string().valid("completed", "pending").optional(),
   }),
 });
 

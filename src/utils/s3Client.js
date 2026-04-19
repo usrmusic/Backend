@@ -36,8 +36,12 @@ export async function uploadStreamToS3(streamOrBuffer, key, contentType, opts = 
   return { key };
 }
 
-export async function getSignedGetUrl(key, expiresInSeconds = 60 * 60 * 24 * 7) {
-  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+export async function getSignedGetUrl(key, expiresInSeconds = 60 * 60 * 24 * 7, filename) {
+  const params = { Bucket: BUCKET, Key: key };
+  if (filename) {
+    params.ResponseContentDisposition = `attachment; filename="${encodeURIComponent(filename)}"`;
+  }
+  const command = new GetObjectCommand(params);
   return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 }
 

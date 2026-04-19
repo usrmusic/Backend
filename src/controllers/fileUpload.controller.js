@@ -1,7 +1,11 @@
 import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { uploadFile, getDownloadUrl } from "../utils/uploadHelper.js";
-import { getSignedGetUrl } from "../utils/s3Client.js";
+import {
+  getSignedGetUrl,
+  deleteObjectFromS3,
+  copyObjectInS3,
+} from "../utils/s3Client.js";
 import path from "path";
 import fs from "fs";
 import services from "../services/index.js";
@@ -13,11 +17,24 @@ const fileSvc = services.get("FileUpload");
 const mediaSvc = services.get("Media");
 
 async function streamFileFromS3(fileRecord, res) {
-  const filename = fileRecord.original_name || path.basename(fileRecord.file_name);
+  const rawKey = fileRecord?.file_name || fileRecord?.stored_name || "";
+  const key = rawKey.includes("/")
+    ? rawKey
+    : fileRecord?.stored_name
+      ? `media/${rawKey}`
+      : rawKey;
+  const filename =
+    fileRecord?.original_name ||
+    fileRecord?.display_name ||
+    path.basename(key || "download");
+
+  if (!key) {
+    return res.status(404).json({ error: "file_not_found" });
+  }
 
   const command = new GetObjectCommand({
     Bucket: process.env.AWS_S3_BUCKET_NAME,
-    Key: fileRecord.file_name, // S3 key e.g. "files/uuid-abc.pdf"
+    Key: key, // S3 key e.g. "files/uuid-abc.pdf" or "media/uuid-abc.pdf"
   });
 
   const s3Response = await s3Client.send(command);
@@ -33,7 +50,7 @@ async function streamFileFromS3(fileRecord, res) {
   // This tells the browser to download instead of display
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="${encodeURIComponent(filename)}"`
+    `attachment; filename="${encodeURIComponent(filename)}"`,
   );
 
   // Stream directly — never loads whole file into memory
@@ -117,10 +134,43 @@ const updateFileMetadata = catchAsync(async (req, res) => {
   const { file_name } = req.body;
   const f = await prisma.fileUpload.findUnique({ where: { id } });
   if (!f) return res.status(404).json({ error: "not_found" });
+  // If we're using S3 storage, attempt to copy the object to the new key
+  // before updating the DB record. Only proceed with DB update when copy
+  // succeeds. After DB update, attempt to delete the old object.
+  if (
+    process.env.FILE_STORAGE &&
+    process.env.FILE_STORAGE.toLowerCase() === "s3" &&
+    f.file_name &&
+    file_name &&
+    f.file_name !== file_name
+  ) {
+    try {
+      await copyObjectInS3(String(f.file_name), String(file_name));
+    } catch (err) {
+      console.error("S3 copy failed:", err);
+      return res.status(500).json({ error: "s3_copy_failed" });
+    }
+  }
+
   const updated = await prisma.fileUpload.update({
     where: { id },
     data: { file_name },
   });
+
+  if (
+    process.env.FILE_STORAGE &&
+    process.env.FILE_STORAGE.toLowerCase() === "s3" &&
+    f.file_name &&
+    file_name &&
+    f.file_name !== file_name
+  ) {
+    // best-effort delete of old object; log but do not fail the request
+    try {
+      await deleteObjectFromS3(String(f.file_name));
+    } catch (err) {
+      console.error("Failed to delete old S3 object after rename:", err);
+    }
+  }
   res.json({ data: updated });
 });
 // Compatibility handler used by routes: mirrors Laravel flow (default delete-after, signed URLs)
@@ -195,7 +245,15 @@ const deleteFile = catchAsync(async (req, res) => {
     process.env.FILE_STORAGE &&
     process.env.FILE_STORAGE.toLowerCase() === "s3"
   ) {
-    await services.get("s3").deleteFile(f.file_name);
+    // Use the s3 client helper to delete the object from S3. There is no
+    // `services.s3` Prisma model in this project, so calling
+    // `services.get('s3')` previously caused a Prisma model lookup error.
+    try {
+      await deleteObjectFromS3(f.file_name);
+    } catch (err) {
+      console.error("Failed to delete object from S3", err);
+      // continue to delete DB record regardless of storage deletion failure
+    }
   } else {
     const uploadsDir = getUploadsDir();
     const p = path.join(uploadsDir, f.file_name);
@@ -206,6 +264,45 @@ const deleteFile = catchAsync(async (req, res) => {
   res.json({ success: true });
 });
 
+const deleteMedia = catchAsync(async (req, res) => {
+  const id = Number(req.params.id || req.query.id);
+  const f = await prisma.media.findUnique({ where: { id } });
+  if (!f) return res.status(404).json({ error: "not_found" });
+
+  // Determine the storage key for this media record. `stored_name` may be
+  // a basename or a full key including folder.
+  const key =
+    f.stored_name && String(f.stored_name).length
+      ? String(f.stored_name)
+      : null;
+
+  // delete from storage
+  if (
+    process.env.FILE_STORAGE &&
+    process.env.FILE_STORAGE.toLowerCase() === "s3"
+  ) {
+    if (key) {
+      const s3Key = key.includes("/") ? key : `media/${key}`;
+      try {
+        await deleteObjectFromS3(s3Key);
+      } catch (err) {
+        console.error("Failed to delete object from S3", err);
+        // continue to delete DB record regardless of storage deletion failure
+      }
+    }
+  } else {
+    if (key) {
+      const uploadsDir = getUploadsDir();
+      const rel = key.includes("/") ? key : `media/${key}`;
+      const p = path.join(uploadsDir, rel);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    }
+  }
+
+  // delete DB record
+  await prisma.media.delete({ where: { id } });
+  res.json({ success: true });
+});
 // export const downloadFile = catchAsync(async (req, res) => {
 //   const id = Number(req.params.id || req.query.id);
 //   const f = await prisma.fileUpload.findUnique({ where: { id } });
@@ -230,7 +327,6 @@ const deleteFile = catchAsync(async (req, res) => {
 //   return res.download(p, path.basename(f.file_name));
 // });
 
-
 // fileController.js
 
 export const downloadFile = catchAsync(async (req, res) => {
@@ -245,10 +341,14 @@ export const downloadFile = catchAsync(async (req, res) => {
   // Local storage
   const uploadsDir = getUploadsDir();
   const p = path.join(uploadsDir, f.file_name);
-  if (!fs.existsSync(p)) return res.status(404).json({ error: "file_not_found" });
-  
+  if (!fs.existsSync(p))
+    return res.status(404).json({ error: "file_not_found" });
+
   const filename = f.original_name || path.basename(f.file_name);
-  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${encodeURIComponent(filename)}"`,
+  );
   return res.download(p, filename);
 });
 
@@ -291,21 +391,30 @@ export const listMedia = catchAsync(async (req, res) => {
 const uploadMedia = catchAsync(async (req, res) => {
   // multer may populate `req.file` (single) or `req.files` (fields).
   if (!req.file && req.files) {
-    if (req.files.media && req.files.media.length) req.file = req.files.media[0];
-    else if (req.files.file && req.files.file.length) req.file = req.files.file[0];
+    if (req.files.media && req.files.media.length)
+      req.file = req.files.media[0];
+    else if (req.files.file && req.files.file.length)
+      req.file = req.files.file[0];
   }
   if (!req.file) return res.status(400).json({ error: "no_file" });
 
   // Enforce max size ~200MB (Laravel uses max:204800 kilobytes)
   const MAX_BYTES = 204800 * 1024; // 204800 KB
-  const fileSize = req.file.size || (req.file.path ? fs.statSync(req.file.path).size : 0);
-  if (fileSize > MAX_BYTES) return res.status(422).json({ error: "file_too_large" });
+  const fileSize =
+    req.file.size || (req.file.path ? fs.statSync(req.file.path).size : 0);
+  if (fileSize > MAX_BYTES)
+    return res.status(422).json({ error: "file_too_large" });
 
   // Use upload helper to persist the file under `media/`
   const uploadRes = await uploadFile(req.file, { folder: "media" });
 
   // Derive stored filename (basename) and extension
-  const storedKey = uploadRes && uploadRes.key ? uploadRes.key : (uploadRes && uploadRes.url) || req.file.filename || req.file.originalname;
+  const storedKey =
+    uploadRes && uploadRes.key
+      ? uploadRes.key
+      : (uploadRes && uploadRes.url) ||
+        req.file.filename ||
+        req.file.originalname;
   const storedName = path.basename(storedKey);
   const extension = path.extname(storedName).replace(/^\./, "") || null;
 
@@ -328,25 +437,33 @@ const uploadMedia = catchAsync(async (req, res) => {
 
 const downloadMedia = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id);
-  if (!id) return res.status(400).json({ error: 'invalid_id' });
+  const f = await prisma.media.findUnique({ where: { id } });
+  if (!f) return res.status(404).json({ error: "not_found" });
 
-  const m = await mediaSvc.getById(id);
-  if (!m) return res.status(404).json({ error: 'not_found' });
-
-  // If using S3, construct key (allow stored_name to already contain folder)
-  if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
-    let key = m.stored_name || '';
+  if ((process.env.FILE_STORAGE || "").toLowerCase() === "s3") {
+    let key = f.stored_name || '';
     if (!key) return res.status(404).json({ error: 'file_not_found' });
     if (!key.includes('/')) key = `media/${key}`;
-    const url = await getSignedGetUrl(key);
+    const filename = f.display_name || path.basename(key);
+    const url = await getSignedGetUrl(key, 60 * 60, filename);
     return res.json({ url, storage: 's3' });
   }
 
-  // Local storage: expose via uploads path (uploadHelper uses uploads/<folder>/<name>)
-  const base = process.env.BASE_URL || '';
-  const rel = m.stored_name && m.stored_name.includes('/') ? m.stored_name : `media/${m.stored_name}`;
-  const url = `${base}/uploads/${rel}`;
-  return res.json({ url, storage: 'local' });
+  // Local storage
+  const uploadsDir = getUploadsDir();
+  const rel = f.stored_name?.includes("/")
+    ? f.stored_name
+    : `media/${f.stored_name}`;
+  const p = path.join(uploadsDir, rel);
+  if (!fs.existsSync(p))
+    return res.status(404).json({ error: "file_not_found" });
+
+  const filename = f.display_name || path.basename(rel);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${encodeURIComponent(filename)}"`,
+  );
+  return res.download(p, filename);
 });
 
 export default {
@@ -358,5 +475,6 @@ export default {
   deleteFile,
   listMedia,
   uploadMedia,
-  downloadMedia
+  downloadMedia,
+  deleteMedia,
 };

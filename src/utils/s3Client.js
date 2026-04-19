@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, CopyObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import fs from 'fs';
 
@@ -48,6 +48,19 @@ export async function getSignedGetUrl(key, expiresInSeconds = 60 * 60 * 24 * 7, 
 export async function deleteObjectFromS3(key) {
   if (!key) return;
   const cmd = new DeleteObjectCommand({ Bucket: BUCKET, Key: key });
+  await s3Client.send(cmd);
+}
+
+export async function copyObjectInS3(sourceKey, destinationKey) {
+  if (!sourceKey || !destinationKey) return;
+  // CopyObject requires the full source in the form /{Bucket}/{Key}
+  const copySource = `${BUCKET}/${sourceKey}`;
+  const cmd = new CopyObjectCommand({
+    Bucket: BUCKET,
+    CopySource: copySource,
+    Key: destinationKey,
+    ACL: 'private',
+  });
   await s3Client.send(cmd);
 }
 

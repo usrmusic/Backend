@@ -59,7 +59,7 @@ export const getEvent = catchAsync(async (req, res) => {
 
 export const StoreRigListNotes = catchAsync(async (req, res) => {
   const id = req.params && req.params.id ? Number(req.params.id) : req.query && req.query.id ? Number(req.query.id) : null;
-  const { notes, van, crew } = req.body || {};
+  const { note, notes, van, crew } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id_required' });
 
   const existing = await prisma.event.findUnique({ where: { id: Number(id) } });
@@ -70,7 +70,7 @@ export const StoreRigListNotes = catchAsync(async (req, res) => {
   await prisma.event.update({
     where: { id: Number(id) },
     data: {
-      rigList_event_notes: notes || null,
+      rigList_event_notes: notes || note || null,
       extra_data_rigList: JSON.stringify(extra),
       updated_at: new Date(),
     },

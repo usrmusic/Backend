@@ -54,6 +54,8 @@ const createEnquiry = Joi.object({
     dj_package_name: Joi.string().allow("", null),
     total_cost: Joi.number().allow(null),
     dj_cost: Joi.number().allow(null),
+    no_of_guests: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
+    guestCount: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
     equipment_data: Joi.array().items(equipmentItem).allow(null),
     extra_data: Joi.array().items(equipmentItem).allow(null),
     rig_notes_data: Joi.array()
@@ -135,11 +137,14 @@ const updateEnquiry = Joi.object({
     new_venue_name: Joi.string().allow("", null),
     event_details: Joi.string().allow("", null),
     dj_name: Joi.string().allow("", null),
+    dj_id: Joi.number().integer().allow(null),
     dj_package_name: Joi.string().allow("", null),
     total_cost: Joi.number().allow(null),
     dj_cost: Joi.number().allow(null),
     equipment_data: Joi.array().items(equipmentItem).allow(null),
     extra_data: Joi.array().items(equipmentItem).allow(null),
+    no_of_guests: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
+    guestCount: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
     rig_notes_data: Joi.array()
       .items(
         Joi.object({

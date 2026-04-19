@@ -159,7 +159,8 @@ async function getDashboardStats({ year = null } = {}) {
             dj_id: true,
             couple_name: true,
             is_event_payment_fully_paid: true,
-            event_amount_without_vat: true, // Used for Turnover
+            event_amount_without_vat: true,
+            total_cost_for_equipment: true,
             vat_value: true,
             event_cost: true,
             users_events_dj_idTousers: { select: { id: true, name: true } },
@@ -179,27 +180,32 @@ async function getDashboardStats({ year = null } = {}) {
     const statusCounts = {};
     const djCounts = {};
 
-    events.forEach((e) => {
-        const netAmount = parseNumberLike(e.event_amount_without_vat);
+    const confirmedCompletedEvents = events.filter((e) => [2, 3].includes(e.event_status_id));
+    confirmedCompletedEvents.forEach((e) => {
+        const netAmount = parseNumberLike(e.total_cost_for_equipment);
         const profitAmount = parseNumberLike(e.profit);
-        
-        // Update Totals
+
         totalTurnover += netAmount;
         totalProfit += profitAmount;
 
-        // Update Monthly Breakdown
+        if (e.date) {
+            const m = new Date(e.date).getMonth();
+            monthlyTurnover[m] += netAmount;
+        }
+    });
+
+    events.forEach((e) => {
+        const profitAmount = parseNumberLike(e.profit);
+
         if (e.date) {
             const m = new Date(e.date).getMonth();
             monthlyCounts[m] += 1;
             monthlyProfits[m] += profitAmount;
-            monthlyTurnover[m] += netAmount;
         }
 
-        // Sales Analytics (Status)
         const stName = e.event_statuses?.status ? String(e.event_statuses.status) : String(e.event_status_id || 'unknown');
         statusCounts[stName] = (statusCounts[stName] || 0) + 1;
 
-        // Sales Analytics (DJ)
         const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
     });
@@ -209,7 +215,7 @@ async function getDashboardStats({ year = null } = {}) {
     /**
      * 2. Secondary Queries: Executed in parallel via Promise.all
      */
-    const [pendingPaymentsRaw, openEnquiries, calendarEvents, recentNotes] = await Promise.all([
+    const [pendingPaymentsRaw, cancelDepositEvents, openEnquiries, calendarEvents, recentNotes] = await Promise.all([
         // Pending Payments: Filtered by year + includes status ID
         prisma.event.findMany({
             where: { is_event_payment_fully_paid: false, date: dateFilter },
@@ -224,6 +230,15 @@ async function getDashboardStats({ year = null } = {}) {
             },
             orderBy: { date: 'asc' },
             take: 50,
+        }),
+        // Cancelled events deposit/refund totals
+        prisma.event.findMany({
+            where: { event_status_id: 4, date: dateFilter },
+            select: {
+                id: true,
+                refund_amount: true,
+                event_payments: { select: { amount: true } },
+            },
         }),
         // Open Enquiries List
         prisma.event.findMany({
@@ -269,6 +284,16 @@ async function getDashboardStats({ year = null } = {}) {
             event_status_id: p.event_status_id
         };
     });
+
+    const depositAmount = cancelDepositEvents.reduce((sum, e) => {
+        const paid = (e.event_payments || []).reduce((s, it) => s + parseNumberLike(it.amount), 0);
+        return sum + paid;
+    }, 0);
+
+    const cancelRefundPrice = cancelDepositEvents.reduce((sum, e) => sum + parseNumberLike(e.refund_amount), 0);
+    const cancelOveraAllProfit = depositAmount - cancelRefundPrice;
+    totalTurnover += cancelOveraAllProfit;
+    totalProfit += cancelOveraAllProfit;
 
     return {
         year: targetYear,

@@ -412,6 +412,7 @@ const listConfirmEvents = catchAsync(async (req, res) => {
 const listCompletedConfirmEvents = catchAsync(async (req, res) => {
   const q = req.query || {};
   const search = String(q.search || "").trim();
+  const paymentStatus = String(q.paymentStatus || q.paymentstatus || "").trim().toLowerCase();
   const page = q.page ? Math.max(1, Number(q.page)) : 1;
   const limit = q.perPage
     ? Math.min(100, Number(q.perPage))
@@ -420,6 +421,13 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
     : 10;
 
   const where = { event_status_id: 3 };
+  if (paymentStatus) {
+    if (paymentStatus === "completed") {
+      where.is_event_payment_fully_paid = true;
+    } else if (paymentStatus === "pending") {
+      where.is_event_payment_fully_paid = false;
+    }
+  }
   if (search) {
     where.OR = [
       { usr_name: { contains: search } },

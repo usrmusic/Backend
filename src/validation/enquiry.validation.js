@@ -43,6 +43,7 @@ const createEnquiry = Joi.object({
     email: Joi.string().email().required(),
     contact_number: Joi.string().required(),
     address: Joi.string().required(),
+    dj_id:Joi.number().integer().allow(null),
     event_date: Joi.string().pattern(dateRegex).required(),
     start_time: Joi.string().pattern(timeRegex).required(),
     end_time: Joi.string().pattern(timeRegex).required(),

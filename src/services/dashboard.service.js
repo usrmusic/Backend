@@ -1,16 +1,9 @@
 import prisma from '../utils/prismaClient.js';
+import { parseNumberLike, parseSearchDate } from '../utils/helpers.js';
 
 const MONTH_LABELS = [
 	'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
 ];
-
-function parseNumberLike(v) {
-	if (v == null) return 0;
-	if (typeof v === 'number') return v;
-	const s = String(v).replace(/[^0-9.\-]/g, '');
-	const n = parseFloat(s);
-	return Number.isFinite(n) ? n : 0;
-}
 
 // async function getDashboardStats({ year = null } = {}) {
 // 	const now = new Date();
@@ -316,6 +309,52 @@ async function getDashboardStats({ year = null } = {}) {
     };
 }
 
+
+
+async function getUpcomingEvents({ search = null } = {}) {
+    const today = new Date();
+    const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const where = {
+        event_status_id: 2,
+        date: { gte: startDate },
+    };
+
+    if (search) {
+        const searchValue = String(search).trim();
+        const or = [
+            { venues: { is: { venue: { contains: searchValue } } } },
+            { users_events_dj_idTousers: { is: { name: { contains: searchValue } } } },
+        ];
+
+        const dateRange = parseSearchDate(searchValue);
+        if (dateRange) {
+            or.push({ date: { gte: dateRange.startOfDay, lte: dateRange.endOfDay } });
+        }
+
+        where.OR = or;
+    }
+
+    const events = await prisma.event.findMany({
+        where,
+        orderBy: { date: 'asc' },
+        take: 100,
+        select: {
+            id: true,
+            date: true,
+            venues: { select: { venue: true } },
+            users_events_dj_idTousers: { select: { name: true } },
+        },
+    });
+
+    return events.map((event) => ({
+        id: event.id,
+        date: event.date,
+        venue_name: event.venues?.venue || null,
+        dj_name: event.users_events_dj_idTousers?.name || null,
+    }));
+}
+
 async function recalculateProfits({ force = false } = {}) {
 	// Fetch events (optionally only those missing profit)
 	const where = force ? {} : { profit: null };
@@ -333,4 +372,4 @@ async function recalculateProfits({ force = false } = {}) {
 	return { updated };
 }
 
-export default { getDashboardStats, recalculateProfits };
+export default { getDashboardStats, getUpcomingEvents, recalculateProfits };

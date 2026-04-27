@@ -1,6 +1,7 @@
 import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
+import services from "../services/index.js";
 import eventNoteService from "../services/eventNoteService.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import generatePdfBufferFromHtml from "../utils/pdfGenerator.js";
@@ -8,6 +9,9 @@ import renderSendQuote from "../templates/sendQuoteTemplate.js";
 import renderInvoice from "../templates/invoiceTemplate.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
+import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
+const eventSvc = services.get("event");
+
 
 // Confirm open enquiry: create payment + invoice + set event as confirmed
 const confirmEvent = catchAsync(async (req, res) => {
@@ -376,12 +380,7 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
 const listConfirmEvents = catchAsync(async (req, res) => {
   const q = req.query || {};
   const search = String(q.search || "").trim();
-  const page = q.page ? Math.max(1, Number(q.page)) : 1;
-  const limit = q.perPage
-    ? Math.min(100, Number(q.perPage))
-    : q.limit
-    ? Math.min(100, Number(q.limit))
-    : 10;
+  const { page, limit } = parsePaginationParams(q);
 
   const where = { event_status_id: 2 };
   if (search) {
@@ -392,18 +391,21 @@ const listConfirmEvents = catchAsync(async (req, res) => {
     ];
   }
 
-  const total = await prisma.event.count({ where });
+  const total = await eventSvc.model.count({ where });
 
-  const events = await prisma.event.findMany({
-    where,
+  const events = await eventSvc.list({
+    filter: where,
+    page,
+    perPage: limit,
+    sort: "date:asc",
     select: {
       id: true,
       date: true,
       users_events_user_idTousers: { select: { name: true } },
       venues: { select: { venue: true } },
     },
-    orderBy: { date: "asc" },
   });
+
   const meta = { total, page, perPage: limit, totalPages: Math.ceil(total / limit) };
 
   res.json(serializeForJson({ success: true, data: events, meta }));
@@ -413,12 +415,7 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
   const q = req.query || {};
   const search = String(q.search || "").trim();
   const paymentStatus = String(q.paymentStatus || q.paymentstatus || "").trim().toLowerCase();
-  const page = q.page ? Math.max(1, Number(q.page)) : 1;
-  const limit = q.perPage
-    ? Math.min(100, Number(q.perPage))
-    : q.limit
-    ? Math.min(100, Number(q.limit))
-    : 10;
+  const { page, limit } = parsePaginationParams(q);
 
   const where = { event_status_id: 3 };
   if (paymentStatus) {
@@ -1195,29 +1192,9 @@ const updateEvent = catchAsync(async (req, res) => {
   const eventId = Number(params.id || 0);
 
   // 1. Normalize Date
-  let dateVal = null;
-  if (body.date) {
-    const s = String(body.date).trim();
-    const ymd = /^\d{4}-\d{2}-\d{2}$/; // YYYY-MM-DD
-    const dmy = /^\d{2}-\d{2}-\d{4}$/; // DD-MM-YYYY
-    if (ymd.test(s)) {
-      const [y, m, d] = s.split("-").map(Number);
-      dateVal = new Date(y, m - 1, d);
-    } else if (dmy.test(s)) {
-      const [dd, mm, yyyy] = s.split("-").map(Number);
-      dateVal = new Date(yyyy, mm - 1, dd);
-    }
-  }
+  const dateVal = parseDate(body.date);
 
-  // 2. Helper: Time to UTC
-  const parseTimeToUtcDate = (dateOnly, timeStr) => {
-    if (!timeStr || timeStr === "") return null;
-    const [hh, mm] = String(timeStr).split(":").map(Number);
-    if (isNaN(hh) || isNaN(mm)) return null;
-    const base = dateOnly instanceof Date ? dateOnly : new Date();
-    const local = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mm, 0);
-    return new Date(local.toISOString());
-  };
+  // 2. Parse times to UTC
 
   const startTimeVal = parseTimeToUtcDate(dateVal, body.start_time);
   const endTimeVal = parseTimeToUtcDate(dateVal, body.end_time);

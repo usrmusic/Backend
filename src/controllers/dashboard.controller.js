@@ -56,4 +56,12 @@ const recalculateProfits = catchAsync(async (req, res) => {
     res.json({ ok: true, updated: result.updated });
 });
 
-export default { getDashboardStats, getEventsDropDown, recalculateProfits };
+
+const getUpcomingEvents = catchAsync(async (req, res) => {
+    const rawSearch = req.query?.search ?? null;
+    const search = rawSearch ? String(rawSearch).trim() : null;
+
+    const events = await dashboardService.getUpcomingEvents({ search });
+    res.json(serializeForJson(events));
+});
+export default { getDashboardStats, getEventsDropDown, recalculateProfits, getUpcomingEvents };

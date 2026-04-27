@@ -14,6 +14,7 @@ import genPassword from "../utils/genPassword.js";
 import userService from "../services/userService.js";
 import bcrypt from "bcrypt";
 import microsoftGraph from "../utils/microsoftGraph.js";
+import { parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -63,15 +64,8 @@ const createEnquiry = catchAsync(async (req, res) => {
   // find the existing event by client, venue and date (open enquiries only)
   const eventDateDb = toDbDate(data.event_date);
   const eventDateObj = eventDateDb ? new Date(eventDateDb) : null;
-  const toUtcDateTime = (dateStr, timeStr) => {
-    if (!dateStr || !timeStr) return null;
-    const [d, m, y] = String(dateStr).split("-").map(Number);
-    const [hh, mm] = String(timeStr).split(":").map(Number);
-    if ([d, m, y].some(isNaN) || [hh, mm].some(isNaN)) return null;
-    return new Date(Date.UTC(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0));
-  };
-  const startTimeObj = toUtcDateTime(data.event_date, data.start_time);
-  const endTimeObj = toUtcDateTime(data.event_date, data.end_time);
+  const startTimeObj = parseTimeToUtcDate(eventDateObj, data.start_time);
+  const endTimeObj = parseTimeToUtcDate(eventDateObj, data.end_time);
   // resolve DJ id from provided dj_name (or accept dj_id if provided)
   let djId = null;
   try {
@@ -269,10 +263,7 @@ const createEnquiry = catchAsync(async (req, res) => {
 // Open enquiry: list open enquiries (event_status_id = 1)
 const listOpenEnquiries = catchAsync(async (req, res) => {
   // find events with status = 1 (open enquiries)
-  const page = Number(req.query.page || req.query.p || 1) || 1;
-  const perPage =
-    Number(req.query.perPage || req.query.per_page || req.query.limit || 25) ||
-    25;
+  const { page, limit: perPage } = parsePaginationParams({ page: req.query.page || req.query.p, perPage: req.query.perPage || req.query.per_page || req.query.limit, limit: req.query.limit });
   const skip = (page - 1) * perPage;
 
   // Use validated query params (Joi middleware) for sorting; Joi enforces allowed values

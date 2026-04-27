@@ -17,4 +17,9 @@ const getEventsDropDown = {
   }),
 };
 
-export default { getDashboardStats };
+const getUpcomingEvents = {
+  query: Joi.object({
+    search: Joi.string().trim().max(100).allow("", null),
+  }),
+};
+export default { getDashboardStats, getUpcomingEvents, getEventsDropDown };

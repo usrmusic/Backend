@@ -114,6 +114,14 @@ const updateEvent = Joi.object({
   }),
 });
 
+const addPayment = Joi.object({
+    query: Joi.object({ id: Joi.number().integer().required() }),
+    body: Joi.object({
+      payment_method_id: Joi.number().integer().required(),
+      date: Joi.date().iso().required(),
+      amount: Joi.number().required(),
+    })
+})
 export default {
   listConfirmEvents,
   confirmEvent,
@@ -121,6 +129,7 @@ export default {
   sendEmail,
   getEmail,
   refund,
+  addPayment,
   downloadInvoice,
   updateEvent,
   cancel,

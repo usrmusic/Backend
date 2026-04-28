@@ -56,6 +56,14 @@ router
     validate(confirmEventsValidation.cancel),
     confirmEventsController.cancelEvent,
   );
+  router
+ .route("/payment")
+ .post(
+  verifyAccessToken,
+  checkPermission("manage all"),
+  validate(confirmEventsValidation.addPayment),
+  confirmEventsController.addPayment
+ )
 router
   .route("/:id")
   .get(
@@ -76,6 +84,7 @@ router
     validate(confirmEventsValidation.updateEvent),
     confirmEventsController.updateEvent
   )
+
 router
   .route("/email/:id")
   .post(

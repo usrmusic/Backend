@@ -863,6 +863,74 @@ const refund = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
+const addPayment = catchAsync(async (req, res) => {
+  const params = req.params || {};
+  const query = req.query || {};
+  const body =  req.body || {};
+  const eventId = Number(params.id || query.id || 0);
+  const paymentMethodId = Number(body.payment_method_id || 0) || 0;
+  const amount = Number(body.amount || body.payment_amount || 0) || 0;
+
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+  if (!paymentMethodId) return res.status(400).json({ error: "payment_method_required" });
+  if (!amount) return res.status(400).json({ error: "amount_required" });
+
+  // parse date: accept YYYY-MM-DD or DD-MM-YYYY via parseDate, fallback to new Date()
+  let dateVal = null;
+  try {
+    dateVal = parseDate(body.date) || (body.date ? new Date(body.date) : new Date());
+  } catch (e) {
+    dateVal = body.date ? new Date(body.date) : new Date();
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const payment = await tx.eventPayment.create({
+      data: {
+        event_id: eventId,
+        payment_method_id: Number(paymentMethodId),
+        date: dateVal instanceof Date ? dateVal : new Date(dateVal),
+        amount: Number(amount),
+        created_at: new Date(),
+      },
+    });
+
+    // recalc total payments
+    const totalPaymentRow = await tx.eventPayment.aggregate({
+      where: { event_id: eventId },
+      _sum: { amount: true },
+    });
+    const totalPayment = (totalPaymentRow && totalPaymentRow._sum && totalPaymentRow._sum.amount) || 0;
+
+    const totalCostRow = await tx.event.findUnique({ where: { id: eventId }, select: { total_cost_for_equipment: true } });
+    const totalCostNum = totalCostRow && totalCostRow.total_cost_for_equipment ? Number(totalCostRow.total_cost_for_equipment) : 0;
+    const paymentSent = totalCostNum && totalPayment === totalCostNum ? true : false;
+
+    await tx.event.update({ where: { id: eventId }, data: { is_event_payment_fully_paid: paymentSent } });
+
+    // fetch payment with method
+    const paymentWithMethod = await tx.eventPayment.findUnique({ where: { id: payment.id }, include: { payment_methods: true } }).catch(() => null);
+
+    // create note recording payment
+    await eventNoteService.createNote(tx, {
+      eventId,
+      notes: `Payment received - ${amount}`,
+      created_by: req.user?.id || null,
+    }).catch(() => {});
+
+    return {
+      id: payment.id,
+      event_id: payment.event_id,
+      payment_method: paymentWithMethod?.payment_methods?.name || null,
+      date: payment.date,
+      amount: payment.amount,
+      total_paid: totalPayment,
+      is_event_payment_fully_paid: paymentSent,
+    };
+  });
+
+  res.json(serializeForJson({ success: true, data: result }));
+});
+
 const cancelEvent = catchAsync(async (req, res) => {
   const params = req.query || {};
   const body =
@@ -1317,6 +1385,7 @@ const updateEvent = catchAsync(async (req, res) => {
   res.json({ success: true, data: serializeForJson(updated) });
 });
 
+
 export default {
   confirmEvent,
   listConfirmEvents,
@@ -1327,5 +1396,6 @@ export default {
   downloadInvoice,
   updateEvent,
   refund,
+  addPayment,
   cancelEvent,
 };

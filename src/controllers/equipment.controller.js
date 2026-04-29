@@ -116,7 +116,18 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
     .filter((n) => !Number.isNaN(n));
   if (ids.length === 0) return res.status(400).json({ error: "invalid_ids" });
   if (equipmentSvc && typeof equipmentSvc.deleteMany === "function") {
-    await equipmentSvc.deleteMany(ids);
+    // Perform a hard delete for delete-many requests
+    // CoreCrudService.deleteMany accepts an opts.force flag to force permanent deletion
+    try {
+      await equipmentSvc.deleteMany(ids, { force: true });
+    } catch (err) {
+      // Fallback to forceDeleteMany if available
+      if (equipmentSvc && typeof equipmentSvc.forceDeleteMany === 'function') {
+        await equipmentSvc.forceDeleteMany(ids);
+      } else {
+        throw err;
+      }
+    }
     return res.json({ ok: true });
   }
   res.status(501).json({ error: "not_implemented" });

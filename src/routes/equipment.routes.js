@@ -41,7 +41,7 @@ router
   );
 router
   .route("/delete-many/:ids")
-  .post(
+  .delete(
     protectAdmin,
     validate(equipmentValidation.deleteManyEquipment),
     equipmentController.deleteManyEquipment,

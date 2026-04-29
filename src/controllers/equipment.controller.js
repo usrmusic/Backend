@@ -62,6 +62,16 @@ const getEquipment = catchAsync(async (req, res) => {
 const createEquipment = catchAsync(async (req, res) => {
   const body = req.body || {};
   if (equipmentSvc && typeof equipmentSvc.create === "function") {
+    // Create supplier only if supplier_name provided and supplier_id not provided
+    if (!body.supplier_id && body.supplier_name && supplierSvc && typeof supplierSvc.create === 'function') {
+      const supplierPayload = { name: String(body.supplier_name) };
+      const supplier = await supplierSvc.create(supplierPayload).catch((e) => { throw e; });
+      if (supplier && supplier.id) {
+        body.supplier_id = supplier.id;
+      }
+      // remove supplier_name so Prisma won't try to write an unknown column
+      delete body.supplier_name;
+    }
     const created = await equipmentSvc.create(body).catch((e) => { throw e; });
     return res.status(201).json(serializeForJson(created));
   }
@@ -72,6 +82,14 @@ const updateEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
   const body = req.body || {};
+  // If supplier_name provided (and no supplier_id), create supplier and set supplier_id
+  if (!body.supplier_id && body.supplier_name && supplierSvc && typeof supplierSvc.create === 'function') {
+    const supplierPayload = { name: String(body.supplier_name) };
+    const supplier = await supplierSvc.create(supplierPayload).catch((e) => { throw e; });
+    if (supplier && supplier.id) body.supplier_id = supplier.id;
+    delete body.supplier_name;
+  }
+
   if (equipmentSvc && typeof equipmentSvc.update === "function") {
     const updated = await equipmentSvc.update(id, body).catch((e) => { throw e; });
     return res.json(serializeForJson(updated));

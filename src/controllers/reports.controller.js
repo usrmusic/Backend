@@ -170,7 +170,8 @@ const suppliersReport = catchAsync(async (req, res) => {
       date: true,
       start_time: true,
       end_time: true,
-      venues: { select: { id: true, venue: true } },
+    venues: { select: { id: true, venue: true } },
+    event_statuses: { select: { id: true, status: true } },
       // include DJ relation so we can return the DJ name from dj_id
       users_events_dj_idTousers: { select: { id: true, name: true } },
       dj_id: true,
@@ -323,6 +324,7 @@ const suppliersReport = catchAsync(async (req, res) => {
       dj_package_name: ev.dj_package_name || null,
       user_id: ev.user_id || null,
       event_status_id: ev.event_status_id || null,
+      event_status: ev.event_statuses?.status || null,
       payment_send: ev.payment_send || null,
       payment_received: totalPaidForEvent,
       payment_date: latestPaymentDate || null,
@@ -521,7 +523,8 @@ const adminReport = catchAsync(async (req, res) => {
 			SELECT
 				e.id,
 				e.event_cost,
-				e.event_status_id,
+        e.event_status_id,
+        es.status AS event_status,
 				e.date,
 				e.extra_cost,
 				e.profit,
@@ -533,11 +536,12 @@ const adminReport = catchAsync(async (req, res) => {
 				u_dj.name AS dj_name,
 				v.venue AS venue_name,
 				c.name AS company_name
-			FROM events e
+      FROM events e
 			LEFT JOIN users u_client ON u_client.id = e.user_id
 			LEFT JOIN users u_dj ON u_dj.id = e.dj_id
 			LEFT JOIN venues v ON v.id = e.venue_id
 			LEFT JOIN company_names c ON c.id = e.names_id
+      LEFT JOIN event_statuses es ON es.id = e.event_status_id
 			${whereSql}
 		),
 		pkg_agg AS (
@@ -610,11 +614,12 @@ const adminReport = catchAsync(async (req, res) => {
 			LEFT JOIN payments_agg pay ON pay.event_id = fe.id
 			LEFT JOIN dj_pkg dp ON dp.user_id = fe.dj_id AND dp.package_name = fe.dj_package_name
 		)
-		SELECT
+      SELECT
 			company_name,
 			client_name,
 			event_date,
-			event_status,
+        event_status_id,
+        event_status,
 			dj_name,
 			venue_name,
 			total_price,
@@ -642,6 +647,7 @@ const adminReport = catchAsync(async (req, res) => {
     company_name: r.company_name || null,
     client_name: r.client_name || null,
     event_date: r.event_date || null,
+    event_status_id: r.event_status_id || null,
     event_status: r.event_status || null,
     dj_name: r.dj_name || null,
     venue_name: r.venue_name || null,

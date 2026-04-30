@@ -249,7 +249,13 @@ async function getDashboardStats({ year = null } = {}) {
         // Confirmed Calendar Events
         prisma.event.findMany({
             where: { event_statuses: { status: { contains: 'confirm' } }, date: dateFilter },
-            select: { id: true, date: true },
+            select: {
+                id: true,
+                date: true,
+                couple_name: true,
+                venues: { select: { venue: true } },
+                users_events_dj_idTousers: { select: { id: true, name: true } },
+            },
             orderBy: { date: 'asc' },
             take: 200,
         }),

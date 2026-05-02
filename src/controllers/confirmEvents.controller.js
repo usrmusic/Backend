@@ -490,7 +490,8 @@ const getConfirmEvent = catchAsync(async (req, res) => {
         include: {
           users_events_user_idTousers: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } },
           venues: true,
-          event_package: true,
+          // include related event_package rows and eager-load equipment so frontend can access equipment.name
+          event_package: { include: { equipment: true } },
           event_payments: true,
           file_uploads: { include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } },
           contracts: { include: { signatures: true } },
@@ -599,6 +600,13 @@ const getConfirmEvent = catchAsync(async (req, res) => {
   // attach notes and todos fetched in the transaction
   event.event_notes = notes || [];
   event.todos = todos || [];
+
+  // normalize relation name for frontend: provide `event_packages` array (plural)
+  try {
+    event.event_packages = Array.isArray(event.event_package) ? event.event_package : [];
+  } catch (e) {
+    event.event_packages = [];
+  }
 
   res.json(serializeForJson({ success: true, data: event }));
 });

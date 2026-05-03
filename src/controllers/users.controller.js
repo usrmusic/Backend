@@ -274,8 +274,10 @@ const listUsers = catchAsync(async (req, res) => {
       : undefined) ||
     undefined;
 
-  // build base filter (only active users)
-  let filter = { deleted_at: null };
+  // build base filter (only active users; exclude Client role — clients live
+  // under /api/client. This matches Laravel's User::scopeStaffs which filters
+  // role_id != Client.)
+  let filter = { deleted_at: null, NOT: { role_id: BigInt(4) } };
   if (req.query.filter || req.params.filter) {
     try {
       const parsed =
@@ -306,12 +308,18 @@ const listUsers = catchAsync(async (req, res) => {
     perPage,
     page,
     sort,
-    include: { roles: { select: { name: true } } },
+    include: { roles: { select: { id: true, name: true } } },
   });
   const total = await prisma.user.count({ where: filter }).catch(() => 0);
 
+  // Flatten the role relation so the frontend can render `record.role` directly.
+  const shaped = (users || []).map((u) => {
+    const role = u?.roles?.name || null;
+    return { ...u, role };
+  });
+
   return res.json({
-    data: serializeForJson(users),
+    data: serializeForJson(shaped),
     meta: { total, page, perPage },
   });
 });
@@ -329,6 +337,51 @@ const getUser = catchAsync(async (req, res) => {
   res.json(serializeForJson(user));
 });
 
+// Admin-triggered password reset by user id. Generates a new password, emails
+// it to the target user and stores the new hash. Used from the Users and
+// Clients management screens.
+const resetPassword = catchAsync(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "id_required" });
+
+  const user = await userService.getUserById
+    ? await userService.getUserById(id)
+    : await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+
+  const plainPassword = genPassword();
+
+  try {
+    const sendResult = await resendClient({
+      to: user.email,
+      subject: "Your password has been reset",
+      html: `<p>Hello ${user.name || ""},</p>
+             <p>An administrator has reset your password. Your new temporary password is:</p>
+             <pre>${plainPassword}</pre>
+             <p>Please sign in and change your password.</p>`,
+    });
+    if (sendResult && sendResult.fallback) {
+      return res.status(500).json({ error: "resend_not_configured" });
+    }
+    if (sendResult && sendResult.ok === false) {
+      return res
+        .status(500)
+        .json({ error: "email_send_failed", details: sendResult });
+    }
+  } catch (err) {
+    console.error("resendClient error (resetPassword)", err);
+    return res.status(500).json({ error: "email_send_failed" });
+  }
+
+  const hashed = await bcrypt.hash(plainPassword, 10);
+  await userSvc.update(user.id, {
+    password: hashed,
+    password_text: plainPassword,
+  });
+
+  return res.json({ ok: true, email: user.email });
+});
+
 const listUserDropdown = catchAsync(async (req, res) => {
   const users = await userSvc.list({
     filter: { deleted_at: null, NOT:{ role_id: BigInt(4)} },
@@ -341,6 +394,7 @@ export default {
   signUp,
   verifyEmail,
   forgotPassword,
+  resetPassword,
   updateUser,
   deleteUser,
   deleteManyUsers,

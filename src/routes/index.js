@@ -16,10 +16,15 @@ import calendarRoutes from "./calendar.routes.js";
 import rigListRoutes from "./rigList.routes.js";
 import reportRoutes from "./reports.routes.js";
 import dashboardRoutes from "./dashboard.routes.js";
+import contractRoutes from "./contract.routes.js";
 
 const router = express.Router();
 
 const defaultRoutes = [
+  {
+    path: "/contract",
+    route: contractRoutes,
+  },
   {
     path: "/dashboard",
     route: dashboardRoutes,

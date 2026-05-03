@@ -21,7 +21,7 @@ router
   .route("/")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     validate(userValidation.listUsers),
     userController.listUsers,
   )
@@ -35,7 +35,7 @@ router
   .route("/delete-many")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     validate(userValidation.deleteManyUsers),
     userController.deleteManyUsers,
   );
@@ -43,7 +43,7 @@ router
   .route("/get-dropdown")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     userController.listUserDropdown,
   );
 router
@@ -57,24 +57,32 @@ router.route("/refresh").post(tokenController.refreshToken);
 router.route("/signout").post(tokenController.signOut);
 
 router
+  .route("/:id/reset-password")
+  .post(
+    verifyAccessToken,
+    checkPermission("user"),
+    userController.resetPassword,
+  );
+
+router
   .route("/:id")
   .get(
     validate(userValidation.getUser),
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     userController.getUser,
   )
   .put(
     verifyAccessToken,
     upload.single("profile_photo"),
     validate(userValidation.updateUser),
-    allowOwnerOr("manage all"),
+    allowOwnerOr("user"),
     userController.updateUser,
   )
   .delete(
     verifyAccessToken,
     validate(userValidation.getUser),
-    checkPermission("manage all"),
+    checkPermission("user"),
     userController.deleteUser,
   );
 

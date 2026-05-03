@@ -7,7 +7,7 @@ import { supplierValidation } from "../validation/index.js";
 
 const router = express.Router();
 
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
+const protectAdmin = [verifyAccessToken, checkPermission("user")];
 
 router
   .route("/")

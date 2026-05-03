@@ -6,7 +6,9 @@ import validate from '../middleware/validate.js';
 import {todoValidation} from '../validation/index.js';
 
 const router = express.Router();
-const protectAdmin = [verifyAccessToken, checkPermission('manage all')];
+// Todos are visible to all authenticated roles in the Laravel app
+// (Super Admin / Admin / Staff / Client) so we just require auth here.
+const protectAdmin = [verifyAccessToken];
 
 router.route('/:id')
     .get(protectAdmin, validate(todoValidation.listTodo), todoController.listTodo)

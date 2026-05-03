@@ -7,89 +7,98 @@ import { confirmEventsValidation } from "../validation/index.js";
 
 const router = express.Router();
 
+// confirm event -> "confirm event"; completed event view -> "complete event"
+// (mirrors Laravel routes/web.php groups)
+
 router
   .route("/")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.listConfirmEvents),
     confirmEventsController.listConfirmEvents,
   );
+
 router
   .route("/completed")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("complete event"),
     validate(confirmEventsValidation.listConfirmEvents),
     confirmEventsController.listCompletedConfirmEvents,
   );
+
 router
   .route("/send-invoice")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.sendEmail),
     confirmEventsController.sendInvoice,
   );
-// Download invoice (parity with Laravel POST /download-invoice)
+
 router
   .route("/download-invoice/:id")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.downloadInvoice),
     confirmEventsController.downloadInvoice,
   );
+
 router
   .route("/refund")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.refund),
     confirmEventsController.refund,
   );
+
 router
   .route("/cancel")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.cancel),
     confirmEventsController.cancelEvent,
   );
-  router
- .route("/payment")
- .post(
-  verifyAccessToken,
-  checkPermission("manage all"),
-  validate(confirmEventsValidation.addPayment),
-  confirmEventsController.addPayment
- )
+
+router
+  .route("/payment")
+  .post(
+    verifyAccessToken,
+    checkPermission("confirm event"),
+    validate(confirmEventsValidation.addPayment),
+    confirmEventsController.addPayment,
+  );
+
 router
   .route("/:id")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.getConfirmEvent),
     confirmEventsController.getConfirmEvent,
   )
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.confirmEvent),
     confirmEventsController.confirmEvent,
   )
   .put(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.updateEvent),
-    confirmEventsController.updateEvent
-  )
+    confirmEventsController.updateEvent,
+  );
 
 router
   .route("/email/:id")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("confirm event"),
     validate(confirmEventsValidation.sendEmail),
     confirmEventsController.sendEventConfirmationEmail,
   );

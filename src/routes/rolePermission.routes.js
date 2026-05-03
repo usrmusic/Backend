@@ -9,7 +9,7 @@ import { rolePermissionValidation } from "../validation/index.js";
 const router = express.Router();
 
 // All admin routes require auth + manage access permission
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
+const protectAdmin = [verifyAccessToken, checkPermission("manage access")];
 
 router
   .route("/roles")

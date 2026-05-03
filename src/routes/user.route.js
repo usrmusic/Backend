@@ -21,6 +21,17 @@ router
   .route("/")
   .get(
     verifyAccessToken,
+    // If no query params present, return the current authenticated user profile.
+    async (req, res, next) => {
+      try {
+        if (!req.query || Object.keys(req.query).length === 0) {
+          return userController.currentUser(req, res);
+        }
+        return next();
+      } catch (e) {
+        return next(e);
+      }
+    },
     checkPermission("user"),
     validate(userValidation.listUsers),
     userController.listUsers,

@@ -10,6 +10,7 @@ import resendClient from "../utils/mail/resendClient.js";
 import * as authService from "../services/authService.js";
 import userService from "../services/userService.js";
 import service from "../services/index.js";
+import { loadPermissionsForUserId } from "../middleware/authorize.js";
 
 const userSvc = service.get("user");
 const roleSvc = service.get("roles");
@@ -389,6 +390,34 @@ const listUserDropdown = catchAsync(async (req, res) => {
   });
   res.json(serializeForJson(users));
 });
+
+const currentUser = catchAsync(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'missing_token' });
+  const sub = req.user.sub || req.user.id || req.user.email;
+  let userId = null;
+  if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+  if (!userId) {
+    const email = req.user.email;
+    if (!email) return res.status(401).json({ error: 'missing_user_identity' });
+    const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+    if (!u) return res.status(404).json({ error: 'user_not_found' });
+    userId = Number(u.id);
+  }
+
+  const user = await userSvc.getById(userId);
+  if (!user) return res.status(404).json({ error: 'user_not_found' });
+
+  const perms = await loadPermissionsForUserId(userId);
+  const out = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    profile_photo: user.profile_photo || null,
+    role_id: user.role_id ? String(user.role_id) : undefined,
+    permissions: Array.from(perms || []),
+  };
+  res.json(out);
+});
 export default {
   signIn,
   signUp,
@@ -401,5 +430,6 @@ export default {
   listUsers,
   listRoles,
   getUser,
+  currentUser,
   listUserDropdown,
 };

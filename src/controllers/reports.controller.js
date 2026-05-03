@@ -581,8 +581,9 @@ const adminReport = catchAsync(async (req, res) => {
 			SELECT
 				fe.company_name,
 				fe.client_name,
-				fe.date AS event_date,
-				fe.event_status_id AS event_status,
+                fe.date AS event_date,
+                fe.event_status_id AS event_status_id,
+                fe.event_status AS event_status,
 				fe.dj_name,
 				fe.venue_name,
 				COALESCE(

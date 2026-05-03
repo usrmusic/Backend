@@ -76,8 +76,9 @@ router
 router
   .route("/:id")
   .get(
+    // allow authenticated users to fetch a confirmed event; controller enforces
+    // fine-grained authorization so staff with view_confirmed_events can access.
     verifyAccessToken,
-    checkPermission("confirm event"),
     validate(confirmEventsValidation.getConfirmEvent),
     confirmEventsController.getConfirmEvent,
   )

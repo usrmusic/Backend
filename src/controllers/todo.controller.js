@@ -30,6 +30,23 @@ const listTodo = catchAsync(async (req, res) => {
   res.json(serializeForJson(todos));
 });
 
+const listAssignedTodos = catchAsync(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'missing_token' });
+  const sub = req.user.sub || req.user.id || req.user.email;
+  let userId = null;
+  if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+  if (!userId) {
+    const email = req.user.email;
+    if (!email) return res.status(401).json({ error: 'missing_user_identity' });
+    const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+    if (!u) return res.status(404).json({ error: 'user_not_found' });
+    userId = Number(u.id);
+  }
+
+  const todos = await todoSvc.list({ filter: { assigned_to: userId }, perPage: 50 });
+  res.json(serializeForJson(todos));
+});
+
 const createTodo = catchAsync(async (req, res) => {
   const rawId = req.params?.id ?? req.query?.id ?? req.body?.id;
   const event_id = await resolveEventId(rawId);
@@ -99,6 +116,7 @@ const deleteTodo = catchAsync(async (req, res) => {
 
 export default {
   listTodo,
+  listAssignedTodos,
   createTodo,
   updateTodo,
   deleteTodo,

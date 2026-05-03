@@ -51,7 +51,19 @@ async function loadPermissionsForUserId(userId) {
     modelRolePerms = mrp.map((r) => r.permissions && r.permissions.name).filter(Boolean);
   }
 
-  const perms = new Set([...rolePerms, ...modelPerms, ...modelRolePerms]);
+  const rawPerms = [...rolePerms, ...modelPerms, ...modelRolePerms].filter(Boolean).map(String);
+
+  // Normalize permissions to be forgiving about spaces vs underscores and case.
+  // e.g. 'manage all' <-> 'manage_all', and lowercase variants.
+  const perms = new Set();
+  for (const p of rawPerms) {
+    const lower = p.toLowerCase();
+    perms.add(p);
+    perms.add(lower);
+    perms.add(lower.replace(/\s+/g, '_'));
+    perms.add(lower.replace(/_/g, ' '));
+  }
+
   setCache(cacheKey, perms);
   return perms;
 }

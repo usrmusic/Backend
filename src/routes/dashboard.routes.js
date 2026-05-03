@@ -7,24 +7,27 @@ import { dashboardValidation } from "../validation/index.js";
 
 const router = express.Router();
 
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
+// allow any authenticated user for main dashboard endpoints; keep admin-only for sensitive ops
+const authOnly = [verifyAccessToken];
+const protectAdmin = [verifyAccessToken, checkPermission("manage_all")];
 
 router
   .route("/")
   .get(
-    protectAdmin,
+    authOnly,
     validate(dashboardValidation.getDashboardStats),
     dashboardController.getDashboardStats,
   );
 
 router
   .route("/upcoming-events")
-  .get(protectAdmin, validate(dashboardValidation.getUpcomingEvents), dashboardController.getUpcomingEvents);
+  .get(authOnly, validate(dashboardValidation.getUpcomingEvents), dashboardController.getUpcomingEvents);
 
 router
   .route("/drop-down")
+  // allow any authenticated user to use the dropdown (used by header search)
   .get(
-    protectAdmin,
+    authOnly,
     validate(dashboardValidation.getEventsDropDown),
     dashboardController.getEventsDropDown,
   );

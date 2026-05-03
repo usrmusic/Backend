@@ -10,9 +10,13 @@ const router = express.Router();
 // (Super Admin / Admin / Staff / Client) so we just require auth here.
 const protectAdmin = [verifyAccessToken];
 
+// Todos for the current user
+router.route('/mine')
+    .get(protectAdmin, todoController.listAssignedTodos);
+
 router.route('/:id')
-    .get(protectAdmin, validate(todoValidation.listTodo), todoController.listTodo)
-    .post(protectAdmin, validate(todoValidation.createTodo), todoController.createTodo);
+        .get(protectAdmin, validate(todoValidation.listTodo), todoController.listTodo)
+        .post(protectAdmin, validate(todoValidation.createTodo), todoController.createTodo);
 
 router.route('/:eventId/:todoId')
     .put(protectAdmin, validate(todoValidation.updateTodo), todoController.updateTodo)

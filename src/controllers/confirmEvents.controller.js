@@ -10,6 +10,7 @@ import renderInvoice from "../templates/invoiceTemplate.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
+import { loadPermissionsForUserId } from '../middleware/authorize.js';
 const eventSvc = services.get("event");
 
 
@@ -504,6 +505,43 @@ const getConfirmEvent = catchAsync(async (req, res) => {
     .catch(() => [null, [], [], []]);
 
   if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  // Authorization: ensure requester may view this confirmed event
+  try {
+    // determine requesting user id
+    const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+    let requesterId = null;
+    if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+    if (!requesterId && req.user && req.user.email) {
+      const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+      if (uu) requesterId = Number(uu.id);
+    }
+
+    const perms = requesterId ? await loadPermissionsForUserId(requesterId) : new Set();
+    const isAdmin = perms && (perms.has('manage_all') || perms.has('super_admin') || perms.has('confirm event'));
+    const hasViewConfirmed = perms && (perms.has('view_confirmed_events') || perms.has('view_confirmed_event') );
+
+    let allowed = false;
+    if (isAdmin || hasViewConfirmed) allowed = true;
+    // client owning the event
+    if (!allowed && event.users_events_user_idTousers && event.users_events_user_idTousers.id && requesterId && Number(event.users_events_user_idTousers.id) === Number(requesterId)) allowed = true;
+    // dj/creator/assigned - fetch lightweight membership info
+    if (!allowed && requesterId) {
+      try {
+        const meta = await prisma.event.findUnique({ where: { id: event_id }, select: { dj_id: true, created_by: true, users_events_dj_idTousers: { select: { id: true } } } });
+        if (meta) {
+          if (meta.dj_id && Number(meta.dj_id) === Number(requesterId)) allowed = true;
+          if (meta.created_by && Number(meta.created_by) === Number(requesterId)) allowed = true;
+          if (!allowed && Array.isArray(meta.users_events_dj_idTousers) && meta.users_events_dj_idTousers.some((u) => Number(u.id) === Number(requesterId))) allowed = true;
+        }
+      } catch (e) {}
+    }
+
+    if (!allowed) return res.status(403).json({ error: 'forbidden', details: 'missing_permission_or_not_assigned' });
+  } catch (e) {
+    // if permission check fails unexpectedly, deny access
+    return res.status(403).json({ error: 'forbidden', details: 'authorization_error' });
+  }
 
   // merge global files with event uploads
   event.file_uploads = (Array.isArray(event.file_uploads) ? event.file_uploads : []).concat(globalFiles || []);

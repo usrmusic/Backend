@@ -10,6 +10,7 @@ import resendClient from "../utils/mail/resendClient.js";
 import * as authService from "../services/authService.js";
 import userService from "../services/userService.js";
 import service from "../services/index.js";
+import { loadPermissionsForUserId } from "../middleware/authorize.js";
 
 const userSvc = service.get("user");
 const roleSvc = service.get("roles");
@@ -127,6 +128,44 @@ const verifyEmail = catchAsync(async (req, res) => {
   }
 });
 
+const requestVerifyEmail = catchAsync(async (req, res) => {
+  // Send a verification token/link to the currently authenticated user
+  // `verifyAccessToken` middleware must set req.user
+  if (!req.user) return res.status(401).json({ error: "missing_token" });
+
+  // try to resolve numeric user id from token subject, falling back to email
+  const sub = req.user.sub || req.user.id || req.user.email;
+  let userId = null;
+  if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+
+  let user;
+  if (userId) {
+    user = await userSvc.getById(userId);
+  } else if (req.user.email) {
+    user = await userService.getUserByEmail(String(req.user.email));
+  }
+
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+
+  // generate a short-lived JWT token and send via configured email provider
+  const tokenPayload = { sub: user.id, email: user.email };
+  const verifyToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: "1h" });
+
+  try {
+    const sendRes = await resendClient({
+      to: user.email,
+      subject: "Verify your email",
+      html: `<p>Hello ${user.name || ''},</p><p>Your verification token (or link) is:</p><pre>${verifyToken}</pre><p>Or click: <a href="/verify?token=${verifyToken}">Verify email</a></p>`,
+    });
+    const emailSent = !!(sendRes && sendRes.ok && !sendRes.fallback);
+    return res.json({ ok: true, emailSent, verificationToken: emailSent ? undefined : verifyToken });
+  } catch (err) {
+    console.error("requestVerifyEmail resendClient error", err);
+    // Return token in response when email sending fails so client can display it (only in dev or when necessary)
+    return res.status(500).json({ error: "email_send_failed", verificationToken: verifyToken });
+  }
+});
+
 const forgotPassword = catchAsync(async (req, res) => {
   const { email } = req.body || {};
 
@@ -169,6 +208,20 @@ const forgotPassword = catchAsync(async (req, res) => {
 const updateUser = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   const body = req.body || {};
+
+  // load existing user to enforce email-change rules
+  const existing = await userSvc.getById(id);
+  if (!existing || existing.deleted_at) return res.status(404).json({ error: "user_not_found" });
+
+  // If user has already verified email, disallow changing the email address
+  if (body.email !== undefined && existing.is_email_send) {
+    const incoming = String(body.email || "").trim();
+    const current = String(existing.email || "").trim();
+    if (incoming.toLowerCase() !== current.toLowerCase()) {
+      return res.status(400).json({ error: "email_verified_cannot_update" });
+    }
+  }
+
   const data = {};
   if (body.name !== undefined) data.name = body.name;
   if (body.email !== undefined) data.email = body.email;
@@ -274,8 +327,10 @@ const listUsers = catchAsync(async (req, res) => {
       : undefined) ||
     undefined;
 
-  // build base filter (only active users)
-  let filter = { deleted_at: null };
+  // build base filter (only active users; exclude Client role — clients live
+  // under /api/client. This matches Laravel's User::scopeStaffs which filters
+  // role_id != Client.)
+  let filter = { deleted_at: null, NOT: { role_id: BigInt(4) } };
   if (req.query.filter || req.params.filter) {
     try {
       const parsed =
@@ -306,12 +361,18 @@ const listUsers = catchAsync(async (req, res) => {
     perPage,
     page,
     sort,
-    include: { roles: { select: { name: true } } },
+    include: { roles: { select: { id: true, name: true } } },
   });
   const total = await prisma.user.count({ where: filter }).catch(() => 0);
 
+  // Flatten the role relation so the frontend can render `record.role` directly.
+  const shaped = (users || []).map((u) => {
+    const role = u?.roles?.name || null;
+    return { ...u, role };
+  });
+
   return res.json({
-    data: serializeForJson(users),
+    data: serializeForJson(shaped),
     meta: { total, page, perPage },
   });
 });
@@ -329,6 +390,51 @@ const getUser = catchAsync(async (req, res) => {
   res.json(serializeForJson(user));
 });
 
+// Admin-triggered password reset by user id. Generates a new password, emails
+// it to the target user and stores the new hash. Used from the Users and
+// Clients management screens.
+const resetPassword = catchAsync(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "id_required" });
+
+  const user = await userService.getUserById
+    ? await userService.getUserById(id)
+    : await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+
+  const plainPassword = genPassword();
+
+  try {
+    const sendResult = await resendClient({
+      to: user.email,
+      subject: "Your password has been reset",
+      html: `<p>Hello ${user.name || ""},</p>
+             <p>An administrator has reset your password. Your new temporary password is:</p>
+             <pre>${plainPassword}</pre>
+             <p>Please sign in and change your password.</p>`,
+    });
+    if (sendResult && sendResult.fallback) {
+      return res.status(500).json({ error: "resend_not_configured" });
+    }
+    if (sendResult && sendResult.ok === false) {
+      return res
+        .status(500)
+        .json({ error: "email_send_failed", details: sendResult });
+    }
+  } catch (err) {
+    console.error("resendClient error (resetPassword)", err);
+    return res.status(500).json({ error: "email_send_failed" });
+  }
+
+  const hashed = await bcrypt.hash(plainPassword, 10);
+  await userSvc.update(user.id, {
+    password: hashed,
+    password_text: plainPassword,
+  });
+
+  return res.json({ ok: true, email: user.email });
+});
+
 const listUserDropdown = catchAsync(async (req, res) => {
   const users = await userSvc.list({
     filter: { deleted_at: null, NOT:{ role_id: BigInt(4)} },
@@ -336,16 +442,47 @@ const listUserDropdown = catchAsync(async (req, res) => {
   });
   res.json(serializeForJson(users));
 });
+
+const currentUser = catchAsync(async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'missing_token' });
+  const sub = req.user.sub || req.user.id || req.user.email;
+  let userId = null;
+  if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+  if (!userId) {
+    const email = req.user.email;
+    if (!email) return res.status(401).json({ error: 'missing_user_identity' });
+    const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+    if (!u) return res.status(404).json({ error: 'user_not_found' });
+    userId = Number(u.id);
+  }
+
+  const user = await userSvc.getById(userId);
+  if (!user) return res.status(404).json({ error: 'user_not_found' });
+
+  const perms = await loadPermissionsForUserId(userId);
+  const out = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    profile_photo: user.profile_photo || null,
+    role_id: user.role_id ? String(user.role_id) : undefined,
+    permissions: Array.from(perms || []),
+  };
+  res.json(out);
+});
 export default {
   signIn,
   signUp,
   verifyEmail,
+  requestVerifyEmail,
   forgotPassword,
+  resetPassword,
   updateUser,
   deleteUser,
   deleteManyUsers,
   listUsers,
   listRoles,
   getUser,
+  currentUser,
   listUserDropdown,
 };

@@ -6,7 +6,7 @@ import checkPermission from "../middleware/authorize.js";
 import { verifyAccessToken } from "../middleware/auth0.js";
 const router = express.Router();
 
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
+const protectAdmin = [verifyAccessToken, checkPermission("user")];
 
 router
   .route("/")

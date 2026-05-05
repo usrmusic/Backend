@@ -21,7 +21,18 @@ router
   .route("/")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    // If no query params present, return the current authenticated user profile.
+    async (req, res, next) => {
+      try {
+        if (!req.query || Object.keys(req.query).length === 0) {
+          return userController.currentUser(req, res);
+        }
+        return next();
+      } catch (e) {
+        return next(e);
+      }
+    },
+    checkPermission("user"),
     validate(userValidation.listUsers),
     userController.listUsers,
   )
@@ -35,7 +46,7 @@ router
   .route("/delete-many")
   .post(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     validate(userValidation.deleteManyUsers),
     userController.deleteManyUsers,
   );
@@ -43,7 +54,7 @@ router
   .route("/get-dropdown")
   .get(
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     userController.listUserDropdown,
   );
 router
@@ -52,29 +63,40 @@ router
 router
   .route("/verify")
   .post(validate(userValidation.verifyEmail), userController.verifyEmail);
+router
+  .route("/verify/request")
+  .post(verifyAccessToken, userController.requestVerifyEmail);
 router.route("/roles").get(verifyAccessToken, userController.listRoles);
 router.route("/refresh").post(tokenController.refreshToken);
 router.route("/signout").post(tokenController.signOut);
+
+router
+  .route("/:id/reset-password")
+  .post(
+    verifyAccessToken,
+    checkPermission("user"),
+    userController.resetPassword,
+  );
 
 router
   .route("/:id")
   .get(
     validate(userValidation.getUser),
     verifyAccessToken,
-    checkPermission("manage all"),
+    checkPermission("user"),
     userController.getUser,
   )
   .put(
     verifyAccessToken,
     upload.single("profile_photo"),
     validate(userValidation.updateUser),
-    allowOwnerOr("manage all"),
+    allowOwnerOr("user"),
     userController.updateUser,
   )
   .delete(
     verifyAccessToken,
     validate(userValidation.getUser),
-    checkPermission("manage all"),
+    checkPermission("user"),
     userController.deleteUser,
   );
 

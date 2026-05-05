@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import stream from 'stream';
+import crypto from 'crypto';
 import { uploadStreamToS3, getSignedGetUrl, deleteObjectFromS3 } from './s3Client.js';
 
 // Upload helper for Railway persistent volumes or local fallback.
@@ -32,7 +33,9 @@ export async function uploadFile(file, options = {}) {
   const storageMode = (process.env.FILE_STORAGE || '').toLowerCase();
   const targetFolder = folder && folder.length ? folder.replace(/^\/+|\/+$/g, '') : 'uploads';
   if (storageMode === 's3') {
-    const key = `${targetFolder}/${Date.now()}-${file.originalname}`;
+    const ext = path.extname(file.originalname || '') || '';
+    const shortName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+    const key = `${targetFolder}/${shortName}`;
     // file.path (disk) -> stream, file.buffer -> buffer
     if (file.path) {
       const fileStream = fs.createReadStream(file.path);
@@ -74,7 +77,8 @@ export async function uploadFile(file, options = {}) {
 
   // If buffer provided (memory storage)
   if (file.buffer) {
-    const name = `${Date.now()}-${file.originalname}`;
+    const ext = path.extname(file.originalname || '') || '';
+    const name = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
     const folderPath = folder && folder.length ? path.join(uploadsDir, folder) : uploadsDir;
     if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
     const outPath = path.join(folderPath, name);

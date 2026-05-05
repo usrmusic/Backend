@@ -9,7 +9,7 @@ const upload = multer();
 const router = express.Router();
 
 // router.use(verifyAccessToken);
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
+const protectAdmin = [verifyAccessToken, checkPermission("user")];
 
 router
   .route("/")

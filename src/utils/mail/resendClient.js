@@ -8,16 +8,18 @@ const fromEmail = process.env.RESEND_FROM_EMAIL || 'no-reply@usrmusic.com';
 let client = null;
 if (apiKey) client = new Resend(apiKey);
 
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, attachments }) {
   console.log(apiKey ? '[resendClient] initialized with API key' : '[resendClient] no API key, using fallback logging');
   if (!to) return Promise.reject(new Error('missing_to'));
   if (!client) {
-    console.log('[resend-fallback] to=', to, 'subject=', subject);
+    console.log('[resend-fallback] to=', to, 'subject=', subject, 'attachments=', Array.isArray(attachments) ? attachments.length : 0);
     return Promise.resolve({ ok: true, fallback: true });
   }
 
   const timeoutMs = Number(process.env.RESEND_SEND_TIMEOUT_MS) || 8000;
-  const sendPromise = client.emails.send({ from: fromEmail, to, subject, html });
+  const payload = { from: fromEmail, to, subject, html };
+  if (Array.isArray(attachments) && attachments.length) payload.attachments = attachments;
+  const sendPromise = client.emails.send(payload);
 
   try {
     const res = await Promise.race([

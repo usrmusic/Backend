@@ -6,7 +6,7 @@ import validate from "../middleware/validate.js";
 import { packageValidation } from "../validation/index.js";
 
 const router = express.Router();
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
+const protectAdmin = [verifyAccessToken, checkPermission("user")];
 
 router
   .route("/")

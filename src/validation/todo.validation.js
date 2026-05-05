@@ -46,5 +46,15 @@ const deleteTodo = Joi.object({
     }).optional(),
 });
 
+const toggleComplete = Joi.object({
+    params: Joi.object({
+        eventId: Joi.number().integer().required(),
+        todoId: Joi.number().integer().required(),
+    }),
+    body: Joi.object({
+        complete: Joi.boolean().required(),
+    }),
+});
 
-export default { listTodo, createTodo, updateTodo, deleteTodo };
+
+export default { listTodo, createTodo, updateTodo, deleteTodo, toggleComplete };

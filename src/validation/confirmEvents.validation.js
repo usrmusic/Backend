@@ -111,6 +111,9 @@ const updateEvent = Joi.object({
     photo_usb_provided: Joi.string().allow('', null).optional(),
     guests_upstanding: Joi.string().allow('', null).optional(),
     created_by: Joi.string().allow('', null).optional(),
+
+    // Optional inline contract signature (admin or owning client)
+    signature_image: Joi.string().pattern(/^data:image\//).allow(null, '').optional(),
   }),
 });
 

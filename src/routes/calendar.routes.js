@@ -6,7 +6,7 @@ import { calendarValidation } from '../validation/index.js';
 import validate from '../middleware/validate.js';
 
 
-const checkAdmin = [verifyAccessToken, checkpermission('manage all')]
+const checkAdmin = [verifyAccessToken, checkpermission('calendar')]
 
 const router = express.Router();
 

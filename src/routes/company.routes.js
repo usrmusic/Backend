@@ -18,7 +18,7 @@ const upload = createUploadMiddleware({
   ],
 });
 
-const checkPermissions = [verifyAccessToken, checkPermission("manage all")];
+const checkPermissions = [verifyAccessToken, checkPermission("user")];
 
 const router = express.Router();
 

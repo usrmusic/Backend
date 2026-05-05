@@ -129,7 +129,7 @@ const MONTH_LABELS = [
 // 	};
 // }
 
-async function getDashboardStats({ year = null } = {}) {
+async function getDashboardStats({ year = null, userId = null, scope = 'admin', userRoleId = null } = {}) {
     const now = new Date();
     const targetYear = year || now.getFullYear();
     const startOfYear = new Date(targetYear, 0, 1);
@@ -142,8 +142,41 @@ async function getDashboardStats({ year = null } = {}) {
      * 1. Primary Fetch: Get all main event data for the year.
      * We process these in-memory to avoid 12+ separate DB calls.
      */
+    // Build scope-aware where clause
+    let baseWhere = { date: dateFilter };
+    // normalize role id to BigInt when possible
+    let roleIdBig = undefined;
+    try {
+        if (userRoleId !== null && userRoleId !== undefined) {
+            roleIdBig = typeof userRoleId === 'bigint' ? userRoleId : BigInt(userRoleId);
+        }
+    } catch (e) {
+        roleIdBig = undefined;
+    }
+
+    if (scope === 'team') {
+        const teamOr = [];
+        if (roleIdBig !== undefined) {
+            teamOr.push({ users_events_dj_idTousers: { role_id: roleIdBig } });
+            teamOr.push({ users_events_user_idTousers: { role_id: roleIdBig } });
+        }
+        if (userId) {
+            teamOr.push({ dj_id: userId });
+            teamOr.push({ created_by: userId });
+        }
+        if (teamOr.length) baseWhere = { AND: [baseWhere, { OR: teamOr }] };
+    } else if (scope === 'personal') {
+        const personalOr = [];
+        if (userId) {
+            personalOr.push({ user_id: userId });
+            personalOr.push({ dj_id: userId });
+            personalOr.push({ created_by: userId });
+        }
+        if (personalOr.length) baseWhere = { AND: [baseWhere, { OR: personalOr }] };
+    }
+
     const events = await prisma.event.findMany({
-        where: { date: dateFilter },
+        where: baseWhere,
         select: {
             id: true,
             date: true,
@@ -208,10 +241,19 @@ async function getDashboardStats({ year = null } = {}) {
     /**
      * 2. Secondary Queries: Executed in parallel via Promise.all
      */
+    const pendingWhere = { is_event_payment_fully_paid: false, date: dateFilter };
+    // apply same scoping to pending payments
+    const pendingWhereScoped = (() => {
+        if (scope === 'admin') return pendingWhere;
+        if (scope === 'team') return { AND: [pendingWhere, baseWhere] };
+        if (scope === 'personal') return { AND: [pendingWhere, baseWhere] };
+        return pendingWhere;
+    })();
+
     const [pendingPaymentsRaw, cancelDepositEvents, openEnquiries, calendarEvents, recentNotes] = await Promise.all([
         // Pending Payments: Filtered by year + includes status ID
         prisma.event.findMany({
-            where: { is_event_payment_fully_paid: false, date: dateFilter },
+            where: pendingWhereScoped,
             select: {
                 id: true,
                 couple_name: true,
@@ -235,7 +277,7 @@ async function getDashboardStats({ year = null } = {}) {
         }),
         // Open Enquiries List
         prisma.event.findMany({
-            where: { event_statuses: { status: { contains: 'open' } }, date: dateFilter },
+            where: (scope === 'admin') ? { event_statuses: { status: { contains: 'open' } }, date: dateFilter } : { AND: [{ event_statuses: { status: { contains: 'open' } }, date: dateFilter }, baseWhere] },
             select: {
                 id: true,
                 couple_name: true,
@@ -248,7 +290,7 @@ async function getDashboardStats({ year = null } = {}) {
         }),
         // Confirmed Calendar Events
         prisma.event.findMany({
-            where: { event_statuses: { status: { contains: 'confirm' } }, date: dateFilter },
+            where: (scope === 'admin') ? { event_statuses: { status: { contains: 'confirm' } }, date: dateFilter } : { AND: [{ event_statuses: { status: { contains: 'confirm' } }, date: dateFilter }, baseWhere] },
             select: {
                 id: true,
                 date: true,
@@ -317,14 +359,45 @@ async function getDashboardStats({ year = null } = {}) {
 
 
 
-async function getUpcomingEvents({ search = null } = {}) {
+async function getUpcomingEvents({ search = null, userId = null, scope = 'admin', userRoleId = null, allowCompleted = true, allowedStatusFilters = [] } = {}) {
     const today = new Date();
     const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-    const where = {
-        event_status_id: 2,
-        date: { gte: startDate },
-    };
+    // upcoming events: include all statuses, filter by date only
+    const baseWhere = { date: { gte: startDate } };
+
+    // prepare scope clause for upcoming events
+    let roleIdBig = undefined;
+    try { if (userRoleId !== null && userRoleId !== undefined) roleIdBig = typeof userRoleId === 'bigint' ? userRoleId : BigInt(userRoleId); } catch (e) { roleIdBig = undefined; }
+
+    let where = baseWhere;
+    if (scope === 'team') {
+        const teamOr = [];
+        if (roleIdBig !== undefined) {
+            teamOr.push({ users_events_dj_idTousers: { role_id: roleIdBig } });
+            teamOr.push({ users_events_user_idTousers: { role_id: roleIdBig } });
+        }
+        if (userId) {
+            teamOr.push({ dj_id: userId });
+            teamOr.push({ created_by: userId });
+        }
+        if (teamOr.length) where = { AND: [baseWhere, { OR: teamOr }] };
+        // apply allowed status filters (if provided) otherwise use allowCompleted fallback
+        if (Array.isArray(allowedStatusFilters) && allowedStatusFilters.length) {
+            const statusOr = allowedStatusFilters.map((s) => ({ event_statuses: { status: { contains: s } } }));
+            where = { AND: [where, { OR: statusOr }] };
+        } else if (!allowCompleted) {
+            where = { AND: [where, { NOT: { event_statuses: { status: { contains: 'complete' } } } }] };
+        }
+    } else if (scope === 'personal') {
+        const personalOr = [];
+        if (userId) {
+            personalOr.push({ user_id: userId });
+            personalOr.push({ dj_id: userId });
+            personalOr.push({ created_by: userId });
+        }
+        if (personalOr.length) where = { AND: [baseWhere, { OR: personalOr }] };
+    }
 
     if (search) {
         const searchValue = String(search).trim();
@@ -348,10 +421,28 @@ async function getUpcomingEvents({ search = null } = {}) {
         select: {
             id: true,
             date: true,
+            event_status_id: true,
+            event_statuses: { select: { status: true } },
+            couple_name: true,
+            users_events_user_idTousers: { select: { id: true, name: true } },
             venues: { select: { venue: true } },
             users_events_dj_idTousers: { select: { name: true } },
         },
     });
+
+    // normalize output so frontend can rely on fields
+    const out = events.map((e) => ({
+        id: e.id,
+        date: e.date,
+        event_status_id: e.event_status_id,
+        event_status: e.event_statuses?.status || null,
+        couple_name: e.couple_name || null,
+        client: e.users_events_user_idTousers ? { id: e.users_events_user_idTousers.id, name: e.users_events_user_idTousers.name } : null,
+        venue_name: e.venues?.venue || null,
+        dj_name: e.users_events_dj_idTousers?.name || null,
+    }));
+
+    return out;
 
     return events.map((event) => ({
         id: event.id,

@@ -6,12 +6,12 @@ import { reportsValidation } from "../validation/index.js";
 import validate from "../middleware/validate.js";
 
 const router = express.Router();
-const protectAdmin = [verifyAccessToken, checkPermission("manage all")];
 
 router
   .route("/suppliers")
   .get(
-    protectAdmin,
+    verifyAccessToken,
+    checkPermission("supplier reporting"),
     validate(reportsValidation.suppliersReport),
     reportsController.suppliersReport,
   );
@@ -19,7 +19,8 @@ router
 router
   .route("/admin")
   .get(
-    protectAdmin,
+    verifyAccessToken,
+    checkPermission("admin reporting"),
     validate(reportsValidation.adminReport),
     reportsController.adminReport,
   );

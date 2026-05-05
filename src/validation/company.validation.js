@@ -3,8 +3,8 @@ import Joi from "joi";
 const createCompany = {
     body: Joi.object({
         name: Joi.string().trim().min(1).max(50).required(),
-        company_logo: Joi.string().trim().max(200).required(),
-        brochure: Joi.string().trim().max(200).required(),
+        company_logo: Joi.string().trim().max(255).optional().allow(null, ""),
+        brochure: Joi.string().trim().max(255).optional().allow(null, ""),
         contact_name: Joi.string().trim().max(100).optional().allow(null, ""),
         telephone_number: Joi.string().trim().max(20).optional().allow(null, ""),
         email: Joi.string().email().trim().max(50).optional().allow(null, ""),
@@ -20,7 +20,8 @@ const createCompany = {
         account_number: Joi.string().trim().max(50).optional().allow(null, ""),
         vat: Joi.string().trim().max(100).optional().allow(null, ""),
         vat_percentage: Joi.string().trim().max(20).optional().allow(null, ""),
-        admin_signature: Joi.string().trim().max(4096).required(),
+        // base64 data URL from signature pad can exceed 4KB
+        admin_signature: Joi.string().trim().max(2000000).optional().allow(null, ""),
         created_at: Joi.date().optional(),
         updated_at: Joi.date().optional(),
     }),
@@ -30,8 +31,8 @@ const updateCompany = {
     params: Joi.object({ id: Joi.number().integer().required() }),
     body: Joi.object({
         name: Joi.string().trim().min(1).max(50),
-        company_logo: Joi.string().trim().max(200).optional().allow(null, ""),
-        brochure: Joi.string().trim().max(200).optional().allow(null, ""),
+        company_logo: Joi.string().trim().max(255).optional().allow(null, ""),
+        brochure: Joi.string().trim().max(255).optional().allow(null, ""),
         contact_name: Joi.string().trim().max(100).optional().allow(null, ""),
         telephone_number: Joi.string().trim().max(20).optional().allow(null, ""),
         email: Joi.string().email().trim().max(50).optional().allow(null, ""),
@@ -47,7 +48,7 @@ const updateCompany = {
         account_number: Joi.string().trim().max(50).optional().allow(null, ""),
         vat: Joi.string().trim().max(100).optional().allow(null, ""),
         vat_percentage: Joi.string().trim().max(20).optional().allow(null, ""),
-        admin_signature: Joi.string().trim().max(4096).optional().allow(null, ""),
+        admin_signature: Joi.string().trim().max(2000000).optional().allow(null, ""),
         updated_at: Joi.date().optional(),
     }).min(1),
 };

@@ -126,6 +126,37 @@ export function allowOwnerOr(permissionName, param = 'id') {
   };
 }
 
+// Like ensureSuperAdmin but also accepts the admin role_ids (1 super, 2 admin).
+// Used by todos where create/edit/delete are admin-only operations regardless
+// of which permission strings happen to be granted.
+export async function requireAdmin(req, res, next) {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'missing_token' });
+    const sub = req.user.sub || req.user.id || req.user.email;
+    let userId = null;
+    if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+    if (!userId) {
+      const email = req.user.email;
+      if (!email) return res.status(401).json({ error: 'missing_user_identity' });
+      const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+      if (!u) return res.status(403).json({ error: 'user_not_found' });
+      userId = Number(u.id);
+    }
+
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { role_id: true } });
+    const roleId = u?.role_id != null ? Number(u.role_id) : null;
+    if (roleId === 1 || roleId === 2) return next();
+
+    const perms = await loadPermissionsForUserId(userId);
+    if (perms.has('manage_all') || perms.has('super_admin')) return next();
+
+    return res.status(403).json({ error: 'forbidden', details: 'admin_required' });
+  } catch (err) {
+    console.error('requireAdmin error', err);
+    return res.status(500).json({ error: 'authorization_error' });
+  }
+}
+
 export async function ensureSuperAdmin(req, res, next) {
   try {
     if (!req.user) return res.status(401).json({ error: 'missing_token' });

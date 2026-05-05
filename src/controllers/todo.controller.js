@@ -26,8 +26,22 @@ const listTodo = catchAsync(async (req, res) => {
   if (!event_id) return res.status(400).json({ error: 'event_id_required' });
 
   // Use core CRUD service `list` with a filter for event_id
-  const todos = await todoSvc.list({ filter: { event_id } });
-  res.json(serializeForJson(todos));
+  // Include related user records so frontend can display names instead of ids
+  const todos = await todoSvc.list({
+    filter: { event_id },
+    include: {
+      users_todos_assigned_toTousers: { select: { id: true, name: true, email: true } },
+      users_todos_created_byTousers: { select: { id: true, name: true, email: true } },
+    },
+  });
+  // attach simple name fields to make frontend rendering easier
+  const enhanced = (Array.isArray(todos) ? todos : []).map((t) => {
+    const tt = t || {};
+    const assignedName = tt.users_todos_assigned_toTousers?.name || null;
+    const createdName = tt.users_todos_created_byTousers?.name || null;
+    return { ...tt, assigned_user_name: assignedName, created_user_name: createdName };
+  });
+  res.json(serializeForJson(enhanced));
 });
 
 const listAssignedTodos = catchAsync(async (req, res) => {
@@ -43,8 +57,21 @@ const listAssignedTodos = catchAsync(async (req, res) => {
     userId = Number(u.id);
   }
 
-  const todos = await todoSvc.list({ filter: { assigned_to: userId }, perPage: 50 });
-  res.json(serializeForJson(todos));
+  const todos = await todoSvc.list({
+    filter: { assigned_to: userId },
+    perPage: 50,
+    include: {
+      users_todos_assigned_toTousers: { select: { id: true, name: true, email: true } },
+      users_todos_created_byTousers: { select: { id: true, name: true, email: true } },
+    },
+  });
+  const enhanced = (Array.isArray(todos) ? todos : []).map((t) => {
+    const tt = t || {};
+    const assignedName = tt.users_todos_assigned_toTousers?.name || null;
+    const createdName = tt.users_todos_created_byTousers?.name || null;
+    return { ...tt, assigned_user_name: assignedName, created_user_name: createdName };
+  });
+  res.json(serializeForJson(enhanced));
 });
 
 const createTodo = catchAsync(async (req, res) => {
@@ -94,6 +121,49 @@ const updateTodo = catchAsync(async (req, res) => {
   res.json(serializeForJson(updated));
 });
 
+// PATCH /todos/:eventId/:todoId/complete — admin OR the assigned user can flip
+// the complete flag. Everyone else gets 403.
+const toggleTodoComplete = catchAsync(async (req, res) => {
+  const eventId = Number(req.params?.eventId) || null;
+  const todoId = Number(req.params?.todoId) || null;
+  if (!eventId || !todoId) return res.status(400).json({ error: 'event_or_todo_id_required' });
+
+  const todo = await prisma.todos.findFirst({ where: { id: todoId, event_id: eventId } });
+  if (!todo) return res.status(404).json({ error: 'todo_not_found' });
+
+  const sub = req.user?.sub || req.user?.id || req.user?.email;
+  let requesterId = null;
+  if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+  if (!requesterId && req.user?.email) {
+    const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+    if (uu) requesterId = Number(uu.id);
+  }
+
+  let isAdmin = false;
+  if (requesterId) {
+    const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { role_id: true } });
+    const roleId = u?.role_id != null ? Number(u.role_id) : null;
+    if (roleId === 1 || roleId === 2) isAdmin = true;
+    if (!isAdmin) {
+      // fall back to permission-based check
+      const { loadPermissionsForUserId } = await import('../middleware/authorize.js');
+      const perms = await loadPermissionsForUserId(requesterId);
+      if (perms.has('manage_all') || perms.has('super_admin')) isAdmin = true;
+    }
+  }
+
+  const isAssignee = requesterId && todo.assigned_to != null && Number(todo.assigned_to) === requesterId;
+  if (!isAdmin && !isAssignee) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  const updated = await prisma.todos.update({
+    where: { id: todoId },
+    data: { complete: !!req.body?.complete },
+  });
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
 const deleteTodo = catchAsync(async (req, res) => {
   const eventId = Number(req.params?.eventId || req.query?.eventId || req.body?.event_id) || null;
   const todoId = Number(req.params?.todoId || req.query?.todoId || req.body?.todoId) || null;
@@ -120,4 +190,5 @@ export default {
   createTodo,
   updateTodo,
   deleteTodo,
+  toggleTodoComplete,
 };

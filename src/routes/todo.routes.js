@@ -1,25 +1,30 @@
 import express from 'express';
 import { verifyAccessToken } from '../middleware/auth0.js';
-import { checkPermission } from '../middleware/authorize.js';
+import { requireAdmin } from '../middleware/authorize.js';
 import {todoController} from '../controllers/index.js';
 import validate from '../middleware/validate.js';
 import {todoValidation} from '../validation/index.js';
 
 const router = express.Router();
-// Todos are visible to all authenticated roles in the Laravel app
-// (Super Admin / Admin / Staff / Client) so we just require auth here.
-const protectAdmin = [verifyAccessToken];
+// Read endpoints are open to any authenticated user. Mutations
+// (create/update/delete) are admin-only. The complete-toggle has a
+// runtime check that allows the assigned user as well.
+const authOnly = [verifyAccessToken];
+const adminGuard = [verifyAccessToken, requireAdmin];
 
 // Todos for the current user
 router.route('/mine')
-    .get(protectAdmin, todoController.listAssignedTodos);
+    .get(authOnly, todoController.listAssignedTodos);
 
 router.route('/:id')
-        .get(protectAdmin, validate(todoValidation.listTodo), todoController.listTodo)
-        .post(protectAdmin, validate(todoValidation.createTodo), todoController.createTodo);
+    .get(authOnly, validate(todoValidation.listTodo), todoController.listTodo)
+    .post(adminGuard, validate(todoValidation.createTodo), todoController.createTodo);
 
 router.route('/:eventId/:todoId')
-    .put(protectAdmin, validate(todoValidation.updateTodo), todoController.updateTodo)
-    .delete(protectAdmin, validate(todoValidation.deleteTodo), todoController.deleteTodo);
+    .put(adminGuard, validate(todoValidation.updateTodo), todoController.updateTodo)
+    .delete(adminGuard, validate(todoValidation.deleteTodo), todoController.deleteTodo);
+
+router.route('/:eventId/:todoId/complete')
+    .patch(authOnly, validate(todoValidation.toggleComplete), todoController.toggleTodoComplete);
 
 export default router;

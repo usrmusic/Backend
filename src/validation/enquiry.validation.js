@@ -43,7 +43,7 @@ const createEnquiry = Joi.object({
     email: Joi.string().email().required(),
     contact_number: Joi.string().required(),
     address: Joi.string().required(),
-    dj_id:Joi.number().integer().allow(null),
+    dj_id: Joi.number().integer().allow(null),
     event_date: Joi.string().pattern(dateRegex).required(),
     start_time: Joi.string().pattern(timeRegex).required(),
     end_time: Joi.string().pattern(timeRegex).required(),
@@ -55,8 +55,12 @@ const createEnquiry = Joi.object({
     dj_package_name: Joi.string().allow("", null),
     total_cost: Joi.number().allow(null),
     dj_cost: Joi.number().allow(null),
-    no_of_guests: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
-    guestCount: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
+    no_of_guests: Joi.alternatives()
+      .try(Joi.number().integer(), Joi.string())
+      .allow(null),
+    guestCount: Joi.alternatives()
+      .try(Joi.number().integer(), Joi.string())
+      .allow(null),
     equipment_data: Joi.array().items(equipmentItem).allow(null),
     extra_data: Joi.array().items(equipmentItem).allow(null),
     rig_notes_data: Joi.array()
@@ -67,7 +71,13 @@ const createEnquiry = Joi.object({
         }),
       )
       .allow(null),
-  }),
+    client_id: Joi.number().integer().optional().when("is_new_client", {
+      is: true,
+      then: Joi.forbidden(),
+      otherwise: Joi.optional(),
+    }),
+    is_new_client: Joi.boolean().optional(),
+  }).unknown(true),
 });
 
 // const sendInvoice = sendQuote.keys({});
@@ -127,7 +137,7 @@ const updateEnquiry = Joi.object({
     contact_number: Joi.string(),
     address: Joi.string(),
     brochure_emailed: Joi.boolean(),
-    called : Joi.boolean(),
+    called: Joi.boolean(),
     send_media: Joi.boolean(),
     quoted: Joi.boolean(),
     event_date: Joi.string().pattern(dateRegex),
@@ -144,8 +154,12 @@ const updateEnquiry = Joi.object({
     dj_cost: Joi.number().allow(null),
     equipment_data: Joi.array().items(equipmentItem).allow(null),
     extra_data: Joi.array().items(equipmentItem).allow(null),
-    no_of_guests: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
-    guestCount: Joi.alternatives().try(Joi.number().integer(), Joi.string()).allow(null),
+    no_of_guests: Joi.alternatives()
+      .try(Joi.number().integer(), Joi.string())
+      .allow(null),
+    guestCount: Joi.alternatives()
+      .try(Joi.number().integer(), Joi.string())
+      .allow(null),
     rig_notes_data: Joi.array()
       .items(
         Joi.object({

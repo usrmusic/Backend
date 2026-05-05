@@ -6,8 +6,8 @@ import { toDbDate } from "../utils/dateUtils.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import generatePdfBufferFromHtml from "../utils/pdfGenerator.js";
-import { marked } from 'marked';
-import renderSendQuote from '../templates/sendQuoteTemplate.js';
+import { marked } from "marked";
+import renderSendQuote from "../templates/sendQuoteTemplate.js";
 import eventNoteService from "../services/eventNoteService.js";
 import services from "../services/index.js";
 import genPassword from "../utils/genPassword.js";
@@ -37,29 +37,73 @@ const createEnquiry = catchAsync(async (req, res) => {
     }
   }
   if (!data.venue_id && !venue)
-    return res.status(400).json({ error: "venue cannot be created" });
-  client = await userService.getUserByEmail(data.email);
-  if (!client) {
-    const plainPassword = req.body.password || genPassword();
-    const hashed = await bcrypt.hash(plainPassword, 10);
-    client = await userSvc.create({
-      name: data.name || "Client",
-      email: data.email,
-      contact_number: data.contact_number || null,
-      address: data.address || null,
-      password: hashed,
-      password_text: plainPassword,
-      role_id: BigInt(4),
-      created_by: req.user && req.user.id ? Number(req.user.id) : null,
-    });
-  }
-  if (client && client.role_id !== BigInt(4)) {
-    return res
-      .status(400)
-      .json({ error: "This email is already attached with Dj" });
-  }
-  if (client && client.deleted_at) {
-    await userSvc.updateUser(client.id, { deleted_at: null });
+    return res.status(400).json({ error: "venue_required" });
+
+  // Step 2: Resolve client by ID or create/find by email
+  const isNewClientCreation = data.is_new_client === true || data.is_new_client === "true";
+  const providedClientId = data.client_id ? Number(data.client_id) : null;
+
+  // If client_id is provided, use that client directly
+  if (providedClientId) {
+    client = await prisma.user.findUnique({ where: { id: providedClientId } });
+    if (!client) {
+      return res.status(404).json({ error: "client_not_found" });
+    }
+    const isClientRole = client.role_id === BigInt(4) || String(client.role_id) === "4";
+    if (!isClientRole) {
+      return res.status(400).json({ error: "This email is already attached with Dj" });
+    }
+  } else {
+    // If is_new_client = true, email must NOT exist
+    const existingByEmail = await userService.getUserByEmail(data.email);
+    
+    if (isNewClientCreation) {
+      if (existingByEmail) {
+        return res.status(400).json({ error: "Email Is Already In Use" });
+      }
+      // Create new client
+      const plainPassword = req.body.password || genPassword();
+      const hashed = await bcrypt.hash(plainPassword, 10);
+      client = await userSvc.create({
+        name: data.name || "Client",
+        email: data.email,
+        contact_number: data.contact_number || null,
+        address: data.address || null,
+        password: hashed,
+        password_text: plainPassword,
+        role_id: BigInt(4),
+        created_by: req.user?.id || null,
+      });
+    } else {
+      // If is_new_client = false, try to find/reuse existing or create if not found
+      if (existingByEmail) {
+        const isClientRole = existingByEmail.role_id === BigInt(4) || String(existingByEmail.role_id) === "4";
+        
+        if (!isClientRole) {
+          return res.status(400).json({ error: "This email is already attached with Dj" });
+        }
+        
+        // Restore deleted client or use existing active client
+        if (existingByEmail.deleted_at) {
+          await userSvc.updateUser(existingByEmail.id, { deleted_at: null });
+        }
+        client = existingByEmail;
+      } else {
+        // Create new client if not found
+        const plainPassword = req.body.password || genPassword();
+        const hashed = await bcrypt.hash(plainPassword, 10);
+        client = await userSvc.create({
+          name: data.name || "Client",
+          email: data.email,
+          contact_number: data.contact_number || null,
+          address: data.address || null,
+          password: hashed,
+          password_text: plainPassword,
+          role_id: BigInt(4),
+          created_by: req.user?.id || null,
+        });
+      }
+    }
   }
   // find the existing event by client, venue and date (open enquiries only)
   const eventDateDb = toDbDate(data.event_date);
@@ -72,7 +116,9 @@ const createEnquiry = catchAsync(async (req, res) => {
     if (data.dj_id) {
       djId = Number(data.dj_id);
     } else if (data.dj_name) {
-      const djUser = await prisma.user.findFirst({ where: { name: data.dj_name } }).catch(() => null);
+      const djUser = await prisma.user
+        .findFirst({ where: { name: data.dj_name } })
+        .catch(() => null);
       if (djUser && djUser.id) djId = Number(djUser.id);
     }
   } catch (e) {
@@ -113,7 +159,8 @@ const createEnquiry = catchAsync(async (req, res) => {
         data.total_cost != null ? String(data.total_cost) : null,
       dj_cost_price_for_event:
         data.dj_cost != null ? Number(data.dj_cost) : null,
-      no_of_guests: data.no_of_guests != null ? String(data.no_of_guests) : null,
+      no_of_guests:
+        data.no_of_guests != null ? String(data.no_of_guests) : null,
     });
     // connect with client and venue if not connected already
     if (!event.venues.some((v) => v.id === (venue?.id || data.venue_id))) {
@@ -151,7 +198,12 @@ const createEnquiry = catchAsync(async (req, res) => {
       created_by: req.user && req.user.id ? Number(req.user.id) : null,
       contract_token: uuidv4(),
       event_status_id: 1,
-      no_of_guests: data.guestCount != null ? String(data.guestCount) : data.no_of_guests != null ? String(data.no_of_guests) : null,
+      no_of_guests:
+        data.guestCount != null
+          ? String(data.guestCount)
+          : data.no_of_guests != null
+            ? String(data.no_of_guests)
+            : null,
     };
     event = await eventSvc.create(createPayload);
     // add initial note for newly created enquiry
@@ -263,14 +315,22 @@ const createEnquiry = catchAsync(async (req, res) => {
 // Open enquiry: list open enquiries (event_status_id = 1)
 const listOpenEnquiries = catchAsync(async (req, res) => {
   // find events with status = 1 (open enquiries)
-  const { page, limit: perPage } = parsePaginationParams({ page: req.query.page || req.query.p, perPage: req.query.perPage || req.query.per_page || req.query.limit, limit: req.query.limit });
+  const { page, limit: perPage } = parsePaginationParams({
+    page: req.query.page || req.query.p,
+    perPage: req.query.perPage || req.query.per_page || req.query.limit,
+    limit: req.query.limit,
+  });
   const skip = (page - 1) * perPage;
 
   // Use validated query params (Joi middleware) for sorting; Joi enforces allowed values
   const q = req.query || {};
-  const sortField = q.sortBy || q.sort || 'date';
-  const sortOrder = String(q.sortOrder || q.order || q.sort_order || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
-  const search = String(q.search || '').trim();
+  const sortField = q.sortBy || q.sort || "date";
+  const sortOrder =
+    String(q.sortOrder || q.order || q.sort_order || "asc").toLowerCase() ===
+    "desc"
+      ? "desc"
+      : "asc";
+  const search = String(q.search || "").trim();
   // base where (open enquiries)
   const where = { event_status_id: 1 };
   if (search) {
@@ -351,17 +411,22 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
     };
   });
 
-  res.json(serializeForJson({ success: true, data, meta: { page, perPage, total } }));
+  res.json(
+    serializeForJson({ success: true, data, meta: { page, perPage, total } }),
+  );
 });
 
 const updateEnquiry = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id || req.body.id);
   const body = req.validated || req.body || {};
-  if (!Number.isFinite(id)) return res.status(400).json({ error: "id_required" });
+  if (!Number.isFinite(id))
+    return res.status(400).json({ error: "id_required" });
 
   // quick flags update if only simple flags provided — keep backwards compatible
   const flagKeys = ["brochure_emailed", "called", "send_media", "quoted"];
-  const hasOnlyFlags = Object.keys(body).every((k) => flagKeys.includes(k) || k === "id");
+  const hasOnlyFlags = Object.keys(body).every(
+    (k) => flagKeys.includes(k) || k === "id",
+  );
   if (hasOnlyFlags) {
     const update = {};
     flagKeys.forEach((k) => {
@@ -390,7 +455,10 @@ const updateEnquiry = catchAsync(async (req, res) => {
     return [];
   };
 
-  const equipmentArray = normalizeArrayField(body, ["equipmentData", "equipment_data"]);
+  const equipmentArray = normalizeArrayField(body, [
+    "equipmentData",
+    "equipment_data",
+  ]);
   const extraArray = normalizeArrayField(body, ["extraData", "extra_data"]);
   const rigNotesArray = normalizeArrayField(body, [
     "rigNotesData",
@@ -408,9 +476,11 @@ const updateEnquiry = catchAsync(async (req, res) => {
           : p.id != null
             ? Number(p.id)
             : null,
-    equipment_order_id: p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
+    equipment_order_id:
+      p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
     event_id: Number(eventId),
-    package_type_id: p.package_type_id !== undefined ? Number(p.package_type_id) : null,
+    package_type_id:
+      p.package_type_id !== undefined ? Number(p.package_type_id) : null,
     sell_price: p.sell_price != null ? Number(p.sell_price) : null,
     cost_price: p.cost_price != null ? Number(p.cost_price) : null,
     notes: p.notes || null,
@@ -419,46 +489,83 @@ const updateEnquiry = catchAsync(async (req, res) => {
     payment_date: p.payment_date ? new Date(p.payment_date) : null,
     quantity: p.quantity != null ? Number(p.quantity) : null,
     total_price: p.total_price != null ? Number(p.total_price) : null,
-    price_added_to_bill: p.price_added_to_bill != null ? Number(p.price_added_to_bill) : null,
+    price_added_to_bill:
+      p.price_added_to_bill != null ? Number(p.price_added_to_bill) : null,
     created_at: new Date(),
   });
 
-  const existingEvent = await prisma.event.findUnique({ where: { id } }).catch(() => null);
+  const existingEvent = await prisma.event
+    .findUnique({ where: { id } })
+    .catch(() => null);
   if (!existingEvent) return res.status(404).json({ error: "event_not_found" });
 
   // replicate Laravel update email uniqueness checks (uses previous user email as `userEmail`)
   if (body.userEmail && body.email && body.userEmail !== body.email) {
-    const existingUserIdRow = await prisma.user.findUnique({ where: { email: body.userEmail } }).catch(() => null);
-    const existingUserId = existingUserIdRow ? Number(existingUserIdRow.id) : null;
+    const existingUserIdRow = await prisma.user
+      .findUnique({ where: { email: body.userEmail } })
+      .catch(() => null);
+    const existingUserId = existingUserIdRow
+      ? Number(existingUserIdRow.id)
+      : null;
 
-    const existingUserConflict = await prisma.user.findFirst({
-      where: {
-        email: body.email,
-        ...(existingUserId ? { id: { not: existingUserId } } : {}),
-        role_id: { notIn: [BigInt(1), BigInt(2), BigInt(3)] },
-      },
-    }).catch(() => null);
+    const existingUserConflict = await prisma.user
+      .findFirst({
+        where: {
+          email: body.email,
+          ...(existingUserId ? { id: { not: existingUserId } } : {}),
+          role_id: { notIn: [BigInt(1), BigInt(2), BigInt(3)] },
+        },
+      })
+      .catch(() => null);
 
     if (existingUserConflict) {
-      return res.status(402).json({ message: "you are trying to use another user mail ,pleace check your mail" });
+      return res
+        .status(402)
+        .json({
+          message:
+            "you are trying to use another user mail ,pleace check your mail",
+        });
     }
   }
 
   // also disallow assigning an email that belongs to a non-client user
   if (body.email) {
-    const userByEmail = await prisma.user.findUnique({ where: { email: body.email } }).catch(() => null);
-    if (userByEmail && Number(userByEmail.id) !== Number(existingEvent.user_id)) {
-      const roleIdVal = (() => { try { return userByEmail.role_id; } catch (e) { return null; }})();
-      if (roleIdVal && (roleIdVal !== BigInt(4) && String(roleIdVal) !== '4')) {
-        return res.status(400).json({ error: "This email is already attached with Dj" });
+    const userByEmail = await prisma.user
+      .findUnique({ where: { email: body.email } })
+      .catch(() => null);
+    if (
+      userByEmail &&
+      Number(userByEmail.id) !== Number(existingEvent.user_id)
+    ) {
+      const roleIdVal = (() => {
+        try {
+          return userByEmail.role_id;
+        } catch (e) {
+          return null;
+        }
+      })();
+      if (roleIdVal && roleIdVal !== BigInt(4) && String(roleIdVal) !== "4") {
+        return res
+          .status(400)
+          .json({ error: "This email is already attached with Dj" });
       }
     }
   }
 
-  const eventDateDb = toDbDate(body.event_date || body.date || existingEvent.date);
+  const eventDateDb = toDbDate(
+    body.event_date || body.date || existingEvent.date,
+  );
   const eventDateObj = eventDateDb ? new Date(eventDateDb) : existingEvent.date;
-  const startTimeObj = toUtcDateTime(body.event_date || body.date || eventDateDb, body.start_time || body.start_time_input || body.startTime || null) || existingEvent.start_time;
-  const endTimeObj = toUtcDateTime(body.event_date || body.date || eventDateDb, body.end_time || body.end_time_input || body.endTime || null) || existingEvent.end_time;
+  const startTimeObj =
+    toUtcDateTime(
+      body.event_date || body.date || eventDateDb,
+      body.start_time || body.start_time_input || body.startTime || null,
+    ) || existingEvent.start_time;
+  const endTimeObj =
+    toUtcDateTime(
+      body.event_date || body.date || eventDateDb,
+      body.end_time || body.end_time_input || body.endTime || null,
+    ) || existingEvent.end_time;
 
   let resolvedDjId =
     existingEvent.dj_id != null ? Number(existingEvent.dj_id) : null;
@@ -486,10 +593,19 @@ const updateEnquiry = catchAsync(async (req, res) => {
     const shouldResetContract =
       ((body.dj_id !== undefined || body.dj_name !== undefined) &&
         Number(resolvedDjId ?? 0) !== Number(existingEvent.dj_id ?? 0)) ||
-      (body.dj_package_name && body.dj_package_name !== existingEvent.dj_package_name) ||
-      (eventDateObj && existingEvent.date && new Date(existingEvent.date).toISOString() !== new Date(eventDateObj).toISOString());
+      (body.dj_package_name &&
+        body.dj_package_name !== existingEvent.dj_package_name) ||
+      (eventDateObj &&
+        existingEvent.date &&
+        new Date(existingEvent.date).toISOString() !==
+          new Date(eventDateObj).toISOString());
     if (shouldResetContract) {
-      try { await tx.event.update({ where: { id }, data: { contract_signed_at: null } }); } catch (e) {}
+      try {
+        await tx.event.update({
+          where: { id },
+          data: { contract_signed_at: null },
+        });
+      } catch (e) {}
     }
 
     // update event
@@ -497,16 +613,35 @@ const updateEnquiry = catchAsync(async (req, res) => {
     if (body.dj_id !== undefined || body.dj_name !== undefined) {
       evUpdateData.dj_id = resolvedDjId;
     }
-    if (body.dj_package_name !== undefined) evUpdateData.dj_package_name = body.dj_package_name || null;
+    if (body.dj_package_name !== undefined)
+      evUpdateData.dj_package_name = body.dj_package_name || null;
     if (eventDateObj) evUpdateData.date = eventDateObj;
     if (startTimeObj) evUpdateData.start_time = startTimeObj;
     if (endTimeObj) evUpdateData.end_time = endTimeObj;
-    if (body.event_details !== undefined) evUpdateData.details = body.event_details || null;
-    if (body.venue_id !== undefined) evUpdateData.venue_id = body.new_venue_id ? Number(body.new_venue_id) : body.venue_id ? Number(body.venue_id) : null;
-    if (body.total_cost_for_equipment !== undefined || body.total_cost !== undefined)
-      evUpdateData.total_cost_for_equipment = (body.total_cost_for_equipment ?? body.total_cost) != null ? String(body.total_cost_for_equipment ?? body.total_cost) : null;
-    if (body.dj_cost_price !== undefined || body.dj_cost !== undefined) evUpdateData.dj_cost_price_for_event = (body.dj_cost_price ?? body.dj_cost) != null ? Number(body.dj_cost_price ?? body.dj_cost) : null;
-    if (body.deposit_amount !== undefined) evUpdateData.deposit_amount = body.deposit_amount != null ? body.deposit_amount : null;
+    if (body.event_details !== undefined)
+      evUpdateData.details = body.event_details || null;
+    if (body.venue_id !== undefined)
+      evUpdateData.venue_id = body.new_venue_id
+        ? Number(body.new_venue_id)
+        : body.venue_id
+          ? Number(body.venue_id)
+          : null;
+    if (
+      body.total_cost_for_equipment !== undefined ||
+      body.total_cost !== undefined
+    )
+      evUpdateData.total_cost_for_equipment =
+        (body.total_cost_for_equipment ?? body.total_cost) != null
+          ? String(body.total_cost_for_equipment ?? body.total_cost)
+          : null;
+    if (body.dj_cost_price !== undefined || body.dj_cost !== undefined)
+      evUpdateData.dj_cost_price_for_event =
+        (body.dj_cost_price ?? body.dj_cost) != null
+          ? Number(body.dj_cost_price ?? body.dj_cost)
+          : null;
+    if (body.deposit_amount !== undefined)
+      evUpdateData.deposit_amount =
+        body.deposit_amount != null ? body.deposit_amount : null;
     if (body.no_of_guests !== undefined || body.guestCount !== undefined) {
       evUpdateData.no_of_guests =
         body.guestCount != null
@@ -516,18 +651,30 @@ const updateEnquiry = catchAsync(async (req, res) => {
             : null;
     }
 
-    const updatedEvent = await tx.event.update({ where: { id }, data: evUpdateData });
+    const updatedEvent = await tx.event.update({
+      where: { id },
+      data: evUpdateData,
+    });
 
     // update user fields (client)
     try {
       const userId = Number(updatedEvent.user_id || existingEvent.user_id);
-      if (userId && (body.name !== undefined || body.email !== undefined || body.contact_number !== undefined || body.address !== undefined)) {
+      if (
+        userId &&
+        (body.name !== undefined ||
+          body.email !== undefined ||
+          body.contact_number !== undefined ||
+          body.address !== undefined)
+      ) {
         const udata = {};
         if (body.name !== undefined) udata.name = body.name;
         if (body.email !== undefined) udata.email = body.email;
-        if (body.contact_number !== undefined) udata.contact_number = body.contact_number || null;
+        if (body.contact_number !== undefined)
+          udata.contact_number = body.contact_number || null;
         if (body.address !== undefined) udata.address = body.address || null;
-        await tx.user.update({ where: { id: userId }, data: udata }).catch(() => {});
+        await tx.user
+          .update({ where: { id: userId }, data: udata })
+          .catch(() => {});
       }
     } catch (e) {}
 
@@ -539,67 +686,124 @@ const updateEnquiry = catchAsync(async (req, res) => {
     for (const p of equipmentArray) {
       const pkg = makePackage(p, id);
       if (!Number.isFinite(Number(pkg.equipment_id))) continue;
-      try { await tx.eventPackage.create({ data: pkg }); } catch (e) {}
+      try {
+        await tx.eventPackage.create({ data: pkg });
+      } catch (e) {}
     }
     for (const p of extraArray) {
       const pkg = makePackage(p, id);
       if (!Number.isFinite(Number(pkg.equipment_id))) continue;
-      try { await tx.eventPackage.create({ data: pkg }); } catch (e) {}
+      try {
+        await tx.eventPackage.create({ data: pkg });
+      } catch (e) {}
     }
 
     // apply rig notes
     for (const r of rigNotesArray) {
       const equipId = r.equipment_id ?? r.equipmentId ?? r.equipment;
-      const notes = r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote ?? null;
+      const notes =
+        r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote ?? null;
       if (!equipId) continue;
       try {
-        await tx.eventPackage.updateMany({ where: { event_id: Number(id), equipment_id: Number(equipId) }, data: { rig_notes: notes } });
+        await tx.eventPackage.updateMany({
+          where: { event_id: Number(id), equipment_id: Number(equipId) },
+          data: { rig_notes: notes },
+        });
       } catch (e) {}
     }
 
     // VAT handling
     try {
       if (updatedEvent.names_id) {
-        const company = await tx.companyName.findUnique({ where: { id: BigInt(Number(updatedEvent.names_id)) } }).catch(() => null);
-        if (company && company.vat != null && updatedEvent.is_vat_available_for_the_event === 1) {
+        const company = await tx.companyName
+          .findUnique({ where: { id: BigInt(Number(updatedEvent.names_id)) } })
+          .catch(() => null);
+        if (
+          company &&
+          company.vat != null &&
+          updatedEvent.is_vat_available_for_the_event === 1
+        ) {
           const vatPercentage = (company.vat_percentage || 0) / 100;
-          const eventTotalWithoutVat = Number(body.total_cost_for_equipment ?? updatedEvent.total_cost_for_equipment ?? 0);
+          const eventTotalWithoutVat = Number(
+            body.total_cost_for_equipment ??
+              updatedEvent.total_cost_for_equipment ??
+              0,
+          );
           const vatValue = eventTotalWithoutVat * vatPercentage;
           const totalWithVat = eventTotalWithoutVat * (1 + vatPercentage);
-          await tx.event.update({ where: { id }, data: { total_cost_for_equipment: String(totalWithVat), event_amount_without_vat: eventTotalWithoutVat, vat_value: vatValue } }).catch(() => {});
+          await tx.event
+            .update({
+              where: { id },
+              data: {
+                total_cost_for_equipment: String(totalWithVat),
+                event_amount_without_vat: eventTotalWithoutVat,
+                vat_value: vatValue,
+              },
+            })
+            .catch(() => {});
         }
       }
     } catch (e) {}
 
     // payment status
     try {
-      const totalCostRow = await tx.event.findUnique({ where: { id }, select: { total_cost_for_equipment: true } }).catch(() => null);
-      const totalCost = totalCostRow ? Number(totalCostRow.total_cost_for_equipment || 0) : 0;
-      const paymentAgg = await tx.eventPayment.aggregate({ where: { event_id: Number(id) }, _sum: { amount: true } }).catch(() => ({ _sum: { amount: 0 } }));
+      const totalCostRow = await tx.event
+        .findUnique({
+          where: { id },
+          select: { total_cost_for_equipment: true },
+        })
+        .catch(() => null);
+      const totalCost = totalCostRow
+        ? Number(totalCostRow.total_cost_for_equipment || 0)
+        : 0;
+      const paymentAgg = await tx.eventPayment
+        .aggregate({ where: { event_id: Number(id) }, _sum: { amount: true } })
+        .catch(() => ({ _sum: { amount: 0 } }));
       const totalPayment = Number(paymentAgg._sum.amount || 0);
       const paymentSent = totalPayment === totalCost ? 1 : 0;
-      await tx.event.update({ where: { id }, data: { is_event_payment_fully_paid: paymentSent } }).catch(() => {});
+      await tx.event
+        .update({
+          where: { id },
+          data: { is_event_payment_fully_paid: paymentSent },
+        })
+        .catch(() => {});
     } catch (e) {}
 
     // create an update note for the event (no activity log here)
-    await eventNoteService.createNote(tx, { eventId: Number(id), notes: 'Updated as an enquiry', created_by: req.user?.id || null }).catch(()=>{});
+    await eventNoteService
+      .createNote(tx, {
+        eventId: Number(id),
+        notes: "Updated as an enquiry",
+        created_by: req.user?.id || null,
+      })
+      .catch(() => {});
 
     return await tx.event.findUnique({ where: { id } });
   });
 
   // Microsoft calendar sync (best-effort) — mirror Laravel EventUpdate dispatch
   try {
-    const me = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(id) } }).catch(() => null);
+    const me = await prisma.microsoftEvent
+      .findFirst({ where: { event_id: BigInt(id) } })
+      .catch(() => null);
     if (me && me.microsoft_event_id) {
-      const startIso = result?.start_time ? new Date(result.start_time).toISOString() : (result?.date ? new Date(result.date).toISOString() : null);
-      const endIso = result?.end_time ? new Date(result.end_time).toISOString() : null;
-      await microsoftGraph.updateEvent(me.microsoft_event_id, {
-        subject: result?.dj_package_name || `Event ${id}`,
-        content: result?.details || '',
-        startIso,
-        endIso,
-        location: result?.venues?.venue || null,
-      }).catch(() => null);
+      const startIso = result?.start_time
+        ? new Date(result.start_time).toISOString()
+        : result?.date
+          ? new Date(result.date).toISOString()
+          : null;
+      const endIso = result?.end_time
+        ? new Date(result.end_time).toISOString()
+        : null;
+      await microsoftGraph
+        .updateEvent(me.microsoft_event_id, {
+          subject: result?.dj_package_name || `Event ${id}`,
+          content: result?.details || "",
+          startIso,
+          endIso,
+          location: result?.venues?.venue || null,
+        })
+        .catch(() => null);
     }
   } catch (e) {}
 
@@ -700,7 +904,7 @@ const sendInvoice = catchAsync(async (req, res) => {
   let raw = body.body || template?.body || `Invoice for event ${eventId}`;
   if (raw && body.amount)
     raw = String(raw).replace("{--amount--}", String(body.amount));
-  const html = `${String(raw).replace(/\n/g, "<br>")}<hr/><pre>${JSON.stringify(enrichedDetails, (_k, v) => typeof v === 'bigint' ? v.toString() : v, 2)}</pre>`;
+  const html = `${String(raw).replace(/\n/g, "<br>")}<hr/><pre>${JSON.stringify(enrichedDetails, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2)}</pre>`;
 
   const result = await prisma.$transaction(async (tx) => {
     if (companyId)
@@ -756,7 +960,6 @@ const sendInvoice = catchAsync(async (req, res) => {
 //   res.json(serializeForJson(result));
 // });
 
-
 const staffEquipment = catchAsync(async (req, res) => {
   // Accept staff/package/date from query, body or params for flexibility
   const staffId = Number(req.query.staff || req.body.staff || req.params.staff);
@@ -795,28 +998,28 @@ const staffEquipment = catchAsync(async (req, res) => {
     }
 
     // Fetch package definition for this user/package via core CRUD
-        // Load base package without `package_user_equipment` relation because
-        // some environments (production DB) may not expose the expected relation
-        // columns — querying it directly can raise ``column does not exist``.
-        var equipments = await packageUserSvc.model
-          .findFirst({
-            where: {
-              user_id: staffId || undefined,
-              package_name: pkgName || undefined,
-            },
-            include: {
-              users: { select: { id: true, name: true, email: true } },
-              package_user_properties: true,
-              // intentionally omit package_user_equipment to avoid schema mismatch
-            },
-          })
-          .catch(() => null);
+    // Load base package without `package_user_equipment` relation because
+    // some environments (production DB) may not expose the expected relation
+    // columns — querying it directly can raise ``column does not exist``.
+    var equipments = await packageUserSvc.model
+      .findFirst({
+        where: {
+          user_id: staffId || undefined,
+          package_name: pkgName || undefined,
+        },
+        include: {
+          users: { select: { id: true, name: true, email: true } },
+          package_user_properties: true,
+          // intentionally omit package_user_equipment to avoid schema mismatch
+        },
+      })
+      .catch(() => null);
 
-        // If we found a package, always load equipment lines via raw SQL to avoid
-        // Prisma relation mapping issues (parity with package.controller.js).
-        if (equipments && equipments.id) {
-          try {
-            const equipmentRows = await prisma.$queryRaw`
+    // If we found a package, always load equipment lines via raw SQL to avoid
+    // Prisma relation mapping issues (parity with package.controller.js).
+    if (equipments && equipments.id) {
+      try {
+        const equipmentRows = await prisma.$queryRaw`
               SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
                      e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
               FROM package_user_equipment p
@@ -824,24 +1027,24 @@ const staffEquipment = catchAsync(async (req, res) => {
               WHERE p.package_user_id = ${Number(equipments.id)}
             `;
 
-            equipments.package_user_equipment = (equipmentRows || []).map((r) => ({
-              package_user_id: r.package_user_id,
-              equipment_id: r.equipment_id,
-              equipment_order_id: r.equipment_order_id,
-              quantity: r.quantity,
-              equipment: r.equipment_id
-                ? {
-                    id: Number(r.equipment_id),
-                    name: r.equipment_name,
-                    cost_price: r.equipment_cost_price,
-                    sell_price: r.equipment_sell_price,
-                  }
-                : null,
-            }));
-          } catch (e) {
-            // leave package_user_equipment undefined on failure
-          }
-        }
+        equipments.package_user_equipment = (equipmentRows || []).map((r) => ({
+          package_user_id: r.package_user_id,
+          equipment_id: r.equipment_id,
+          equipment_order_id: r.equipment_order_id,
+          quantity: r.quantity,
+          equipment: r.equipment_id
+            ? {
+                id: Number(r.equipment_id),
+                name: r.equipment_name,
+                cost_price: r.equipment_cost_price,
+                sell_price: r.equipment_sell_price,
+              }
+            : null,
+        }));
+      } catch (e) {
+        // leave package_user_equipment undefined on failure
+      }
+    }
 
     // compute equipment ids present in the package
     const equipmentIds =
@@ -876,8 +1079,11 @@ const staffEquipment = catchAsync(async (req, res) => {
     if (equipments) {
       // If Prisma relation mapping is out-of-sync the nested `equipment` may be null.
       // In that case, load equipment lines via raw SQL (same approach used in package.controller).
-      const needsRawLoad = !Array.isArray(equipments.package_user_equipment) ||
-        equipments.package_user_equipment.some((p) => !p || !p.equipment || !p.equipment.id);
+      const needsRawLoad =
+        !Array.isArray(equipments.package_user_equipment) ||
+        equipments.package_user_equipment.some(
+          (p) => !p || !p.equipment || !p.equipment.id,
+        );
 
       if (needsRawLoad) {
         try {
@@ -889,26 +1095,31 @@ const staffEquipment = catchAsync(async (req, res) => {
             WHERE p.package_user_id = ${Number(equipments.id)}
           `;
 
-          equipments.package_user_equipment = (equipmentRows || []).map((r) => ({
-            package_user_id: r.package_user_id,
-            equipment_id: r.equipment_id,
-            equipment_order_id: r.equipment_order_id,
-            quantity: r.quantity,
-            equipment: r.equipment_id
-              ? {
-                  id: Number(r.equipment_id),
-                  name: r.equipment_name,
-                  cost_price: r.equipment_cost_price,
-                  sell_price: r.equipment_sell_price,
-                }
-              : null,
-          }));
+          equipments.package_user_equipment = (equipmentRows || []).map(
+            (r) => ({
+              package_user_id: r.package_user_id,
+              equipment_id: r.equipment_id,
+              equipment_order_id: r.equipment_order_id,
+              quantity: r.quantity,
+              equipment: r.equipment_id
+                ? {
+                    id: Number(r.equipment_id),
+                    name: r.equipment_name,
+                    cost_price: r.equipment_cost_price,
+                    sell_price: r.equipment_sell_price,
+                  }
+                : null,
+            }),
+          );
         } catch (e) {
           // if raw query fails, leave package_user_equipment as-is
         }
       }
 
-      if (Array.isArray(equipments.package_user_equipment) && !Array.isArray(equipments.package_user_equipments)) {
+      if (
+        Array.isArray(equipments.package_user_equipment) &&
+        !Array.isArray(equipments.package_user_equipments)
+      ) {
         equipments.package_user_equipments = equipments.package_user_equipment;
       }
       if (equipments.users && !equipments.user) {
@@ -931,34 +1142,49 @@ const staffEquipment = catchAsync(async (req, res) => {
 });
 
 const getEnquiryWithDetails = catchAsync(async (req, res) => {
-  const eventId = Number(req.params?.eventId || req.params?.id || req.query?.id || req.query?.event_id);
-  if (!Number.isFinite(eventId)) return res.status(400).json({ error: "event_id_required" });
+  const eventId = Number(
+    req.params?.eventId ||
+      req.params?.id ||
+      req.query?.id ||
+      req.query?.event_id,
+  );
+  if (!Number.isFinite(eventId))
+    return res.status(400).json({ error: "event_id_required" });
 
   const event = await eventSvc.getById(Number(eventId)).catch(() => null);
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
-  const packages = await prisma.eventPackage.findMany({
-    where: { event_id: eventId },
-    include: { equipment: true, package_types: true },
-  }).catch(() => []);
+  const packages = await prisma.eventPackage
+    .findMany({
+      where: { event_id: eventId },
+      include: { equipment: true, package_types: true },
+    })
+    .catch(() => []);
 
-  const notes = await prisma.eventNote.findMany({ where: { event_id: eventId }, orderBy: { id: "desc" } }).catch(() => []);
+  const notes = await prisma.eventNote
+    .findMany({ where: { event_id: eventId }, orderBy: { id: "desc" } })
+    .catch(() => []);
 
-  res.json(serializeForJson({ success: true, data: { ...event, event_packages: packages, event_notes: notes } }));
+  res.json(
+    serializeForJson({
+      success: true,
+      data: { ...event, event_packages: packages, event_notes: notes },
+    }),
+  );
 });
 
 const addNote = catchAsync(async (req, res) => {
   const event_id = req.params?.id
     ? Number(req.params.id)
     : req.query?.id
-    ? Number(req.query.id)
-    : req.query?.enquiry_id
-    ? Number(req.query.enquiry_id)
-    : req.body?.event_id
-    ? Number(req.body.event_id)
-    : req.body?.eventId
-    ? Number(req.body.eventId)
-    : null;
+      ? Number(req.query.id)
+      : req.query?.enquiry_id
+        ? Number(req.query.enquiry_id)
+        : req.body?.event_id
+          ? Number(req.body.event_id)
+          : req.body?.eventId
+            ? Number(req.body.eventId)
+            : null;
   const notes = req.body.note || req.body.notes || null;
   if (!event_id || !notes)
     return res.status(400).json({ error: "event id and note is required " });
@@ -970,12 +1196,16 @@ const addNote = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data: created }));
 });
 
-
 const getEmail = catchAsync(async (req, res) => {
   const q = req.validated || req.query || req.body || {};
   const email_name = q.email_name || req.params?.email_name || null;
-  const event_id = Number(q.event_id || q.id || req.params?.event_id || req.params?.id) || null;
-  if (!email_name || !event_id) return res.status(400).json({ error: "email_name and event_id are required" });
+  const event_id =
+    Number(q.event_id || q.id || req.params?.event_id || req.params?.id) ||
+    null;
+  if (!email_name || !event_id)
+    return res
+      .status(400)
+      .json({ error: "email_name and event_id are required" });
 
   const [email, companies] = await Promise.all([
     prisma.emailContent.findFirst({ where: { email_name } }),
@@ -989,10 +1219,18 @@ const getEmail = catchAsync(async (req, res) => {
 
 const sendBrochure = catchAsync(async (req, res) => {
   const body = req.validated || req.body || {};
-  const eventId = Number(body.eventId || body.event_id || body.id || req.query.event_id || req.params.id) || null;
-  const companyIdRaw = body.companyNameId || body.companyId || body.company_name_id || null;
+  const eventId =
+    Number(
+      body.eventId ||
+        body.event_id ||
+        body.id ||
+        req.query.event_id ||
+        req.params.id,
+    ) || null;
+  const companyIdRaw =
+    body.companyNameId || body.companyId || body.company_name_id || null;
 
-  if (!eventId) return res.status(400).json({ error: 'event_id_required' });
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
 
   // fetch event + client email
   const event = await prisma.event.findUnique({
@@ -1001,31 +1239,38 @@ const sendBrochure = catchAsync(async (req, res) => {
   });
 
   const clientEmail = event?.users_events_user_idTousers?.email || body.email;
-  if (!clientEmail) return res.status(400).json({ error: 'client_email_not_found' });
+  if (!clientEmail)
+    return res.status(400).json({ error: "client_email_not_found" });
 
   // resolve company (provided id preferred, else event.names_id)
   let company = null;
   const cid = companyIdRaw != null ? Number(companyIdRaw) : null;
   if (cid) {
     try {
-      company = await prisma.companyName.findUnique({ where: { id: BigInt(cid) } });
+      company = await prisma.companyName.findUnique({
+        where: { id: BigInt(cid) },
+      });
     } catch (e) {
       company = null;
     }
   }
   if (!company && event?.names_id) {
     try {
-      company = await prisma.companyName.findUnique({ where: { id: BigInt(Number(event.names_id)) } });
+      company = await prisma.companyName.findUnique({
+        where: { id: BigInt(Number(event.names_id)) },
+      });
     } catch (e) {
       company = null;
     }
   }
-  if (!company) return res.status(400).json({ error: 'company_not_found' });
+  if (!company) return res.status(400).json({ error: "company_not_found" });
 
   // prepare email (prefer request body, fall back to EMAIL BROCHURE template id=1)
-  const template = await prisma.emailContent.findFirst({ where: { email_name: "EMAIL BROCHURE" } }).catch(() => null);
-  const subject = body.subject || template?.subject || 'Brochure';
-  const raw = body.body || template?.body || '';
+  const template = await prisma.emailContent
+    .findFirst({ where: { email_name: "EMAIL BROCHURE" } })
+    .catch(() => null);
+  const subject = body.subject || template?.subject || "Brochure";
+  const raw = body.body || template?.body || "";
   let brochureUrl = null;
   if (company.brochure) {
     try {
@@ -1036,78 +1281,121 @@ const sendBrochure = catchAsync(async (req, res) => {
   }
 
   const htmlParts = [];
-  if (raw) htmlParts.push(String(raw).replace(/\n/g, '<br>'));
-  if (brochureUrl) htmlParts.push(`<p><a href="${brochureUrl}">Download Brochure</a></p>`);
-  const html = htmlParts.join('\n\n') || `Brochure for event ${eventId}`;
+  if (raw) htmlParts.push(String(raw).replace(/\n/g, "<br>"));
+  if (brochureUrl)
+    htmlParts.push(`<p><a href="${brochureUrl}">Download Brochure</a></p>`);
+  const html = htmlParts.join("\n\n") || `Brochure for event ${eventId}`;
 
   await sendEmail({ to: clientEmail, subject, html }).catch((e) => {
-    console.error('[sendBrochure] sendEmail failed', e?.message || e);
+    console.error("[sendBrochure] sendEmail failed", e?.message || e);
   });
 
-  const noteText = `Brochure Email Sent - ${company?.name || ''}`;
+  const noteText = `Brochure Email Sent - ${company?.name || ""}`;
   const createdEvent = await prisma.$transaction(async (tx) => {
-    await eventNoteService.createNote(tx, { eventId, notes: noteText, created_by: req.user?.id || null });
+    await eventNoteService.createNote(tx, {
+      eventId,
+      notes: noteText,
+      created_by: req.user?.id || null,
+    });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
-  const latestNote = await prisma.eventNote.findFirst({ where: { event_id: eventId }, orderBy: { id: 'desc' } });
+  const latestNote = await prisma.eventNote.findFirst({
+    where: { event_id: eventId },
+    orderBy: { id: "desc" },
+  });
 
-  res.json(serializeForJson({ message: 'Brochure Email sent', event: createdEvent, eventNote: latestNote || null }));
+  res.json(
+    serializeForJson({
+      message: "Brochure Email sent",
+      event: createdEvent,
+      eventNote: latestNote || null,
+    }),
+  );
 });
 
 const sendUpdateEmail = catchAsync(async (req, res) => {
   const body = req.validated || req.body || {};
-  const eventId = Number(body.eventId || body.event_id || body.id || req.query.event_id || req.params.id) || null;
-  const companyIdRaw = body.companyNameId || body.companyId || body.company_name_id || null;
-  if (!eventId) return res.status(400).json({ error: 'event_id_required' });
-  if (!companyIdRaw) return res.status(400).json({ error: 'company_id_required' });
+  const eventId =
+    Number(
+      body.eventId ||
+        body.event_id ||
+        body.id ||
+        req.query.event_id ||
+        req.params.id,
+    ) || null;
+  const companyIdRaw =
+    body.companyNameId || body.companyId || body.company_name_id || null;
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+  if (!companyIdRaw)
+    return res.status(400).json({ error: "company_id_required" });
   // fetch event + client email
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     include: { users_events_user_idTousers: { select: { email: true } } },
   });
   const clientEmail = event?.users_events_user_idTousers?.email || body.email;
-  if (!clientEmail) return res.status(400).json({ error: 'client_email_not_found' });
+  if (!clientEmail)
+    return res.status(400).json({ error: "client_email_not_found" });
 
   // resolve company
   let company = null;
   const cid = Number(companyIdRaw) || null;
   if (cid) {
     try {
-      company = await prisma.companyName.findUnique({ where: { id: BigInt(cid) } });
+      company = await prisma.companyName.findUnique({
+        where: { id: BigInt(cid) },
+      });
     } catch (e) {
       company = null;
     }
   }
   if (!company && event?.names_id) {
     try {
-      company = await prisma.companyName.findUnique({ where: { id: BigInt(Number(event.names_id)) } });
+      company = await prisma.companyName.findUnique({
+        where: { id: BigInt(Number(event.names_id)) },
+      });
     } catch (e) {
       company = null;
     }
   }
-  if (!company) return res.status(400).json({ error: 'company_not_found' });
+  if (!company) return res.status(400).json({ error: "company_not_found" });
 
   // prepare email (prefer provided body.body, fallback to template id=2)
-  const template = await prisma.emailContent.findUnique({ where: { email_name: "EMAIL FOR UPDATE" } }).catch(() => null);
-  const subject = body.subject || template?.subject || 'Update';
+  const template = await prisma.emailContent
+    .findUnique({ where: { email_name: "EMAIL FOR UPDATE" } })
+    .catch(() => null);
+  const subject = body.subject || template?.subject || "Update";
   const raw = body.body || template?.body || `Update for event ${eventId}`;
-  const html = String(raw).replace(/\n/g, '<br>');
+  const html = String(raw).replace(/\n/g, "<br>");
 
-  console.log(html,'html');
+  console.log(html, "html");
   await sendEmail({ to: clientEmail, subject, html }).catch((e) => {
-    console.error('[sendUpdateEmail] sendEmail failed', e?.message || e);
+    console.error("[sendUpdateEmail] sendEmail failed", e?.message || e);
   });
 
-  const noteText = `Update Email Sent - ${company?.name || ''}`;
+  const noteText = `Update Email Sent - ${company?.name || ""}`;
   const createdEvent = await prisma.$transaction(async (tx) => {
-    await eventNoteService.createNote(tx, { eventId, notes: noteText, created_by: req.user?.id || null });
+    await eventNoteService.createNote(tx, {
+      eventId,
+      notes: noteText,
+      created_by: req.user?.id || null,
+    });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
-  const latestNote = await prisma.eventNote.findFirst({ where: { event_id: eventId }, orderBy: { id: 'desc' } });
+  const latestNote = await prisma.eventNote.findFirst({
+    where: { event_id: eventId },
+    orderBy: { id: "desc" },
+  });
 
-  res.json(serializeForJson({ message: 'Update Email sent', event: createdEvent, eventNote: latestNote || null }));
+  res.json(
+    serializeForJson({
+      message: "Update Email sent",
+      event: createdEvent,
+      eventNote: latestNote || null,
+    }),
+  );
 });
 
 const sendQuote = catchAsync(async (req, res) => {
@@ -1140,8 +1428,16 @@ const sendQuote = catchAsync(async (req, res) => {
         total_price: p.total_price ?? null,
         notes: p.notes || null,
         rig_notes: p.rig_notes || null,
-        equipment: p.equipment ? { id: p.equipment.id, name: p.equipment.name, sell_price: p.equipment.sell_price } : null,
-        package_type: p.package_types ? { id: p.package_types.id, name: p.package_types.name } : null,
+        equipment: p.equipment
+          ? {
+              id: p.equipment.id,
+              name: p.equipment.name,
+              sell_price: p.equipment.sell_price,
+            }
+          : null,
+        package_type: p.package_types
+          ? { id: p.package_types.id, name: p.package_types.name }
+          : null,
       }));
     } catch (e) {
       details = [];
@@ -1157,28 +1453,42 @@ const sendQuote = catchAsync(async (req, res) => {
     total_cost_for_equipment: event?.total_cost_for_equipment,
   }));
 
-  const user = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null;
+  const user = userId
+    ? await prisma.user.findUnique({ where: { id: userId } })
+    : null;
   const to = user?.email || body.email;
-  const company = companyId ? await prisma.companyName.findUnique({ where: { id: companyId } }) : null;
+  const company = companyId
+    ? await prisma.companyName.findUnique({ where: { id: companyId } })
+    : null;
   const companyName = company?.name || body.companyName || "";
 
   // use email template for quote if available (SEND QUOTE-OPEN id = 3)
-  const template = await prisma.emailContent.findFirst({ where: { email_name: "SEND QUOTE-OPEN" } }).catch(() => null);
+  const template = await prisma.emailContent
+    .findFirst({ where: { email_name: "SEND QUOTE-OPEN" } })
+    .catch(() => null);
   const subject = body.subject || template?.subject || "Quote";
   let raw = body.body || template?.body || `Quote for event ${eventId}`;
-  if (raw && event.deposit_amount) raw = String(raw).replace("{--amount--}", String(event.deposit_amount));
+  if (raw && event.deposit_amount)
+    raw = String(raw).replace("{--amount--}", String(event.deposit_amount));
 
   // fetch full event details for parity with Laravel email
-  const fullEvent = await prisma.event.findUnique({
-    where: { id: eventId },
-    include: { users_events_user_idTousers: true, venues: true },
-  }).catch(() => null);
+  const fullEvent = await prisma.event
+    .findUnique({
+      where: { id: eventId },
+      include: { users_events_user_idTousers: true, venues: true },
+    })
+    .catch(() => null);
 
-  const first_name = (details[0]?.user?.name) || fullEvent?.users_events_user_idTousers?.name || "Client";
-  const contract_token = details[0]?.contract_token || fullEvent?.contract_token || null;
+  const first_name =
+    details[0]?.user?.name ||
+    fullEvent?.users_events_user_idTousers?.name ||
+    "Client";
+  const contract_token =
+    details[0]?.contract_token || fullEvent?.contract_token || null;
 
   const companyDetails = {
-    company_logo: company?.company_logo || company?.logo || company?.brochure || null,
+    company_logo:
+      company?.company_logo || company?.logo || company?.brochure || null,
     name: company?.name || "",
     vat: company?.vat ?? null,
     vat_percentage: company?.vat_percentage ?? null,
@@ -1200,14 +1510,30 @@ const sendQuote = catchAsync(async (req, res) => {
   try {
     if (eventDateRaw) {
       const d = new Date(eventDateRaw);
-      eventDateFormatted = `${d.getDate()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getFullYear()).slice(-2)}`;
+      eventDateFormatted = `${d.getDate()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getFullYear()).slice(-2)}`;
     }
   } catch (e) {}
-  const finalSubject = body.subject || template?.subject || `Quote : ${eventDateFormatted || ''}`;
+  const finalSubject =
+    body.subject || template?.subject || `Quote : ${eventDateFormatted || ""}`;
 
   // Render using the Laravel Blade HTML structure translated to Node
-  const renderedBodyHtml = raw ? (function(){ try { return marked(String(raw)); } catch(e){ return String(raw).replace(/\n/g, '<br>'); } })() : '';
-  const emailHtml = renderSendQuote({ first_name, body: raw || renderedBodyHtml, companyDetails, contract_token, enrichedDetails, event });
+  const renderedBodyHtml = raw
+    ? (function () {
+        try {
+          return marked(String(raw));
+        } catch (e) {
+          return String(raw).replace(/\n/g, "<br>");
+        }
+      })()
+    : "";
+  const emailHtml = renderSendQuote({
+    first_name,
+    body: raw || renderedBodyHtml,
+    companyDetails,
+    contract_token,
+    enrichedDetails,
+    event,
+  });
   // Build emailHtml and printable HTML for PDF (already rendered above)
   const subjectToUse = finalSubject;
 
@@ -1216,7 +1542,7 @@ const sendQuote = catchAsync(async (req, res) => {
   try {
     pdfBuffer = await generatePdfBufferFromHtml(emailHtml);
   } catch (e) {
-    console.error('[sendQuote] PDF generation failed', e?.message || e);
+    console.error("[sendQuote] PDF generation failed", e?.message || e);
   }
 
   // upload PDF to S3 and get signed link
@@ -1225,11 +1551,11 @@ const sendQuote = catchAsync(async (req, res) => {
   if (pdfBuffer) {
     const key = `quotes/${eventId}-${Date.now()}.pdf`;
     try {
-      await uploadStreamToS3(pdfBuffer, key, 'application/pdf');
+      await uploadStreamToS3(pdfBuffer, key, "application/pdf");
       pdfKey = key;
       pdfUrl = await getSignedGetUrl(key);
     } catch (e) {
-      console.error('[sendQuote] PDF upload failed', e?.message || e);
+      console.error("[sendQuote] PDF upload failed", e?.message || e);
       pdfBuffer = null;
     }
   }
@@ -1238,37 +1564,69 @@ const sendQuote = catchAsync(async (req, res) => {
   // store the S3 object key in the DB (do not persist presigned URLs)
   const result = await prisma.$transaction(async (tx) => {
     if (companyId)
-      await tx.event.update({ where: { id: eventId }, data: { names_id: companyId, contract_pdf_url: pdfKey || undefined } });
-    const finalHtml = pdfUrl ? `${emailHtml}<p><a href="${pdfUrl}">Download Quote (PDF)</a></p>` : emailHtml;
-    if (to) await sendEmail({ to, subject: subjectToUse, html: finalHtml }).catch(() => {});
-    await eventNoteService.createNote(tx, { eventId, notes: `Quote sent - ${companyName}`, created_by: req.user?.id || null });
+      await tx.event.update({
+        where: { id: eventId },
+        data: { names_id: companyId, contract_pdf_url: pdfKey || undefined },
+      });
+    const finalHtml = pdfUrl
+      ? `${emailHtml}<p><a href="${pdfUrl}">Download Quote (PDF)</a></p>`
+      : emailHtml;
+    if (to)
+      await sendEmail({ to, subject: subjectToUse, html: finalHtml }).catch(
+        () => {},
+      );
+    await eventNoteService.createNote(tx, {
+      eventId,
+      notes: `Quote sent - ${companyName}`,
+      created_by: req.user?.id || null,
+    });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
-  res.json(serializeForJson({ message: "Quote sent", event: result, pdfUrl: pdfUrl || null }));
+  res.json(
+    serializeForJson({
+      message: "Quote sent",
+      event: result,
+      pdfUrl: pdfUrl || null,
+    }),
+  );
 });
 
 const deleteEnquiry = catchAsync(async (req, res) => {
   // Expect only `id` in params; fetch remaining data from DB
   const eventId = Number(req.params?.id);
-  if (!Number.isFinite(eventId)) return res.status(400).json({ error: "event_id_required" });
+  if (!Number.isFinite(eventId))
+    return res.status(400).json({ error: "event_id_required" });
 
   // Feature flag: if true, soft-delete users by setting `deleted_at` instead of hard delete
-  const useSoftDeleteForUsers = String(process.env.USE_SOFT_DELETE_FOR_USERS || "false").toLowerCase() === "true";
+  const useSoftDeleteForUsers =
+    String(process.env.USE_SOFT_DELETE_FOR_USERS || "false").toLowerCase() ===
+    "true";
 
   const result = await prisma.$transaction(async (tx) => {
     const event = await tx.event.findUnique({ where: { id: eventId } });
-    if (!event) return { success: false, error: 'Event not found' };
+    if (!event) return { success: false, error: "Event not found" };
 
     const userId = Number(event.user_id) || null;
-    const user = userId ? await tx.user.findUnique({ where: { id: userId } }) : null;
-    const userEventCount = user ? await tx.event.count({ where: { user_id: userId } }) : 0;
+    const user = userId
+      ? await tx.user.findUnique({ where: { id: userId } })
+      : null;
+    const userEventCount = user
+      ? await tx.event.count({ where: { user_id: userId } })
+      : 0;
 
-    if (user && userEventCount === 1 && Number(event.user_id) === Number(userId)) {
+    if (
+      user &&
+      userEventCount === 1 &&
+      Number(event.user_id) === Number(userId)
+    ) {
       if (useSoftDeleteForUsers) {
         // If User model supports `deleted_at`, set it (soft-delete)
         try {
-          await tx.user.update({ where: { id: userId }, data: { deleted_at: new Date() } });
+          await tx.user.update({
+            where: { id: userId },
+            data: { deleted_at: new Date() },
+          });
         } catch (e) {
           // fallback to hard delete if update fails
           await tx.user.delete({ where: { id: userId } }).catch(() => {});
@@ -1300,14 +1658,18 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
     if (typeof raw === "string") {
       const s = raw.trim();
       // try JSON array first
-      if ((s.startsWith("[") || s.startsWith("\"")) ) {
+      if (s.startsWith("[") || s.startsWith('"')) {
         try {
           const parsed = JSON.parse(s);
-          if (Array.isArray(parsed)) return parsed.map(Number).filter(Number.isFinite);
+          if (Array.isArray(parsed))
+            return parsed.map(Number).filter(Number.isFinite);
         } catch (e) {}
       }
       // comma-separated values
-      return s.split(",").map((x) => Number(x.trim())).filter(Number.isFinite);
+      return s
+        .split(",")
+        .map((x) => Number(x.trim()))
+        .filter(Number.isFinite);
     }
     // single numeric-like value
     const n = Number(raw);
@@ -1317,20 +1679,33 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
   const ids = parseIds(idsRaw);
   if (!ids.length) return res.status(400).json({ error: "ids_required" });
 
-  const useSoftDeleteForUsers = String(process.env.USE_SOFT_DELETE_FOR_USERS || "false").toLowerCase() === "true";
+  const useSoftDeleteForUsers =
+    String(process.env.USE_SOFT_DELETE_FOR_USERS || "false").toLowerCase() ===
+    "true";
 
   const result = await prisma.$transaction(async (tx) => {
     const events = await tx.event.findMany({ where: { id: { in: ids } } });
-    const primaryUserId = events.length ? Number(events[0].user_id) || null : null;
-    const user = primaryUserId ? await tx.user.findUnique({ where: { id: primaryUserId } }) : null;
-    const userEventCount = user ? await tx.event.count({ where: { user_id: primaryUserId } }) : 0;
+    const primaryUserId = events.length
+      ? Number(events[0].user_id) || null
+      : null;
+    const user = primaryUserId
+      ? await tx.user.findUnique({ where: { id: primaryUserId } })
+      : null;
+    const userEventCount = user
+      ? await tx.event.count({ where: { user_id: primaryUserId } })
+      : 0;
 
     if (user && userEventCount === ids.length) {
       if (useSoftDeleteForUsers) {
         try {
-          await tx.user.update({ where: { id: primaryUserId }, data: { deleted_at: new Date() } });
+          await tx.user.update({
+            where: { id: primaryUserId },
+            data: { deleted_at: new Date() },
+          });
         } catch (e) {
-          await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
+          await tx.user
+            .delete({ where: { id: primaryUserId } })
+            .catch(() => {});
         }
       } else {
         await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
@@ -1344,9 +1719,6 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
   });
   res.json(serializeForJson(result));
 });
-
-
-
 
 export default {
   listOpenEnquiries,

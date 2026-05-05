@@ -11,6 +11,7 @@ import sendEmail from "../utils/mail/resendClient.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
+import { signContractForEvent } from "../services/contractSign.service.js";
 const eventSvc = services.get("event");
 
 
@@ -483,26 +484,24 @@ const getConfirmEvent = catchAsync(async (req, res) => {
   const event_id = Number(req.params.id);
   if (!event_id) return res.status(400).json({ error: "invalid_id" });
 
-  // Batch independent reads in a single transaction to reduce DB round-trips
-  const [event, globalFiles, notes, todos] = await prisma
-    .$transaction([
-      prisma.event.findUnique({
-        where: { id: event_id },
-        include: {
-          users_events_user_idTousers: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } },
-          venues: true,
-          // include related event_package rows and eager-load equipment so frontend can access equipment.name
-          event_package: { include: { equipment: true } },
-          event_payments: true,
-          file_uploads: { include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } },
-          contracts: { include: { signatures: true } },
-        },
-      }),
-      prisma.fileUpload.findMany({ where: { event_id: null, general: true }, include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } }),
-      prisma.eventNote.findMany({ where: { event_id }, orderBy: { id: 'asc' } }),
-      prisma.todos.findMany({ where: { event_id }, orderBy: { id: 'asc' } }),
-    ])
-    .catch(() => [null, [], [], []]);
+  // Independent reads — fan out in parallel without an interactive transaction
+  // (transactions force a single connection slot and were exhausting the pool).
+  const [event, globalFiles, notes, todos] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id: event_id },
+      include: {
+        users_events_user_idTousers: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } },
+        venues: true,
+        event_package: { include: { equipment: true } },
+        event_payments: true,
+        file_uploads: { include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } },
+        contracts: { include: { signatures: true } },
+      },
+    }),
+    prisma.fileUpload.findMany({ where: { event_id: null, general: true }, include: { users: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } }, events: true } }),
+    prisma.eventNote.findMany({ where: { event_id }, orderBy: { id: 'asc' } }),
+    prisma.todos.findMany({ where: { event_id }, orderBy: { id: 'asc' } }),
+  ]);
 
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
@@ -1412,9 +1411,9 @@ const updateEvent = catchAsync(async (req, res) => {
       where: { id: eventId },
       include: { users_events_user_idTousers: true, venues: true },
     });
-    
+
     const ms = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(eventId) } });
-    
+
     if (ms?.microsoft_event_id && fresh) {
       await microsoftGraph.updateEvent(ms.microsoft_event_id, {
         subject: `Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || "Client"}`,
@@ -1428,7 +1427,59 @@ const updateEvent = catchAsync(async (req, res) => {
     console.error("Post-update sync error:", e);
   }
 
-  res.json({ success: true, data: serializeForJson(updated) });
+  // 6. Optional inline signing — admin OR the owning client may submit a
+  // signature image alongside the event update. Empty pad => skip silently.
+  let signatureWarning = null;
+  if (
+    typeof body.signature_image === "string" &&
+    body.signature_image.startsWith("data:image/")
+  ) {
+    try {
+      const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+      let requesterId = null;
+      if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+      if (!requesterId && req.user?.email) {
+        const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+        if (uu) requesterId = Number(uu.id);
+      }
+
+      const fresh = await prisma.event.findUnique({
+        where: { id: eventId },
+        select: { user_id: true, contract_signed_at: true },
+      });
+      if (fresh?.contract_signed_at) {
+        return res.status(409).json({ error: "contract_already_signed" });
+      }
+
+      const perms = requesterId ? await loadPermissionsForUserId(requesterId) : new Set();
+      const roleId = Number(req.user?.role_id || 0);
+      const isAdmin = perms.has("manage_all") || perms.has("super_admin") || roleId === 1 || roleId === 2;
+      const isOwningClient = requesterId && fresh?.user_id && Number(fresh.user_id) === requesterId;
+      if (!isAdmin && !isOwningClient) {
+        return res.status(403).json({ error: "cannot_sign_contract" });
+      }
+
+      await signContractForEvent({
+        eventId,
+        signatureDataUri: body.signature_image,
+        acting_user_id: requesterId,
+        ip: req.ip || req.headers["x-forwarded-for"]?.toString() || null,
+        userAgent: req.headers["user-agent"]?.toString().slice(0, 250) || null,
+      });
+    } catch (e) {
+      if (e?.code === "already_signed") {
+        return res.status(409).json({ error: "contract_already_signed" });
+      }
+      console.error("[updateEvent] sign failed", e?.message || e);
+      signatureWarning = "signature_save_failed";
+    }
+  }
+
+  res.json({
+    success: true,
+    data: serializeForJson(updated),
+    ...(signatureWarning ? { warning: signatureWarning } : {}),
+  });
 });
 
 

@@ -1,10 +1,9 @@
 import prisma from '../utils/prismaClient.js';
 import catchAsync from '../utils/catchAsync.js';
 import { serializeForJson } from '../utils/serialize.js';
-import { uploadStreamToS3, getSignedGetUrl, deleteObjectFromS3 } from '../utils/s3Client.js';
-import generatePdfBufferFromHtml from '../utils/pdfGenerator.js';
-import renderContract from '../templates/contractTemplate.js';
+import { getSignedGetUrl, deleteObjectFromS3 } from '../utils/s3Client.js';
 import sendEmail from '../utils/mail/resendClient.js';
+import { signContractForEvent } from '../services/contractSign.service.js';
 import { randomUUID } from 'crypto';
 
 // Public: load the event for signing using the contract_token UUID.
@@ -93,157 +92,29 @@ const signContractByToken = catchAsync(async (req, res) => {
 
   const event = await prisma.event.findUnique({
     where: { contract_token: token },
-    include: {
-      users_events_user_idTousers: true,
-      venues: true,
-      event_package: { include: { equipment: true } },
-    },
+    select: { id: true, user_id: true, contract_signed_at: true },
   });
   if (!event) return res.status(404).json({ error: 'event_not_found' });
   if (event.contract_signed_at) {
     return res.status(409).json({ error: 'contract_already_signed' });
   }
 
-  const user = event.users_events_user_idTousers;
-
-  let company = null;
-  if (event.names_id) {
-    company = await prisma.companyName
-      .findUnique({ where: { id: BigInt(event.names_id) } })
-      .catch(() => null);
-  }
-
-  let adminSignatureDataUri = null;
-  if (company?.admin_signature) {
-    try {
-      adminSignatureDataUri = await getSignedGetUrl(String(company.admin_signature));
-    } catch {}
-  }
-
-  const signedAt = new Date();
-  const html = renderContract({
-    event,
-    user,
-    company,
-    signatureDataUri,
-    adminSignatureDataUri,
-    signedAt,
-  });
-
-  let pdfBuffer;
   try {
-    pdfBuffer = await generatePdfBufferFromHtml(html);
-  } catch (e) {
-    console.error('[contract.sign] pdf generation failed', e?.message || e);
-    return res.status(500).json({ error: 'pdf_generation_failed' });
-  }
-
-  const pdfKey = `contracts/event_${event.id}_contract_${Date.now()}.pdf`;
-  try {
-    await uploadStreamToS3(pdfBuffer, pdfKey, 'application/pdf');
-  } catch (e) {
-    console.error('[contract.sign] pdf upload failed', e?.message || e);
-    return res.status(500).json({ error: 'pdf_upload_failed' });
-  }
-
-  // Store the raw signature PNG so it's preserved independently of the PDF.
-  const sigBase64 = signatureDataUri.replace(/^data:image\/[^;]+;base64,/, '');
-  const sigBuffer = Buffer.from(sigBase64, 'base64');
-  const sigKey = `signatures/event_${event.id}_${Date.now()}.png`;
-  try {
-    await uploadStreamToS3(sigBuffer, sigKey, 'image/png');
-  } catch (e) {
-    console.error('[contract.sign] signature upload failed', e?.message || e);
-  }
-
-  const contract = await prisma.$transaction(async (tx) => {
-    const created = await tx.contract.create({
-      data: {
-        user_id: user?.id ? Number(user.id) : event.user_id ?? 0,
-        event_id: Number(event.id),
-        signed_pdf_path: pdfKey,
-        amount: event.total_cost_for_equipment ? Math.round(Number(event.total_cost_for_equipment)) : null,
-        status: 'signed',
-        signed_at: signedAt,
-        sent_at: signedAt,
-        created_at: signedAt,
-        updated_at: signedAt,
-      },
+    const result = await signContractForEvent({
+      eventId: event.id,
+      signatureDataUri,
+      acting_user_id: event.user_id,
+      ip: req.ip || req.headers['x-forwarded-for']?.toString() || null,
+      userAgent: req.headers['user-agent']?.toString().slice(0, 250) || null,
     });
-
-    await tx.signature.create({
-      data: {
-        user_id: user?.id ? Number(user.id) : event.user_id ?? 0,
-        contract_id: created.id,
-        signature_path: sigKey,
-        ip_address: req.ip || req.headers['x-forwarded-for']?.toString() || null,
-        user_agent: req.headers['user-agent']?.toString().slice(0, 250) || null,
-        created_at: signedAt,
-        updated_at: signedAt,
-      },
-    });
-
-    await tx.event.update({
-      where: { id: event.id },
-      data: {
-        contract_pdf_url: pdfKey,
-        contract_signed_at: signedAt,
-        contract_emailed_at: signedAt,
-      },
-    });
-
-    return created;
-  });
-
-  // Best-effort emails: signed PDF link to the client + admin notification.
-  let signedUrl = null;
-  try {
-    signedUrl = await getSignedGetUrl(pdfKey);
-  } catch {}
-
-  if (user?.email && signedUrl) {
-    sendEmail({
-      to: [user.email],
-      subject: `Your signed contract — ${company?.name || 'USR Music'}`,
-      html: `<p>Hi ${user.name || ''},</p>
-             <p>Thanks for signing your contract. A copy is attached, and you can also download it here:</p>
-             <p><a href="${signedUrl}">Download signed contract (PDF)</a></p>`,
-      // Attach the freshly generated PDF (mirrors Laravel's ->attach($pdfPath)).
-      attachments: pdfBuffer
-        ? [{ filename: `contract_${event.id}.pdf`, content: pdfBuffer }]
-        : undefined,
-    }).catch(() => {});
-  }
-
-  try {
-    const admins = await prisma.user.findMany({
-      where: { role_id: BigInt(2), is_email_send: true },
-      select: { email: true },
-    });
-    const adminEmails = admins.map((a) => a.email).filter(Boolean);
-    if (adminEmails.length && signedUrl) {
-      sendEmail({
-        to: adminEmails,
-        subject: `Contract signed — Event #${event.id}`,
-        html: `<p>${user?.name || 'A client'} just signed the contract for event #${event.id}.</p>
-               <p><a href="${signedUrl}">View signed contract</a></p>`,
-      }).catch(() => {});
-    }
+    return res.json(serializeForJson({ success: true, data: result }));
   } catch (e) {
-    console.error('[contract.sign] admin notify failed', e?.message || e);
+    if (e?.code === 'event_not_found') return res.status(404).json({ error: 'event_not_found' });
+    if (e?.code === 'already_signed') return res.status(409).json({ error: 'contract_already_signed' });
+    if (e?.code === 'pdf_generation_failed') return res.status(500).json({ error: 'pdf_generation_failed' });
+    if (e?.code === 'pdf_upload_failed') return res.status(500).json({ error: 'pdf_upload_failed' });
+    throw e;
   }
-
-  return res.json(
-    serializeForJson({
-      success: true,
-      data: {
-        contract_id: contract.id,
-        event_id: event.id,
-        signed_pdf_url: signedUrl,
-        signed_at: signedAt,
-      },
-    }),
-  );
 });
 
 // Authenticated: ensure the event has a contract_token (creating one on

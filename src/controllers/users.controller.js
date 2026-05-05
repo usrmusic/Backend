@@ -128,6 +128,44 @@ const verifyEmail = catchAsync(async (req, res) => {
   }
 });
 
+const requestVerifyEmail = catchAsync(async (req, res) => {
+  // Send a verification token/link to the currently authenticated user
+  // `verifyAccessToken` middleware must set req.user
+  if (!req.user) return res.status(401).json({ error: "missing_token" });
+
+  // try to resolve numeric user id from token subject, falling back to email
+  const sub = req.user.sub || req.user.id || req.user.email;
+  let userId = null;
+  if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+
+  let user;
+  if (userId) {
+    user = await userSvc.getById(userId);
+  } else if (req.user.email) {
+    user = await userService.getUserByEmail(String(req.user.email));
+  }
+
+  if (!user) return res.status(404).json({ error: "user_not_found" });
+
+  // generate a short-lived JWT token and send via configured email provider
+  const tokenPayload = { sub: user.id, email: user.email };
+  const verifyToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: "1h" });
+
+  try {
+    const sendRes = await resendClient({
+      to: user.email,
+      subject: "Verify your email",
+      html: `<p>Hello ${user.name || ''},</p><p>Your verification token (or link) is:</p><pre>${verifyToken}</pre><p>Or click: <a href="/verify?token=${verifyToken}">Verify email</a></p>`,
+    });
+    const emailSent = !!(sendRes && sendRes.ok && !sendRes.fallback);
+    return res.json({ ok: true, emailSent, verificationToken: emailSent ? undefined : verifyToken });
+  } catch (err) {
+    console.error("requestVerifyEmail resendClient error", err);
+    // Return token in response when email sending fails so client can display it (only in dev or when necessary)
+    return res.status(500).json({ error: "email_send_failed", verificationToken: verifyToken });
+  }
+});
+
 const forgotPassword = catchAsync(async (req, res) => {
   const { email } = req.body || {};
 
@@ -170,6 +208,20 @@ const forgotPassword = catchAsync(async (req, res) => {
 const updateUser = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   const body = req.body || {};
+
+  // load existing user to enforce email-change rules
+  const existing = await userSvc.getById(id);
+  if (!existing || existing.deleted_at) return res.status(404).json({ error: "user_not_found" });
+
+  // If user has already verified email, disallow changing the email address
+  if (body.email !== undefined && existing.is_email_send) {
+    const incoming = String(body.email || "").trim();
+    const current = String(existing.email || "").trim();
+    if (incoming.toLowerCase() !== current.toLowerCase()) {
+      return res.status(400).json({ error: "email_verified_cannot_update" });
+    }
+  }
+
   const data = {};
   if (body.name !== undefined) data.name = body.name;
   if (body.email !== undefined) data.email = body.email;
@@ -422,6 +474,7 @@ export default {
   signIn,
   signUp,
   verifyEmail,
+  requestVerifyEmail,
   forgotPassword,
   resetPassword,
   updateUser,

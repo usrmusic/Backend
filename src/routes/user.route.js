@@ -63,6 +63,9 @@ router
 router
   .route("/verify")
   .post(validate(userValidation.verifyEmail), userController.verifyEmail);
+router
+  .route("/verify/request")
+  .post(verifyAccessToken, userController.requestVerifyEmail);
 router.route("/roles").get(verifyAccessToken, userController.listRoles);
 router.route("/refresh").post(tokenController.refreshToken);
 router.route("/signout").post(tokenController.signOut);

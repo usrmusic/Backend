@@ -1021,7 +1021,7 @@ const staffEquipment = catchAsync(async (req, res) => {
       try {
         const equipmentRows = await prisma.$queryRaw`
               SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
-                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes
               FROM package_user_equipment p
               LEFT JOIN equipment e ON e.id = p.equipment_id
               WHERE p.package_user_id = ${Number(equipments.id)}
@@ -1038,6 +1038,7 @@ const staffEquipment = catchAsync(async (req, res) => {
                 name: r.equipment_name,
                 cost_price: r.equipment_cost_price,
                 sell_price: r.equipment_sell_price,
+                rig_notes: r.equipment_rig_notes ?? null,
               }
             : null,
         }));
@@ -1089,7 +1090,7 @@ const staffEquipment = catchAsync(async (req, res) => {
         try {
           const equipmentRows = await prisma.$queryRaw`
             SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
-                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes
             FROM package_user_equipment p
             LEFT JOIN equipment e ON e.id = p.equipment_id
             WHERE p.package_user_id = ${Number(equipments.id)}
@@ -1107,6 +1108,7 @@ const staffEquipment = catchAsync(async (req, res) => {
                     name: r.equipment_name,
                     cost_price: r.equipment_cost_price,
                     sell_price: r.equipment_sell_price,
+                    rig_notes: r.equipment_rig_notes ?? null,
                   }
                 : null,
             }),

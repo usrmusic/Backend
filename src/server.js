@@ -32,6 +32,20 @@ async function connectWithRetry() {
   }
 }
 
+// Prevent unhandled promise rejections (e.g. from cron jobs or background work)
+// from crashing the process. Log and continue.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+// Catch synchronous throws that escape all error boundaries.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  // Only exit for truly fatal errors, not operational ones (DB timeouts, pool exhausted, etc.)
+  if (err?.code && /^P\d{4}$/.test(err.code)) return; // Prisma error — survivable
+  process.exit(1);
+});
+
 async function start() {
   await connectWithRetry();
 

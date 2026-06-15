@@ -30,155 +30,109 @@ const confirmEvent = catchAsync(async (req, res) => {
     created_at: new Date(),
   };
 
-  const result = await prisma.$transaction(async (tx) => {
-    // create payment
-    const payment = await tx.eventPayment.create({ data: paymentData });
+  // --- Step 1: create payment ---
+  const payment = await prisma.eventPayment.create({ data: paymentData });
 
-    // ensure unique invoice number
-    let invoiceNumber;
-    do {
-      invoiceNumber = String(Math.floor(Math.random() * 99999) + 1).padStart(
-        5,
-        "0",
-      );
-      // check existing invoice (invoice stored as Int in DB)
-      // parse to number for comparison
-      // use findFirst to check existence
-      var existing = await tx.event.findFirst({
-        where: { invoice: Number(invoiceNumber) },
-      });
-    } while (existing);
+  // --- Step 2: unique invoice number (same as Laravel do...while) ---
+  let invoiceNumber;
+  do {
+    invoiceNumber = String(Math.floor(Math.random() * 99999) + 1).padStart(5, "0");
+    var existing = await prisma.event.findFirst({ where: { invoice: Number(invoiceNumber) } });
+  } while (existing);
 
-    // update event: set invoice, status=2, names_id and deposit if provided
-    const eventUpdateData = {
-      invoice: Number(invoiceNumber),
-      event_status_id: 2,
-    };
-    if (namesId) eventUpdateData.names_id = namesId;
-    if (depositAmount) eventUpdateData.deposit_amount = depositAmount;
-    // if an event_date was provided, convert to DB date and set
-    try {
-      if (body.event_date) {
-        const dt = toDbDate(body.event_date);
-        if (dt) eventUpdateData.date = new Date(dt);
-      }
-    } catch (e) {}
+  // --- Step 3: update event (invoice, status, names_id, deposit) ---
+  const eventUpdateData = { invoice: Number(invoiceNumber), event_status_id: 2 };
+  if (namesId) eventUpdateData.names_id = namesId;
+  if (depositAmount) eventUpdateData.deposit_amount = depositAmount;
+  try {
+    if (body.event_date) {
+      const dt = toDbDate(body.event_date);
+      if (dt) eventUpdateData.date = new Date(dt);
+    }
+  } catch (e) {}
+  await prisma.event.update({ where: { id: eventId }, data: eventUpdateData });
 
-    await tx.event.update({ where: { id: eventId }, data: eventUpdateData });
-
-    // load event packages similar to Laravel
-    const eventPackages = await tx.eventPackage.findMany({
+  // --- Step 4: load packages + company VAT in parallel ---
+  const [eventPackages, company] = await Promise.all([
+    prisma.eventPackage.findMany({
       where: { event_id: eventId, package_type_id: { in: [1, 2] } },
       select: {
-        id: true,
-        event_id: true,
-        equipment_id: true,
-        package_type_id: true,
-        sell_price: true,
-        total_price: true,
-        price_added_to_bill: true,
-        quantity: true,
-        notes: true,
+        id: true, event_id: true, equipment_id: true, package_type_id: true,
+        sell_price: true, total_price: true, price_added_to_bill: true,
+        quantity: true, notes: true, rig_notes: true,
         equipment: {
           select: {
-            id: true,
-            name: true,
-            sell_price: true,
+            id: true, name: true, sell_price: true,
             equipment_properties: { include: { properties: true } },
           },
         },
       },
+    }),
+    namesId
+      ? prisma.companyName.findUnique({ where: { id: BigInt(namesId) } }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  // --- Step 5: VAT update (carry total_cost in memory — no re-read needed) ---
+  const currentEvent = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { total_cost_for_equipment: true },
+  });
+  const baseCost = currentEvent?.total_cost_for_equipment
+    ? Number(currentEvent.total_cost_for_equipment)
+    : 0;
+
+  if (company && company.vat != null) {
+    const vatPct = company.vat_percentage ? Number(company.vat_percentage) / 100 : 0;
+    const totalWithVat = baseCost * (1 + vatPct);
+    const vatValue = baseCost * vatPct;
+    await prisma.event.update({
+      where: { id: eventId },
+      data: {
+        total_cost_for_equipment: String(totalWithVat),
+        event_amount_without_vat: String(baseCost),
+        vat_value: String(vatValue),
+        is_vat_available_for_the_event: true,
+      },
     });
+  } else {
+    await prisma.event.update({
+      where: { id: eventId },
+      data: { is_vat_available_for_the_event: false },
+    });
+  }
 
-    // VAT calculation based on CompanyName (namesId)
-    const company = await tx.companyName
-      .findUnique({ where: { id: BigInt(namesId) } })
-      .catch(() => null);
-    // note: company model id is BigInt in prisma; guard absence
-    if (company && company.vat != null) {
-      const vatPercentage = company.vat_percentage
-        ? Number(company.vat_percentage) / 100.0
-        : 0;
-      const totalCost = await tx.event.findUnique({
-        where: { id: eventId },
-        select: { total_cost_for_equipment: true },
-      });
-      const totalCostNum =
-        totalCost && totalCost.total_cost_for_equipment
-          ? Number(totalCost.total_cost_for_equipment)
-          : 0;
-      const totalWithVat = totalCostNum * (1 + vatPercentage);
-      const vatValue = totalCostNum * vatPercentage;
-      await tx.event.update({
-        where: { id: eventId },
-        data: {
-          total_cost_for_equipment: String(totalWithVat),
-          event_amount_without_vat: String(totalCostNum),
-          vat_value: String(vatValue),
-          is_vat_available_for_the_event: true,
-        },
-      });
-    } else {
-      await tx.event.update({
-        where: { id: eventId },
-        data: { is_vat_available_for_the_event: false },
-      });
-    }
+  // finalCost: use VAT-adjusted value if applicable, else baseCost
+  const finalCost = company && company.vat != null
+    ? baseCost * (1 + (company.vat_percentage ? Number(company.vat_percentage) / 100 : 0))
+    : baseCost;
 
-    // activity log placeholder: skipped (not present in Node)
-
-    // create note 'Confirmed as an event'
-    await eventNoteService.createNote(tx, {
+  // --- Step 6: note + fully-paid check + payment method — fire in parallel ---
+  const [eventNote, totalPaymentRow, paymentWithMethod] = await Promise.all([
+    eventNoteService.createNote(prisma, {
       eventId,
       notes: "Confirmed as an event",
       created_by: req.user?.id || null,
-    });
+    }),
+    prisma.eventPayment.aggregate({ where: { event_id: eventId }, _sum: { amount: true } }),
+    prisma.eventPayment.findUnique({ where: { id: payment.id }, include: { payment_methods: true } }),
+  ]);
 
-    // recalc payments and mark fully paid
-    const totalPaymentRow = await tx.eventPayment.aggregate({
-      where: { event_id: eventId },
-      _sum: { amount: true },
-    });
-    const totalPayment = totalPaymentRow._sum.amount || 0;
-    const totalCostRow = await tx.event.findUnique({
-      where: { id: eventId },
-      select: { total_cost_for_equipment: true },
-    });
-    const totalCostNum =
-      totalCostRow && totalCostRow.total_cost_for_equipment
-        ? Number(totalCostRow.total_cost_for_equipment)
-        : 0;
-    const paymentSent = totalPayment === totalCostNum ? true : false;
-    await tx.event.update({
-      where: { id: eventId },
-      data: { is_event_payment_fully_paid: paymentSent },
-    });
+  const totalPayment = Number(totalPaymentRow._sum.amount) || 0;
+  const paymentSent = totalPayment === finalCost;
+  await prisma.event.update({ where: { id: eventId }, data: { is_event_payment_fully_paid: paymentSent } });
 
-    // fetch payment method name
-    const paymentWithMethod = await tx.eventPayment.findUnique({
-      where: { id: payment.id },
-      include: { payment_methods: true },
-    });
-
-    // fetch latest event note
-    const eventNotes = await tx.eventNote.findMany({
-      where: { event_id: eventId },
-      orderBy: { id: "desc" },
-      take: 1,
-    });
-
-    return {
-      id: payment.id,
-      event_id: payment.event_id,
-      payment_method: paymentWithMethod?.payment_methods?.name || null,
-      date: payment.date,
-      amount: payment.amount,
-      invoice_number: invoiceNumber,
-      event_packages: eventPackages,
-      names_id: namesId,
-      eventNotes: eventNotes.length ? eventNotes[0] : null,
-    };
-  });
+  const result = {
+    id: payment.id,
+    event_id: payment.event_id,
+    payment_method: paymentWithMethod?.payment_methods?.name || null,
+    date: payment.date,
+    amount: payment.amount,
+    invoice_number: invoiceNumber,
+    event_packages: eventPackages,
+    names_id: namesId,
+    eventNotes: eventNote || null,
+  };
 
   // Try to create a calendar event in Microsoft Graph (best-effort).
   try {
@@ -491,6 +445,7 @@ const getConfirmEvent = catchAsync(async (req, res) => {
       where: { id: event_id },
       include: {
         users_events_user_idTousers: { select: { id: true, name: true, email: true, profile_photo: true, contact_number: true } },
+        users_events_dj_idTousers: { select: { id: true, name: true } },
         venues: true,
         event_package: { include: { equipment: true } },
         event_payments: true,
@@ -1356,54 +1311,42 @@ const updateEvent = catchAsync(async (req, res) => {
   if (body.email) userUpdateData.email = body.email;
   if (body.phone_number) userUpdateData.contact_number = String(body.phone_number);
 
+  // --- no transaction: avoids P2028 pool exhaustion (same pattern as confirmEvent) ---
+  const ev = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!ev) return res.status(404).json({ error: "event_not_found" });
+
+  // Update linked User if details changed
+  if (Object.keys(userUpdateData).length && ev.user_id) {
+    try {
+      await prisma.user.update({ where: { id: ev.user_id }, data: userUpdateData });
+    } catch (e) {
+      if (e.code === "P2002") return res.status(400).json({ error: "email_in_use" });
+      console.error("[updateEvent] user update failed", e?.code, e?.message);
+      return res.status(500).json({ error: "update_failed", details: e.message });
+    }
+  }
+
+  // Best-effort DJ mapping (no transaction needed — read-then-write is fine here)
+  if (body.dj_name) {
+    const djName = String(body.dj_name).trim();
+    const foundDj = await prisma.user.findFirst({ where: { name: { contains: djName } } }).catch(() => null);
+    if (foundDj) eventUpdateData.dj_id = foundDj.id;
+  }
+
   let updated;
   try {
-    updated = await prisma.$transaction(async (tx) => {
-      const ev = await tx.event.findUnique({ where: { id: eventId } });
-      if (!ev) throw new Error("EVENT_NOT_FOUND");
-
-      // Update linked User if details changed
-      if (Object.keys(userUpdateData).length && ev.user_id) {
-        await tx.user.update({
-          where: { id: ev.user_id },
-          data: userUpdateData,
-        }).catch(e => {
-          if (e.code === 'P2002') throw new Error("EMAIL_IN_USE");
-          throw e;
-        });
-      }
-
-      // Best-effort DJ mapping
-      if (body.dj_name) {
-        const djName = String(body.dj_name).trim();
-        const foundDj = await tx.user.findFirst({
-          where: { name: { contains: djName } }
-        });
-        if (foundDj) eventUpdateData.dj_id = foundDj.id;
-      }
-
-      // CRITICAL: Perform the update without the silent .catch()
-      const result = await tx.event.update({
-        where: { id: eventId },
-        data: eventUpdateData,
-      });
-
-      // Log the update note
-      await eventNoteService.createNote(tx, {
-        eventId,
-        notes: "Event details updated via management portal",
-        created_by: req.user?.id || null,
-      }).catch(() => {});
-
-      return result;
-    });
+    updated = await prisma.event.update({ where: { id: eventId }, data: eventUpdateData });
   } catch (e) {
-    if (e.message === "EMAIL_IN_USE") return res.status(400).json({ error: "email_in_use" });
-    if (e.message === "EVENT_NOT_FOUND") return res.status(404).json({ error: "event_not_found" });
-    
-    console.error("[updateEvent] Transaction Error:", e);
+    console.error("[updateEvent] event update failed", e?.code, e?.message);
     return res.status(500).json({ error: "update_failed", details: e.message });
   }
+
+  // Log the update note (best-effort)
+  eventNoteService.createNote(prisma, {
+    eventId,
+    notes: "Event details updated via management portal",
+    created_by: req.user?.id || null,
+  }).catch(() => {});
 
   // 5. External Sync (Microsoft Graph)
   try {

@@ -16,6 +16,14 @@ function handlePrismaError(err) {
     const meta = err.meta || {};
     return new AppError('Foreign key constraint violated', 400, meta);
   }
+  if (err.code === 'P2024') {
+    // Connection pool timeout
+    return new AppError('Database connection pool exhausted, please retry', 503);
+  }
+  if (err.code === 'P2028') {
+    // Interactive transaction timeout
+    return new AppError('Database transaction timed out, please retry', 503);
+  }
   return null;
 }
 

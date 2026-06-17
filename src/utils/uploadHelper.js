@@ -40,6 +40,8 @@ export async function uploadFile(file, options = {}) {
     if (file.path) {
       const fileStream = fs.createReadStream(file.path);
       await uploadStreamToS3(fileStream, key, file.mimetype || 'application/octet-stream', { metadata: deleteAfter ? { delete_after: (new Date(deleteAfter)).toISOString() } : undefined, tags: deleteAfter ? { delete_after: (new Date(deleteAfter)).toISOString() } : undefined });
+      // Delete the temp file from disk after successful S3 upload (fire-and-forget)
+      fs.promises.unlink(file.path).catch(() => {});
     } else if (file.buffer) {
       await uploadStreamToS3(file.buffer, key, file.mimetype || 'application/octet-stream', { metadata: deleteAfter ? { delete_after: (new Date(deleteAfter)).toISOString() } : undefined, tags: deleteAfter ? { delete_after: (new Date(deleteAfter)).toISOString() } : undefined });
     } else {

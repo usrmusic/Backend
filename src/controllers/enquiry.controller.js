@@ -21,6 +21,29 @@ const venueSvc = services.get("venue");
 const eventSvc = services.get("event");
 const companySvc = services.get("CompanyName");
 
+// Ensure the package_types FK rows exist (1=BASIC, 2=EXTRAS). Laravel seeds
+// these via PackageTypeSeeder; guarantee parity so event_package inserts that
+// set package_type_id can't fail the foreign key. Idempotent.
+async function ensurePackageTypes(client) {
+  try {
+    const existing = await client.packageType.findMany({
+      where: { id: { in: [BigInt(1), BigInt(2)] } },
+      select: { id: true },
+    });
+    const have = new Set(existing.map((r) => Number(r.id)));
+    if (!have.has(1))
+      await client.packageType
+        .create({ data: { id: BigInt(1), type: "BASIC", created_at: new Date() } })
+        .catch(() => {});
+    if (!have.has(2))
+      await client.packageType
+        .create({ data: { id: BigInt(2), type: "EXTRAS", created_at: new Date() } })
+        .catch(() => {});
+  } catch (e) {
+    console.error("[ensurePackageTypes] failed", e?.code, e?.message);
+  }
+}
+
 const createEnquiry = catchAsync(async (req, res) => {
   const data = req.body;
   let venue = null;
@@ -239,17 +262,19 @@ const createEnquiry = catchAsync(async (req, res) => {
     "rig_notesData",
   ]);
 
-  const makePackage = (p) => ({
-    equipment_id: p.equipment_id ? Number(p.equipment_id) : null,
+  // packageTypeId: 1 = basics, 2 = extras (matches Laravel NewEnquiryController::store).
+  // Derived from which array the item came from — never from the payload.
+  // package_type_id and equipment_id are BigInt FKs in the schema → pass BigInt.
+  const makePackage = (p, packageTypeId) => ({
+    equipment_id: p.equipment_id != null ? BigInt(Number(p.equipment_id)) : null,
     equipment_order_id:
       p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
     event_id: Number(event.id),
-    package_type_id:
-      p.package_type_id !== undefined ? Number(p.package_type_id) : null,
+    package_type_id: packageTypeId != null ? BigInt(packageTypeId) : null,
     sell_price: p.sell_price != null ? Number(p.sell_price) : null,
     cost_price: p.cost_price != null ? Number(p.cost_price) : null,
-    notes: p.notes || null,
-    rig_notes: p.rig_notes ?? p.rigNotes ?? null,
+    notes: packageTypeId === 2 ? (p.notes?.toString().trim() || null) : null,
+    rig_notes: (p.rig_notes ?? p.rigNotes)?.toString().trim() || null,
     payment_send: p.payment_send || null,
     payment_date: p.payment_date ? new Date(p.payment_date) : null,
     quantity: p.quantity != null ? Number(p.quantity) : null,
@@ -260,29 +285,60 @@ const createEnquiry = catchAsync(async (req, res) => {
   });
 
   try {
+    // Ensure the package_types FK rows (1=BASIC, 2=EXTRAS) exist so inserts
+    // that set package_type_id can't fail the foreign key. Idempotent.
+    await ensurePackageTypes(prisma);
+
+    const insertedEquipIds = new Set();
     for (const p of equipmentArray) {
-      const pkg = makePackage(p);
-      await prisma.eventPackage.create({ data: pkg }).catch(() => {});
+      const pkg = makePackage(p, 1); // basics → package_type_id 1
+      if (pkg.equipment_id == null) continue;
+      try {
+        await prisma.eventPackage.create({ data: pkg });
+        insertedEquipIds.add(Number(pkg.equipment_id));
+      } catch (e) {
+        console.error(
+          "[createEnquiry] basic package insert failed",
+          e?.code,
+          e?.message,
+        );
+      }
     }
     for (const p of extraArray) {
-      const pkg = makePackage(p);
-      await prisma.eventPackage.create({ data: pkg }).catch(() => {});
+      const pkg = makePackage(p, 2); // extras → package_type_id 2
+      if (pkg.equipment_id == null) continue;
+      try {
+        await prisma.eventPackage.create({ data: pkg });
+        insertedEquipIds.add(Number(pkg.equipment_id));
+      } catch (e) {
+        console.error(
+          "[createEnquiry] extra package insert failed",
+          e?.code,
+          e?.message,
+        );
+      }
     }
 
-    // apply rig notes to matching event packages
+    // apply rig notes — only to rows we just created this request
     for (const r of rigNotesArray) {
-      const equipId = r.equipment_id ?? r.equipmentId ?? r.equipment;
+      const equipId = Number(r.equipment_id ?? r.equipmentId ?? r.equipment);
       const notes =
-        r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote ?? null;
-      if (!equipId) continue;
+        (r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote)
+          ?.toString()
+          .trim() || null;
+      if (!Number.isFinite(equipId) || !insertedEquipIds.has(equipId)) continue;
       await prisma.eventPackage
         .updateMany({
-          where: { event_id: Number(event.id), equipment_id: Number(equipId) },
+          where: { event_id: Number(event.id), equipment_id: BigInt(equipId) },
           data: { rig_notes: notes },
         })
-        .catch(() => {});
+        .catch((e) =>
+          console.error("[createEnquiry] rig_notes update failed", e?.code, e?.message),
+        );
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("[createEnquiry] package persistence error", e?.code, e?.message);
+  }
   //use resend to send email to admin where role id == 2
   const admins = await prisma.user.findMany({
     where: { role_id: BigInt(2), is_email_send: true },
@@ -467,24 +523,29 @@ const updateEnquiry = catchAsync(async (req, res) => {
     "rig_notesData",
   ]);
 
-  const makePackage = (p, eventId) => ({
-    equipment_id:
+  // packageTypeId: 1 = basics, 2 = extras (matches Laravel). Derived from the
+  // source array, never the payload. package_type_id and equipment_id are
+  // BigInt FKs in the schema → pass BigInt.
+  const makePackage = (p, eventId, packageTypeId) => {
+    const equipNum =
       p.equipment_id != null
         ? Number(p.equipment_id)
         : p.equipment && p.equipment.id != null
           ? Number(p.equipment.id)
           : p.id != null
             ? Number(p.id)
-            : null,
-    equipment_order_id:
-      p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
-    event_id: Number(eventId),
-    package_type_id:
-      p.package_type_id !== undefined ? Number(p.package_type_id) : null,
-    sell_price: p.sell_price != null ? Number(p.sell_price) : null,
+            : null;
+    return {
+      equipment_id:
+        equipNum != null && Number.isFinite(equipNum) ? BigInt(equipNum) : null,
+      equipment_order_id:
+        p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
+      event_id: Number(eventId),
+      package_type_id: packageTypeId != null ? BigInt(packageTypeId) : null,
+      sell_price: p.sell_price != null ? Number(p.sell_price) : null,
     cost_price: p.cost_price != null ? Number(p.cost_price) : null,
-    notes: p.notes || null,
-    rig_notes: p.rig_notes ?? p.rigNotes ?? null,
+    notes: packageTypeId === 2 ? (p.notes?.toString().trim() || null) : null,
+    rig_notes: (p.rig_notes ?? p.rigNotes)?.toString().trim() || null,
     payment_send: p.payment_send || null,
     payment_date: p.payment_date ? new Date(p.payment_date) : null,
     quantity: p.quantity != null ? Number(p.quantity) : null,
@@ -492,7 +553,8 @@ const updateEnquiry = catchAsync(async (req, res) => {
     price_added_to_bill:
       p.price_added_to_bill != null ? Number(p.price_added_to_bill) : null,
     created_at: new Date(),
-  });
+    };
+  };
 
   const existingEvent = await prisma.event
     .findUnique({ where: { id } })
@@ -678,38 +740,52 @@ const updateEnquiry = catchAsync(async (req, res) => {
       }
     } catch (e) {}
 
+    // ensure FK rows for package_type_id exist (1=BASIC, 2=EXTRAS)
+    await ensurePackageTypes(tx);
+
     // remove existing event packages and recreate
     try {
       await tx.eventPackage.deleteMany({ where: { event_id: Number(id) } });
     } catch (e) {}
 
+    const insertedEquipIds = new Set();
     for (const p of equipmentArray) {
-      const pkg = makePackage(p, id);
-      if (!Number.isFinite(Number(pkg.equipment_id))) continue;
+      const pkg = makePackage(p, id, 1); // basics → package_type_id 1
+      if (pkg.equipment_id == null) continue;
       try {
         await tx.eventPackage.create({ data: pkg });
-      } catch (e) {}
+        insertedEquipIds.add(Number(pkg.equipment_id));
+      } catch (e) {
+        console.error("[updateEnquiry] basic package insert failed", e?.code, e?.message);
+      }
     }
     for (const p of extraArray) {
-      const pkg = makePackage(p, id);
-      if (!Number.isFinite(Number(pkg.equipment_id))) continue;
+      const pkg = makePackage(p, id, 2); // extras → package_type_id 2
+      if (pkg.equipment_id == null) continue;
       try {
         await tx.eventPackage.create({ data: pkg });
-      } catch (e) {}
+        insertedEquipIds.add(Number(pkg.equipment_id));
+      } catch (e) {
+        console.error("[updateEnquiry] extra package insert failed", e?.code, e?.message);
+      }
     }
 
-    // apply rig notes
+    // apply rig notes — only to rows we just created this request
     for (const r of rigNotesArray) {
-      const equipId = r.equipment_id ?? r.equipmentId ?? r.equipment;
+      const equipId = Number(r.equipment_id ?? r.equipmentId ?? r.equipment);
       const notes =
-        r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote ?? null;
-      if (!equipId) continue;
+        (r.rig_notes ?? r.rigNotes ?? r.rig_note ?? r.rigNote)
+          ?.toString()
+          .trim() || null;
+      if (!Number.isFinite(equipId) || !insertedEquipIds.has(equipId)) continue;
       try {
         await tx.eventPackage.updateMany({
-          where: { event_id: Number(id), equipment_id: Number(equipId) },
+          where: { event_id: Number(id), equipment_id: BigInt(equipId) },
           data: { rig_notes: notes },
         });
-      } catch (e) {}
+      } catch (e) {
+        console.error("[updateEnquiry] rig_notes update failed", e?.code, e?.message);
+      }
     }
 
     // VAT handling
@@ -1021,7 +1097,7 @@ const staffEquipment = catchAsync(async (req, res) => {
       try {
         const equipmentRows = await prisma.$queryRaw`
               SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
-                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes
               FROM package_user_equipment p
               LEFT JOIN equipment e ON e.id = p.equipment_id
               WHERE p.package_user_id = ${Number(equipments.id)}
@@ -1038,6 +1114,7 @@ const staffEquipment = catchAsync(async (req, res) => {
                 name: r.equipment_name,
                 cost_price: r.equipment_cost_price,
                 sell_price: r.equipment_sell_price,
+                rig_notes: r.equipment_rig_notes ?? null,
               }
             : null,
         }));
@@ -1089,7 +1166,7 @@ const staffEquipment = catchAsync(async (req, res) => {
         try {
           const equipmentRows = await prisma.$queryRaw`
             SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
-                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price
+                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes
             FROM package_user_equipment p
             LEFT JOIN equipment e ON e.id = p.equipment_id
             WHERE p.package_user_id = ${Number(equipments.id)}
@@ -1107,6 +1184,7 @@ const staffEquipment = catchAsync(async (req, res) => {
                     name: r.equipment_name,
                     cost_price: r.equipment_cost_price,
                     sell_price: r.equipment_sell_price,
+                    rig_notes: r.equipment_rig_notes ?? null,
                   }
                 : null,
             }),

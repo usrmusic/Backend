@@ -122,46 +122,45 @@ export async function signContractForEvent({
   const ownerUserId = user?.id ? Number(user.id) : event.user_id ?? 0;
   const signerUserId = acting_user_id ? Number(acting_user_id) : ownerUserId;
 
-  const contract = await prisma.$transaction(async (tx) => {
-    const created = await tx.contract.create({
-      data: {
-        user_id: ownerUserId,
-        event_id: Number(event.id),
-        signed_pdf_path: pdfKey,
-        amount: event.total_cost_for_equipment
-          ? Math.round(Number(event.total_cost_for_equipment))
-          : null,
-        status: 'signed',
-        signed_at: signedAt,
-        sent_at: signedAt,
-        created_at: signedAt,
-        updated_at: signedAt,
-      },
-    });
-
-    await tx.signature.create({
-      data: {
-        user_id: signerUserId,
-        contract_id: created.id,
-        signature_path: sigKey,
-        ip_address: ip || null,
-        user_agent: userAgent || null,
-        created_at: signedAt,
-        updated_at: signedAt,
-      },
-    });
-
-    await tx.event.update({
-      where: { id: event.id },
-      data: {
-        contract_pdf_url: pdfKey,
-        contract_signed_at: signedAt,
-        contract_emailed_at: signedAt,
-      },
-    });
-
-    return created;
+  // Sequential writes — no transaction to avoid P2028 pool exhaustion
+  const created = await prisma.contract.create({
+    data: {
+      user_id: ownerUserId,
+      event_id: Number(event.id),
+      signed_pdf_path: pdfKey,
+      amount: event.total_cost_for_equipment
+        ? Math.round(Number(event.total_cost_for_equipment))
+        : null,
+      status: 'signed',
+      signed_at: signedAt,
+      sent_at: signedAt,
+      created_at: signedAt,
+      updated_at: signedAt,
+    },
   });
+
+  await prisma.signature.create({
+    data: {
+      user_id: signerUserId,
+      contract_id: created.id,
+      signature_path: sigKey,
+      ip_address: ip || null,
+      user_agent: userAgent || null,
+      created_at: signedAt,
+      updated_at: signedAt,
+    },
+  });
+
+  await prisma.event.update({
+    where: { id: event.id },
+    data: {
+      contract_pdf_url: pdfKey,
+      contract_signed_at: signedAt,
+      contract_emailed_at: signedAt,
+    },
+  });
+
+  const contract = created;
 
   let signedUrl = null;
   try {

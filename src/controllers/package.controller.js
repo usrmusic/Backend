@@ -27,7 +27,6 @@ const listPackages = catchAsync(async (req, res) => {
   }
   if (q.user_id) where.user_id = Number(q.user_id);
   if (q.status) where.status = q.status;
-  if (q.package_type_id) where.package_type_id = Number(q.package_type_id);
 
   const total = await packageUserSvc.model.count({ where });
 
@@ -69,20 +68,8 @@ const createPackage = catchAsync(async (req, res) => {
     if (pt) finalPackageName = pt.type || String(pt.id);
   }
 
-  const cp =
-    cost_price != null
-      ? Number(cost_price)
-      : sell_price != null
-        ? Number(sell_price)
-        : price != null
-          ? Number(price)
-          : 0;
-  const sp =
-    sell_price != null
-      ? Number(sell_price)
-      : price != null
-        ? Number(price)
-        : cp;
+  const cp = cost_price != null ? Number(cost_price) : sell_price != null ? Number(sell_price) : 0;
+  const sp = sell_price != null ? Number(sell_price) : cp;
 
   const equipmentsInput = Array.isArray(body.equipments) ? body.equipments : [];
 
@@ -190,32 +177,17 @@ const updatePackage = catchAsync(async (req, res) => {
   const body = req.body || {};
   const {
     user_id,
-    // package_type_id,
     package_name,
     cost_price,
     sell_price,
-    price,
-    // properties,
   } = body;
 
   const existing = await packageUserSvc.model.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ error: "package_not_found" });
 
   const finalPackageName = package_name || existing.package_name || null;
-  const cp =
-    cost_price != null
-      ? Number(cost_price)
-      : sell_price != null
-        ? Number(sell_price)
-        : price != null
-          ? Number(price)
-          : existing.cost_price;
-  const sp =
-    sell_price != null
-      ? Number(sell_price)
-      : price != null
-        ? Number(price)
-        : existing.sell_price;
+  const cp = cost_price != null ? Number(cost_price) : sell_price != null ? Number(sell_price) : existing.cost_price;
+  const sp = sell_price != null ? Number(sell_price) : existing.sell_price;
 
   const equipmentsInput = Array.isArray(body.equipments) ? body.equipments : [];
   const equipmentLines = [];
@@ -248,10 +220,6 @@ const updatePackage = catchAsync(async (req, res) => {
         cost_price: cp,
         sell_price: sp,
         user_id: user_id != null ? Number(user_id) : existing.user_id,
-        package_type_id:
-          package_type_id != null
-            ? Number(package_type_id)
-            : existing.package_type_id,
       },
     });
 

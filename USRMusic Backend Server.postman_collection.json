@@ -1,0 +1,2837 @@
+{
+	"info": {
+		"_postman_id": "70c21575-c7dd-4f5c-a5cc-dcfba286e71d",
+		"name": "USRMusic Backend Server",
+		"description": "Minimal Postman collection with Auth (user) endpoints only.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json",
+		"_exporter_id": "36141927",
+		"_collection_link": "https://usrmusic.postman.co/workspace/USRMusic-Workspace~37aa5683-e1ff-4943-8086-0444878a84c1/collection/36141927-70c21575-c7dd-4f5c-a5cc-dcfba286e71d?action=share&source=collection_link&creator=36141927"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Sign In",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"email\": \"{{testUserEmail}}\", \"password\": \"{{testUserPassword}}\" }"
+						},
+						"url": "{{baseUrl}}/api/user/auth"
+					},
+					"response": []
+				},
+				{
+					"name": "Sign Up (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "name",
+									"value": "Test User",
+									"type": "text"
+								},
+								{
+									"key": "email",
+									"value": "junaidamin1286@gmail.com",
+									"type": "text"
+								},
+								{
+									"key": "contact_number",
+									"value": "1234567890",
+									"type": "text"
+								},
+								{
+									"key": "role_id",
+									"value": "3",
+									"type": "text"
+								},
+								{
+									"key": "sendEmail",
+									"value": "true",
+									"type": "text"
+								},
+								{
+									"key": "profile_photo",
+									"type": "file",
+									"src": "{{profilePhotoPath}}",
+									"disabled": true
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/user"
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Cookie",
+								"value": "{{REFRESH_COOKIE_NAME}}={{refreshRaw}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/user/refresh"
+					},
+					"response": []
+				},
+				{
+					"name": "Sign Out",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Cookie",
+								"value": "{{REFRESH_COOKIE_NAME}}={{refreshRaw}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/user/signout"
+					},
+					"response": []
+				},
+				{
+					"name": "Forgot Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"email\": \"{{testUserEmail}}\" }"
+						},
+						"url": "{{baseUrl}}/api/user/forgot"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"token\": \"{{verificationToken}}\" }"
+						},
+						"url": "{{baseUrl}}/api/user/verify"
+					},
+					"response": []
+				},
+				{
+					"name": "List Users",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const json = pm.response.json();",
+									"pm.test('status is 200', () => pm.response.to.have.status(200));",
+									"if (json && json.data && json.data.length) {",
+									"  pm.environment.set('userId', json.data[0].id);",
+									"}",
+									"pm.environment.set('lastListTotal', json.meta ? json.meta.total : 0);"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/user?page=20&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "20"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Users Dropdown",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"const json = pm.response.json();",
+									"pm.test('status is 200', () => pm.response.to.have.status(200));",
+									"if (json && json.data && json.data.length) {",
+									"  pm.environment.set('userId', json.data[0].id);",
+									"}",
+									"pm.environment.set('lastListTotal', json.meta ? json.meta.total : 0);"
+								],
+								"type": "text/javascript",
+								"packages": {},
+								"requests": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/user/get-dropdown"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/user/{{userId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Updated Name\" }"
+						},
+						"url": "{{baseUrl}}/api/user/{{userId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/user/{{userId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Users",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [1021,1022], \"force\": false }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/api/user/delete-many"
+					},
+					"response": []
+				},
+				{
+					"name": "List Roles",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/user/roles"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Client",
+			"item": [
+				{
+					"name": "List Clients",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/client?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Client (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "name",
+									"value": "Client Name",
+									"type": "text"
+								},
+								{
+									"key": "email",
+									"value": "client@example.com",
+									"type": "text"
+								},
+								{
+									"key": "contact_number",
+									"value": "1234567890",
+									"type": "text"
+								},
+								{
+									"key": "role_id",
+									"value": "4",
+									"type": "text"
+								},
+								{
+									"key": "event_date",
+									"value": "2026-03-10",
+									"type": "text"
+								},
+								{
+									"key": "profile_photo",
+									"type": "file",
+									"src": "{{profilePhotoPath}}"
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/client"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Client",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/client/{{clientId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Client",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Updated Client\" }"
+						},
+						"url": "{{baseUrl}}/api/client/{{clientId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Client",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/client/{{clientId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Clients",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [1,2], \"force\": false }"
+						},
+						"url": "{{baseUrl}}/api/client/delete-many"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Client Dropdown",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/client/get-dropdown"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Venue",
+			"item": [
+				{
+					"name": "List Venues",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/venue?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Venue (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "venue",
+									"value": "My Venue",
+									"type": "text"
+								},
+								{
+									"key": "venue_address",
+									"value": "123 Street",
+									"type": "text"
+								},
+								{
+									"key": "stage",
+									"value": "Main",
+									"type": "text"
+								},
+								{
+									"key": "attachment",
+									"type": "file",
+									"src": "{{profilePhotoPath}}"
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/venue"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Venue",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/venue/{{venueId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Venue",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"venue\": \"Updated Venue\" }"
+						},
+						"url": "{{baseUrl}}/api/venue/{{venueId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Venue",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/venue/{{venueId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Venues",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [1,2], \"force\": false }"
+						},
+						"url": "{{baseUrl}}/api/venue/delete-many"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Venue Dropdown",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/venue/get-dropdown"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Supplier",
+			"item": [
+				{
+					"name": "List Suppliers",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Supplier",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Supplier Name\", \"company_name\": \"Company\", \"email\": \"supplier@example.com\", \"contact_number\": \"1234567890\", \"industry\": \"Music\", \"notes\": \"Notes\" }"
+						},
+						"url": "{{baseUrl}}/api/supplier"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Supplier",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/supplier/{{supplierId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Supplier",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Updated Supplier\" }"
+						},
+						"url": "{{baseUrl}}/api/supplier/{{supplierId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Supplier",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/supplier/{{supplierId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Suppliers",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [1,2], \"force\": false }"
+						},
+						"url": "{{baseUrl}}/api/supplier/delete-many/{{ids}}"
+					},
+					"response": []
+				},
+				{
+					"name": "List Suppliers dropdown",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/supplier/get-dropdown"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Equipment",
+			"item": [
+				{
+					"name": "List Equipment",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+					},
+					{
+						"name": "Get Equipment Dropdown",
+						"request": {
+							"method": "GET",
+							"header": [
+								{
+									"key": "Authorization",
+									"value": "Bearer {{accessToken}}"
+								}
+							],
+							"url": "{{baseUrl}}/api/equipment/get-dropdown"
+						},
+						"response": []
+					},
+					{
+						"name": "Create Equipment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Equipment Name\", \"supplier_id\": [13], \"sell_price\":50 }"
+						},
+						"url": "{{baseUrl}}/api/equipment"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Equipment",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/equipment/{{equipmentId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Equipment",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Updated Equipment\" }"
+						},
+						"url": "{{baseUrl}}/api/equipment/{{equipmentId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Equipment",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/equipment/{{equipmentId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Equipment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [1,2], \"force\": false }"
+						},
+						"url": "{{baseUrl}}/api/equipment/delete-many/{{ids}}"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Package",
+			"item": [
+				{
+					"name": "List Packages",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/package?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Package",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n\"package_name\": \"New Package Name New\",\r\n\"user_id\": 1016,\r\n\"sell_price\": 100,\r\n\"cost_price\": 100,\r\n\"equipments\": [\r\n{ \"equipment_id\": 12, \"quantity\": 2 },\r\n{ \"equipment_id\": 5, \"quantity\": 1, \"equipment_order_id\": 3 }\r\n]\r\n}"
+						},
+						"url": "{{baseUrl}}/api/package"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Package",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/package/{{packageId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Package",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Updated Package\" }"
+						},
+						"url": "{{baseUrl}}/api/package/{{packageId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Package",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/package/{{packageId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Packages",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [25,24], \"force\": false }"
+						},
+						"url": "{{baseUrl}}/api/package/delete-many"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Package Dropdown",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/package/get-dropdown"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Company",
+			"item": [
+				{
+					"name": "List Companies",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/company?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Company (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "name",
+									"value": "Test Company",
+									"type": "text"
+								},
+								{
+									"key": "contact_name",
+									"value": "Jane",
+									"type": "text"
+								},
+								{
+									"key": "telephone_number",
+									"value": "123456789",
+									"type": "text"
+								},
+								{
+									"key": "email",
+									"value": "comp@example.com",
+									"type": "text"
+								},
+								{
+									"key": "website",
+									"value": "https://example.com",
+									"type": "text"
+								},
+								{
+									"key": "address_name",
+									"value": "HQ",
+									"type": "text"
+								},
+								{
+									"key": "city",
+									"value": "City",
+									"type": "text"
+								},
+								{
+									"key": "company_logo",
+									"type": "file",
+									"src": "postman-cloud:///1ef27e1b-d765-4b30-8e69-f4fe4585be87"
+								},
+								{
+									"key": "brochure",
+									"type": "file",
+									"src": "postman-cloud:///1f117d81-28c3-47b0-bea4-19cd64c909f2"
+								},
+								{
+									"key": "admin_signature",
+									"type": "file",
+									"src": "postman-cloud:///1ef26365-5629-4bf0-9eb8-21e7a79bfd9d"
+								},
+								{
+									"key": "company_logo",
+									"value": "",
+									"type": "text",
+									"disabled": true
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/company"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Company",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/company/{{companyId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Company (multipart)",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "name",
+									"value": "Updated Company",
+									"type": "text"
+								},
+								{
+									"key": "company_logo",
+									"type": "file",
+									"src": "{{profilePhotoPath}}"
+								},
+								{
+									"key": "brochure",
+									"type": "file",
+									"src": "{{profilePhotoPath}}"
+								},
+								{
+									"key": "admin_signature",
+									"value": "",
+									"type": "text"
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/company/{{companyId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Company",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/company/{{companyId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Many Companies",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"ids\": [17,18], \"force\": false }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": "{{baseUrl}}/api/company/delete-many"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Company Dropdown",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/company/get-dropdown"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Enquiry",
+			"item": [
+				{
+					"name": "List Open Enquires",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry?page=1&limit=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Email",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Barear {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/get-email?event_id={{eventId}}&email_name={{email_name}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"get-email"
+							],
+							"query": [
+								{
+									"key": "event_id",
+									"value": "{{eventId}}"
+								},
+								{
+									"key": "email_name",
+									"value": "{{email_name}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Enquiry",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"John Doe\",\r\n\"email\": \"johndoe@example.com\",\r\n\"contact_number\": \"0123456789\",\r\n\"address\": \"123 Main St\",\r\n\"event_date\": \"15-03-2026\",\r\n\"start_time\": \"19:00\",\r\n\"end_time\": \"22:00\",\r\n\"deposit_amount\": 100,\r\n\"new_venue_name\": \"The Grand Hall\",\r\n\"event_details\": \"Birthday party\",\r\n\"dj_name\": \"DJ Test\",\r\n\"dj_package_name\": \"Premium\",\r\n\"total_cost\": 500,\r\n\"dj_cost\": 200,\r\n\"equipment_data\": [\r\n{ \"equipment_id\": 1, \"sell_price\": 50, \"quantity\": 1, \"notes\": \"Main speaker\" },\r\n{ \"equipment_id\": 3, \"sell_price\": 40, \"quantity\": 2, \"notes\": \"Monitors\" }\r\n],\r\n\"extra_data\": [\r\n{ \"equipment_id\": 5, \"sell_price\": 30, \"quantity\": 1, \"notes\": \"Extra cables\" }\r\n],\r\n\"rig_notes_data\": [\r\n{ \"equipment_id\": 1, \"rig_notes\": \"Place on stage left\" },\r\n{ \"equipment_id\": 3, \"rig_notes\": \"Raise 30cm\" }\r\n]\r\n}"
+						},
+						"url": "{{baseUrl}}/api/enquiry"
+					},
+					"response": []
+				},
+				{
+					"name": "UpdateEnquiry",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"updated naem\",\r\n\"email\": \"johndoe@example.com\",\r\n\"contact_number\": \"0123456789\",\r\n\"address\": \"123 Main St\",\r\n\"event_date\": \"15-03-2026\",\r\n\"start_time\": \"19:00\",\r\n\"end_time\": \"22:00\",\r\n\"deposit_amount\": 100,\r\n\"new_venue_name\": \"The Grand Hall\",\r\n\"event_details\": \"Birthday party\",\r\n\"dj_name\": \"DJ Test\",\r\n\"dj_package_name\": \"Premium\",\r\n\"total_cost\": 500,\r\n\"dj_cost\": 2002,\r\n\"equipment_data\": [\r\n{ \"equipment_id\": 1, \"sell_price\": 50, \"quantity\": 1, \"notes\": \"Main speaker ahead\" },\r\n{ \"equipment_id\": 3, \"sell_price\": 40, \"quantity\": 2, \"notes\": \"Monitors too\" }\r\n],\r\n\"extra_data\": [\r\n{ \"equipment_id\": 5, \"sell_price\": 30, \"quantity\": 1, \"notes\": \"Extra cables\" }\r\n],\r\n\"rig_notes_data\": [\r\n{ \"equipment_id\": 1, \"rig_notes\": \"Place on stage left\" },\r\n{ \"equipment_id\": 3, \"rig_notes\": \"Raise 30cm\" }\r\n]\r\n}"
+						},
+						"url": "{{baseUrl}}/api/enquiry/{{event_id}}"
+					},
+					"response": []
+				},
+				{
+					"name": "DeleteEnquiry",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": "{{baseUrl}}/api/enquiry/{{event_id}}"
+					},
+					"response": []
+				},
+				{
+					"name": "DeleteManyEnquiry",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/delete-many/{{ids}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"delete-many",
+								"{{ids}}"
+							],
+							"query": [
+								{
+									"key": "ids[]",
+									"value": "1186",
+									"disabled": true
+								},
+								{
+									"key": "ids[]",
+									"value": "1187",
+									"disabled": true
+								},
+								{
+									"key": "ids[]",
+									"value": "1189",
+									"disabled": true
+								},
+								{
+									"key": "ids[]",
+									"value": null,
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Note",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{access_token}}"
+							}
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{access_token}}",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"note\":\"test note to test the route\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/enquiry/add-note/{{event_id}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Brochure",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{access_token}}"
+							}
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{access_token}}",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"event_id\":1190,\r\n    \"body\": \"Thank you for very much for your interest in booking us for your event.\\n\\nPlease find attached a copy of our brochure. This will give you lots of inspiration, creating the perfect look for your big day! \\n\\nPlease get in touch after browsing the brochure to arrange a more in depth chat. We believe face to face or even a quick chat on the phone allows better understanding of your event so that we can tailor the package based on your requirements and budget! :)\\n\\nThank you once again,\",\r\n    \"subject\": \"Brochure\",\r\n    \"company_name_id\": \"3\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/enquiry/brochure"
+					},
+					"response": []
+				},
+				{
+					"name": "Send Quote",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{access_token}}"
+							}
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{access_token}}",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"event_id\":1190,\r\n    \"subject\":\"USR - Enquiry\",\r\n    \"body\": \"Thank you for very much for your interest in booking USR for your event.\\n\\nPlease find attached a copy of the enquiry form. To proceed, please can you sign and return this form along with the agreed deposit of {--amount--} (Bank details are at the bottom of the form). Please ensure the reference when paying the deposit is NameDate.\\n\\nPlease note, no events are booked and added to the USR diary without the deposit.\\n\\nThank you once again,\",\r\n    \"company_name_id\": \"3\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/enquiry/quote"
+					},
+					"response": []
+				},
+				{
+					"name": "Staff Equipments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/staff-equipment?staff=1016&package_name=New Package Name New&event_date=01-12-2026",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"staff-equipment"
+							],
+							"query": [
+								{
+									"key": "staff",
+									"value": "1016"
+								},
+								{
+									"key": "package_name",
+									"value": "New Package Name New"
+								},
+								{
+									"key": "event_date",
+									"value": "01-12-2026"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Confirm Events",
+			"item": [
+				{
+					"name": "Send Email",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"event_id\":1195,\r\n    \"body\": \"Look forward to hearing from you soon.\",\r\n    \"subject\": \"Enquiry - Update\",\r\n    \"company_name_id\": \"3\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/enquiry/email-update"
+					},
+					"response": []
+				},
+				{
+					"name": "Refund",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"refund_amount\": 20\r\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/refund?id={{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"refund"
+							],
+							"query": [
+								{
+									"key": "id",
+									"value": "{{event_id}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Event",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"refund_amount\": 20\r\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/cancel?id={{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"cancel"
+							],
+							"query": [
+								{
+									"key": "id",
+									"value": "{{event_id}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Confirm Event",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event?perPage=10&page=1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Completed Event",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Send Invoice",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"event_id\":1195,\r\n    \"subject\":\"USR - Invoice\",\r\n    \"body\": \"Please find attached a copy of the Invoice. \\n\\nThank you once again for booking USR for your big day!\",\r\n    \"company_name_id\": \"3\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/confirm-event/send-invoice"
+					},
+					"response": []
+				},
+				{
+					"name": "Confirm Event",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"payment_method_id\": 1,\r\n  \"deposit_amount\": 100,\r\n  \"company_name\": \"3\",\r\n  \"event_date\": \"15-03-2026\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/confirm-event/{{event_id}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Confirm Event",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{access_token}}",
+								"type": "text",
+								"disabled": true
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"payment_method_id\": 1,\r\n  \"deposit_amount\": 100,\r\n  \"company_name\": \"3\",\r\n  \"event_date\": \"15-03-2026\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/confirm-event/{{event_id}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Download Invoice",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": "{{baseUrl}}/api/confirm-event/download-invoice/{{event_id}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Confirm Event (PUT)",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"first_name\": \"John updateds\",\n  \"email\": \"john@example.com\",\n  \"phone_number\": 7123456789,\n  \"dj_name\": \"DJ Test\",\n  \"videography\": \"Yes\",\n  \"caterer\": \"Acme Catering\",\n  \"decor\": \"Standard\",\n  \"couple_name\": \"John & Jane\",\n  \"date\": \"15-03-2026\",\n  \"start_time\": \"19:00\",\n  \"end_time\": \"22:00\",\n  \"venue\": \"The Grand Hall\",\n  \"venue_id\": 5,\n  \"access_time\": \"18:00\",\n  \"event_date_contact\": \"Coordinator Name\",\n  \"no_of_guests\": 150,\n  \"deposit_amount\": 100,\n  \"brief_itinerary\": \"Ceremony then reception\",\n  \"stag_songs\": \"Song A\",\n  \"hen_songs\": \"Song B\",\n  \"dont\": \"No smoke\",\n  \"usr_name\": \"USR\",\n  \"usr_date\": \"15-03-2026\",\n  \"photo_usb_provided\": \"no\",\n  \"guests_upstanding\": \"no\",\n  \"refund_amount\": 0\n}"
+						},
+						"url": "{{baseUrl}}/api/confirm-event/{{event_id}}"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Todos",
+			"item": [
+				{
+					"name": "List Todos",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/todos/{{eventId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Todo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"assigned_to\": 2, \"action\": \"Task\", \"deadline\": \"2026-03-20T12:00:00.000Z\", \"comment\": \"Notes\", \"complete\": false }"
+						},
+						"url": "{{baseUrl}}/api/todos/{{eventId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Todo",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"assigned_to\": 2, \"action\": \"Updated Task\", \"deadline\": \"2026-03-21T12:00:00.000Z\", \"comment\": \"Updated\", \"complete\": true }"
+						},
+						"url": "{{baseUrl}}/api/todos/{{eventId}}/{{todoId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Todo",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/todos/{{eventId}}/{{todoId}}?force=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"todos",
+								"{{eventId}}",
+								"{{todoId}}"
+							],
+							"query": [
+								{
+									"key": "force",
+									"value": "false"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RolePermission",
+			"item": [
+				{
+					"name": "Manage Access (roles & permissions)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/roles-permissions/manage-access"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Test Role\", \"guard_name\": \"web\" }"
+						},
+						"url": "{{baseUrl}}/api/roles-permissions/roles"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"Updated Role\" }"
+						},
+						"url": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role Permissions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}/permissions"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Permission",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"manage events\", \"guard_name\": \"web\" }"
+						},
+						"url": "{{baseUrl}}/api/roles-permissions/permissions"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Permission",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"name\": \"updated.permission\" }"
+						},
+						"url": "{{baseUrl}}/api/roles-permissions/permissions/{{permissionId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Permission",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/roles-permissions/permissions/{{permissionId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Permissions",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"roleId\": 1, \"permissionIds\": [1,2] }"
+						},
+						"url": "{{baseUrl}}/api/roles-permissions/assign"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "EmailContent",
+			"item": [
+				{
+					"name": "List Email Content",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/email-content?page=1&perPage=5",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"email-content"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "5"
+								},
+								{
+									"key": "search",
+									"value": "{{search_query}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Email Content",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"email_name\": \"SEND QUOTE-CONFIRMED\",\r\n  \"subject\": \"USR - Contract\",\r\n  \"body\": \"Thank you for very much for your interest in booking USR for your event. \\n\\nPlease find attached a copy of the enquiry form. To proceed, please can you sign and return this for along with the agreed deposit of {--amount--} (Bank details are at the bottom of the form). Please ensure the reference when paying the deposit is NameDate. \\n\\nPlease note, no events are booked and added to the USR diary without the deposit. \\n\\nThank you once again.\"\r\n}"
+						},
+						"url": "{{baseUrl}}/api/email-content/{{emailContentId}}"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Reports",
+			"item": [
+				{
+					"name": "Suppliers Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/reports/suppliers?page=1&perPage=10&event_start_time=20/12/2024&event_end_time=20/12/2025",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reports",
+								"suppliers"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "event_start_time",
+									"value": "20/12/2024"
+								},
+								{
+									"key": "event_end_time",
+									"value": "20/12/2025"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Admin Report",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/reports/admin?perPage=10&page=50",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reports",
+								"admin"
+							],
+							"query": [
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "page",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Calendar",
+			"item": [
+				{
+					"name": "Get Calendar Events",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/calendar?year={{year}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"calendar"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "{{year}}"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "File Uploads",
+			"item": [
+				{
+					"name": "List Uploads",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/files/uploads?page=1&perPage=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"uploads"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}",
+									"disabled": true
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Upload File (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "postman-cloud:///1f11d434-abd4-4b90-8b19-4338ea2b8ca1"
+								},
+								{
+									"key": "created_by",
+									"value": "1",
+									"type": "text"
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/files/uploads"
+					},
+					"response": []
+				},
+				{
+					"name": "Get File",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/uploads/{{uploadId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Update File Metadata",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"file_name\": \"newname.jpg\" }"
+						},
+						"url": "{{baseUrl}}/api/uploads/{{uploadId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete File",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/uploads/{{uploadId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Download File",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/uploads/{{uploadId}}/download"
+					},
+					"response": []
+				},
+				{
+					"name": "List Media",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/files/media?page=1&perPage=10&search={{searchQuery}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"media"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "perPage",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "{{searchQuery}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Upload Media (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "media",
+									"type": "file",
+									"src": "{{profilePhotoPath}}"
+								}
+							]
+						},
+						"url": "{{baseUrl}}/api/files/media"
+					},
+					"response": []
+				},
+				{
+					"name": "Download Media",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/files/media/{{mediaId}}"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Rig List",
+			"item": [
+				{
+					"name": "List Events (dropdown)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/rig-list/drop-down"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Event",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": {
+								"token": "{{token}}"
+							}
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": "{{baseUrl}}/api/rig-list/{{eventId}}"
+					},
+					"response": []
+				},
+				{
+					"name": "Store Rig List Notes",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"note\": \"Sample rig note\" }"
+						},
+						"url": "{{baseUrl}}/api/rig-list/{{eventId}}"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Contract",
+			"item": [
+				{ "name": "Ensure Contract Token", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/event/{{eventId}}/token" }, "response": [] },
+				{ "name": "Send Contract Link", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/event/{{eventId}}/send" }, "response": [] },
+				{ "name": "List Contracts For Event", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/event/{{eventId}}/list" }, "response": [] },
+				{ "name": "Download Contract (admin)", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/admin/{{contractId}}/download" }, "response": [] },
+				{ "name": "Delete Contract (admin)", "request": { "method": "DELETE", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/admin/{{contractId}}" }, "response": [] },
+				{ "name": "Show Contract (public token)", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/contract/{{token}}" }, "response": [] },
+				{ "name": "Sign Contract (public token)", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "body": { "mode": "raw", "raw": "{ \"signature_image\": \"data:image/png;base64,...\" }" }, "url": "{{baseUrl}}/api/contract/{{token}}/sign" }, "response": [] }
+			]
+		},
+		{
+			"name": "Dashboard",
+			"item": [
+				{ "name": "Get Dashboard Stats", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": { "raw": "{{baseUrl}}/api/dashboard?year=2026", "host": [ "{{baseUrl}}" ], "path": [ "api", "dashboard" ], "query": [ { "key": "year", "value": "2026" } ] } }, "response": [] },
+				{ "name": "Get Upcoming Events", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/dashboard/upcoming-events" }, "response": [] },
+				{ "name": "Events Drop-down", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/dashboard/drop-down?search={{searchQuery}}" }, "response": [] },
+				{ "name": "Recalculate Profits", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" } ], "body": { "mode": "raw", "raw": "{ \"force\": true }" }, "url": "{{baseUrl}}/api/dashboard/recalculate-profits" }, "response": [] }
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "https://usrmusic.up.railway.app"
+		},
+		{
+			"key": "accessToken",
+			"value": ""
+		},
+		{
+			"key": "REFRESH_COOKIE_NAME",
+			"value": "refreshToken"
+		},
+		{
+			"key": "refreshRaw",
+			"value": ""
+		},
+		{
+			"key": "testUserEmail",
+			"value": "dev@gmail.com"
+		},
+		{
+			"key": "testUserPassword",
+			"value": "em51d(>U"
+		},
+		{
+			"key": "profilePhotoPath",
+			"value": "./tests/fixtures/profile.jpg"
+		},
+		{
+			"key": "userId",
+			"value": "1"
+		},
+		{
+			"key": "clientId",
+			"value": "1"
+		},
+		{
+			"key": "venueId",
+			"value": "1"
+		},
+		{
+			"key": "ids",
+			"value": "1,2"
+		},
+		{
+			"key": "supplierId",
+			"value": "1"
+		},
+		{
+			"key": "verificationToken",
+			"value": ""
+		},
+		{
+			"key": "equipmentId",
+			"value": "1"
+		},
+		{
+			"key": "packageId",
+			"value": "1"
+		}
+	]
+}

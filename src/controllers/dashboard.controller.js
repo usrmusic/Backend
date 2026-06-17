@@ -92,6 +92,7 @@ const getEventsDropDown = catchAsync(async (req, res) => {
         take: 50,
         select: {
             id: true,
+            date: true,
             event_status_id: true,
             event_statuses: { select: { status: true } },
             couple_name: true,
@@ -122,6 +123,7 @@ const getEventsDropDown = catchAsync(async (req, res) => {
         id: e.id,
         status: e.event_status_id,
         couple_name: e.couple_name,
+        date: e.date ?? null,
         client: e.users_events_user_idTousers ? { id: e.users_events_user_idTousers.id, name: e.users_events_user_idTousers.name } : null,
     }));
 
@@ -135,7 +137,7 @@ const getEventsDropDown = catchAsync(async (req, res) => {
             if (lower.includes('private') || lower.includes('internal') || lower.includes('staff-only')) return false;
             return true;
         });
-        const out2 = filtered.map((e) => ({ id: e.id, status: e.event_status_id, couple_name: e.couple_name, client: e.users_events_user_idTousers ? { id: e.users_events_user_idTousers.id, name: e.users_events_user_idTousers.name } : null }));
+        const out2 = filtered.map((e) => ({ id: e.id, status: e.event_status_id, couple_name: e.couple_name, date: e.date ?? null, client: e.users_events_user_idTousers ? { id: e.users_events_user_idTousers.id, name: e.users_events_user_idTousers.name } : null }));
         return res.json(serializeForJson(out2));
     }
 

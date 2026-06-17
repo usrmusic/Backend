@@ -6,6 +6,7 @@ import cors from 'cors';
 import routes from './routes/index.js';
 import errorHandler from './utils/errorHandler.js';
 import AppError from './utils/AppError.js';
+import prisma from './utils/prismaClient.js';
 
 const app = express();
 
@@ -46,6 +47,17 @@ app.use('/uploads', express.static(uploadsDir));
 app.use('/api', routes);
 
 app.get('/', (req, res) => res.json({ status: 'ok' }));
+
+// Health check — used by Railway, load balancers, and readiness probes.
+// Hits the DB so it reflects actual connectivity, not just process liveness.
+app.get('/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(503).json({ status: 'error', message: 'database unreachable' });
+  }
+});
 
 // 404 for unknown routes
 app.use((req, res, next) => {

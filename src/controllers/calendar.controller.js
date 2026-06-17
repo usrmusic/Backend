@@ -24,10 +24,12 @@ const getCalenderEvents = catchAsync(async (req, res) => {
         select: {
             id: true,
             date: true,
+            start_time: true,
+            end_time: true,
             user_id: true,
             venue_id: true,
             venues: {
-                select: { id: true, venue: true },
+                select: { id: true, venue: true, venue_address: true },
             },
             users_events_user_idTousers: {
                 select: { id: true, name: true, profile_photo: true },

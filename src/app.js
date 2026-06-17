@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import compression from 'compression';
 import cors from 'cors';
 import routes from './routes/index.js';
 import errorHandler from './utils/errorHandler.js';
@@ -11,7 +12,8 @@ import prisma from './utils/prismaClient.js';
 const app = express();
 
 app.use(helmet());
-app.use(morgan('dev'));
+app.use(compression());
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'tiny' : 'dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

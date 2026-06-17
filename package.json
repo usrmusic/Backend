@@ -7,7 +7,8 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "npx prisma generate && node src/server.js",
+    "build": "npx prisma generate",
+    "start": "node src/server.js",
     "local": "env-cmd -f .env.local node src/server.js",
     "dev": "env-cmd -f .env.local nodemon --watch src --exec node src/server.js",
     "production": "node src/server.js",
@@ -22,6 +23,7 @@
     "@prisma/client": "^7.0.0",
     "axios": "^1.13.5",
     "bcrypt": "^5.1.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
@@ -42,6 +44,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@types/compression": "^1.8.1",
     "env-cmd": "^10.1.0",
     "nodemon": "^2.0.22",
     "prisma": "^7.0.0"

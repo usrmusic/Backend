@@ -8,7 +8,7 @@
   "main": "server.js",
   "scripts": {
     "build": "npx prisma generate",
-    "start": "node src/server.js",
+    "start": "node --max-old-space-size=512 src/server.js",
     "local": "env-cmd -f .env.local node src/server.js",
     "dev": "env-cmd -f .env.local nodemon --watch src --exec node src/server.js",
     "production": "node src/server.js",

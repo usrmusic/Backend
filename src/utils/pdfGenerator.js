@@ -35,4 +35,16 @@ async function generatePdfBufferFromHtml(html, opts = {}) {
   }
 }
 
+export async function restartBrowser() {
+  if (browserInstance) {
+    try {
+      await browserInstance.close();
+    } catch (_) {
+      // already disconnected — that's fine
+    }
+    browserInstance = null;
+  }
+  console.log('[pdfGenerator] browser instance closed for scheduled restart');
+}
+
 export default generatePdfBufferFromHtml;

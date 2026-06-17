@@ -454,17 +454,26 @@ async function getUpcomingEvents({ search = null, userId = null, scope = 'admin'
 }
 
 async function recalculateProfits({ force = false } = {}) {
-	// Fetch events (optionally only those missing profit)
 	const where = force ? {} : { profit: null };
 	const events = await prisma.event.findMany({ where, select: { id: true, event_amount_without_vat: true, event_cost: true } });
 
+	if (events.length === 0) return { updated: 0 };
+
+	// Compute all profits in-memory first — no DB calls in the loop
+	const updates = events.map((e) => ({
+		id: e.id,
+		profit: parseNumberLike(e.event_amount_without_vat) - parseNumberLike(e.event_cost),
+	}));
+
+	// Batch into chunks of 500 per transaction — reduces N roundtrips to ceil(N/500)
+	const CHUNK_SIZE = 500;
 	let updated = 0;
-	for (const e of events) {
-		const revenue = parseNumberLike(e.event_amount_without_vat);
-		const cost = parseNumberLike(e.event_cost);
-		const profit = revenue - cost;
-		await prisma.event.update({ where: { id: e.id }, data: { profit } });
-		updated += 1;
+	for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+		const chunk = updates.slice(i, i + CHUNK_SIZE);
+		await prisma.$transaction(
+			chunk.map((u) => prisma.event.update({ where: { id: u.id }, data: { profit: u.profit } }))
+		);
+		updated += chunk.length;
 	}
 
 	return { updated };

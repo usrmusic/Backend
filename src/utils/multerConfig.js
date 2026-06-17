@@ -8,12 +8,14 @@ function getUploadsDir() {
   return path.resolve(process.cwd(), 'uploads');
 }
 
-export function createUploadMiddleware({ allowedMimeTypes = [], maxBytes } = {}) {
+export function createUploadMiddleware({ allowedMimeTypes = [], maxBytes, forceDisk = false } = {}) {
   const uploadsDir = getUploadsDir();
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  // If using S3, prefer memory storage (will upload to S3 in uploadHelper)
-  const storage = (process.env.FILE_STORAGE || '').toLowerCase() === 's3'
+  // Use memory storage only for small S3 uploads. Large/media uploads always use
+  // disk (forceDisk=true) so a 200 MB file never lands in Node's heap.
+  const useMemory = !forceDisk && (process.env.FILE_STORAGE || '').toLowerCase() === 's3';
+  const storage = useMemory
     ? multer.memoryStorage()
     : multer.diskStorage({
         destination: function (req, file, cb) {
@@ -53,7 +55,9 @@ export const pdfUpload = createUploadMiddleware({
 });
 
 export const mediaUpload = createUploadMiddleware({
-  // Accept common media and document types to mirror Laravel's MediaController
+  // Always use disk storage — a 200 MB file must never land in Node's heap.
+  // uploadHelper will stream from disk to S3 and delete the temp file after upload.
+  forceDisk: true,
   allowedMimeTypes: [
     // images
     'image/jpeg',

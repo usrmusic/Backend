@@ -439,6 +439,7 @@ const listUserDropdown = catchAsync(async (req, res) => {
   const users = await userSvc.list({
     filter: { deleted_at: null, NOT:{ role_id: BigInt(4)} },
     select: { id: true, name: true, email: true, package_users:{select: { id: true, package_name: true }} },
+    sort: "name:asc",
   });
   res.json(serializeForJson(users));
 });

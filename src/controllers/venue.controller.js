@@ -243,7 +243,7 @@ const deleteManyVenues = catchAsync(async (req, res) => {
 });
 
 const listVenueDropdown = catchAsync(async (req, res) => {
-  const venues = await venueSvc.list({ select: { id: true, venue: true }, perPage: null, });
+  const venues = await venueSvc.list({ select: { id: true, venue: true }, perPage: null, sort: "venue:asc" });
   res.json(serializeForJson(venues));
 });
 

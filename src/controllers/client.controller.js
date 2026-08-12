@@ -381,6 +381,7 @@ export const listclientdropdown = catchAsync(async (req, res) => {
     select: { id: true, name: true },
     // request no pagination so dropdown gets the full set
     perPage: null,
+    sort: "name:asc",
   });
   res.json(serializeForJson(clients));
 });

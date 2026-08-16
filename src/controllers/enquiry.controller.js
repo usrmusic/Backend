@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { toDbDate } from "../utils/dateUtils.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
-import generatePdfBufferFromHtml from "../utils/pdfGenerator.js";
+import { generateQuotePdf } from "../utils/pdfGenerator.js";
 import { marked } from "marked";
 import renderSendQuote from "../templates/sendQuoteTemplate.js";
 import eventNoteService from "../services/eventNoteService.js";
@@ -1615,10 +1615,17 @@ const sendQuote = catchAsync(async (req, res) => {
   // Build emailHtml and printable HTML for PDF (already rendered above)
   const subjectToUse = finalSubject;
 
-  // generate PDF buffer from the same HTML (print-friendly)
+  // generate PDF buffer — PDFKit port of the old Laravel quote.blade.php
+  // (see utils/pdfGenerator.js), rendered from the same event/company/
+  // line-item data `emailHtml` above used for the email body.
   let pdfBuffer = null;
   try {
-    pdfBuffer = await generatePdfBufferFromHtml(emailHtml);
+    pdfBuffer = await generateQuotePdf({
+      event: fullEvent || event,
+      companyDetails,
+      enrichedDetails,
+      clientName: first_name,
+    });
   } catch (e) {
     console.error("[sendQuote] PDF generation failed", e?.message || e);
   }

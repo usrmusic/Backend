@@ -45,6 +45,14 @@ export async function getSignedGetUrl(key, expiresInSeconds = 60 * 60 * 24 * 7, 
   return getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
 }
 
+export async function getObjectBuffer(key) {
+  const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+  const res = await s3Client.send(cmd);
+  const chunks = [];
+  for await (const chunk of res.Body) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
 export async function deleteObjectFromS3(key) {
   if (!key) return;
   const cmd = new DeleteObjectCommand({ Bucket: BUCKET, Key: key });

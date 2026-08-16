@@ -3,7 +3,6 @@ import app from './app.js';
 import prisma from './utils/prismaClient.js';
 import startCompleteEventsJob from './jobs/completeEventsJob.js';
 import startRecalculateProfitsJob from './jobs/recalculateProfitsJob.js';
-import startBrowserRestartJob from './jobs/restartBrowserJob.js';
 
 const PORT = process.env.PORT || 4000;
 const DB_CONNECT_MAX_RETRIES = 5;
@@ -55,9 +54,10 @@ async function start() {
   });
 
   // start background jobs only after DB is confirmed reachable
+  // (the nightly browser-restart job is gone along with Puppeteer — PDFs are
+  // now PDFKit, no browser process to babysit)
   const completeEventsTask = startCompleteEventsJob();
   const recalcProfitsTask = startRecalculateProfitsJob();
-  const browserRestartTask = startBrowserRestartJob();
 
   server.on('error', async (err) => {
     console.error('Server error', err);
@@ -88,7 +88,6 @@ async function start() {
     try {
       if (typeof completeEventsTask?.stop === 'function') completeEventsTask.stop();
       if (typeof recalcProfitsTask?.stop === 'function') recalcProfitsTask.stop();
-      if (typeof browserRestartTask?.stop === 'function') browserRestartTask.stop();
     } catch (_) {}
   });
 }

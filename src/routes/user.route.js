@@ -57,6 +57,10 @@ router
     checkPermission("user"),
     userController.listUserDropdown,
   );
+// Must stay above `/:id` — otherwise "dj-colors" is swallowed as an id param.
+router
+  .route("/dj-colors")
+  .get(verifyAccessToken, checkPermission("user"), userController.listDjColors);
 router
   .route("/forgot")
   .post(validate(userValidation.forgotPassword), userController.forgotPassword);

@@ -31,6 +31,13 @@ const updateUser = {
     address: Joi.string().allow(null, ""),
     email_send: Joi.boolean(),
     sendEmail: Joi.boolean(),
+    // Calendar identity colour. Constrained to `#rrggbb` so the value can be
+    // dropped straight into CSS (and into color-mix()) without sanitising at
+    // every render site. Null/"" clears it back to the grey fallback.
+    color: Joi.string()
+      .pattern(/^#[0-9a-fA-F]{6}$/)
+      .allow(null, "")
+      .messages({ "string.pattern.base": "color must be a #rrggbb hex value" }),
   }),
 };
 

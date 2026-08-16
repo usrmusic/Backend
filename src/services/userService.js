@@ -15,7 +15,9 @@ export async function createUser({ name, email, contact_number, role_id, address
   const plainPassword = genPassword();
   const hashed = await bcrypt.hash(plainPassword, 10);
 
-  const roleId = role_id != null ? BigInt(role_id) : BigInt(1);
+  // Default to role 4 (Client), the least-privileged role — NOT role 1
+  // (Super Admin). A missing role_id must never silently mint an admin.
+  const roleId = role_id != null ? BigInt(role_id) : BigInt(4);
 
   let profilePhotoUrl = null;
   if (file) {

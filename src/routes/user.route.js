@@ -38,6 +38,11 @@ router
   )
   .post(
     verifyAccessToken,
+    // CRITICAL: without this any authenticated user (including a role-4 Client)
+    // could create a user with an arbitrary role_id — i.e. mint themselves a
+    // Super Admin. Matches the `user` gate on every sibling route in this file.
+    // Placed before multer so unauthorized callers don't get their upload parsed.
+    checkPermission("user"),
     upload.single("profile_photo"),
     validate(userValidation.createUser),
     userController.signUp,

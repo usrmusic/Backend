@@ -227,7 +227,15 @@ const updateUser = catchAsync(async (req, res) => {
   if (body.email !== undefined) data.email = body.email;
   if (body.contact_number !== undefined)
     data.contact_number = body.contact_number;
-  if (body.role_id !== undefined) data.role_id = body.role_id;
+  // role_id is a privilege control, so it may only be changed by a caller who
+  // passed the `user` permission check — never by a user editing their own
+  // record via the ownership path. Without this, any Client could self-escalate
+  // with `PUT /user/<own id> {role_id:1}`. Dropped silently rather than
+  // rejected so a normal self-profile save that echoes back an unchanged
+  // role_id still succeeds.
+  if (body.role_id !== undefined && !req.authorizedViaOwnership) {
+    data.role_id = body.role_id;
+  }
   if (body.address !== undefined) data.address = body.address;
   // An empty string clears the colour back to the grey fallback; Prisma needs
   // a real null for that, not "".

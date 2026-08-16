@@ -121,7 +121,14 @@ export function allowOwnerOr(permissionName, param = 'id') {
     const sub = req.user.sub || req.user.id;
     const userId = sub ? Number(sub) : null;
     const targetId = req.params && req.params[param] ? Number(req.params[param]) : null;
-    if (userId && targetId && userId === targetId) return next();
+    if (userId && targetId && userId === targetId) {
+      // Passed on ownership alone — the caller is editing their OWN record and
+      // may not hold `permissionName`. Handlers must treat this as unprivileged
+      // and refuse to apply privilege-granting fields (e.g. role_id). See
+      // updateUser in users.controller.js.
+      req.authorizedViaOwnership = true;
+      return next();
+    }
     return checkPermission(permissionName)(req, res, next);
   };
 }

@@ -19,12 +19,17 @@
 export function toMoney(v) {
   if (v === null || v === undefined) return 0;
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  // Prisma Decimal and other objects expose toString()
-  const s = String(v).trim();
-  if (!s || s.toLowerCase() === 'nan') return 0;
-  const cleaned = s.replace(/[^0-9.-]/g, ''); // strip £, commas, spaces
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
+  try {
+    // Prisma Decimal and other objects expose toString(); guarded because old/
+    // corrupt data must never throw and take a request down with it.
+    const s = String(v).trim();
+    if (!s || s.toLowerCase() === 'nan') return 0;
+    const cleaned = s.replace(/[^0-9.-]/g, ''); // strip £, commas, spaces
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  } catch (_) {
+    return 0;
+  }
 }
 
 /** Round to 2 decimal places, killing binary-float artifacts (117.499999… → 117.5). */

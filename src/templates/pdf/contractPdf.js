@@ -4,6 +4,8 @@
    it reproduces the existing Node/Puppeteer design one-for-one rather than
    porting an older layout. */
 
+import { round2 } from '../../utils/money.js';
+
 const PAGE_W = 595.28;
 const MARGIN = 40;
 const CONTENT_W = PAGE_W - MARGIN * 2;
@@ -23,10 +25,12 @@ function fmtDate(d) {
   return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
 }
 
+// round2 handles dirty VARCHAR values (currency symbols, commas, the literal
+// "NaN" seen in real data, garbage) the same way every other money site in the
+// app does — the old `Number(n)` fallback printed raw garbage text on a signed
+// legal document instead of a number.
 function fmtMoney(n) {
-  if (n == null || n === '') return '0.00';
-  const num = Number(n);
-  return Number.isNaN(num) ? String(n) : num.toFixed(2);
+  return round2(n).toFixed(2);
 }
 
 function labelValue(doc, x, y, w, label, value, { bold = false } = {}) {

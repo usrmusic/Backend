@@ -49,7 +49,7 @@ export const signIn = catchAsync(async (req, res) => {
 });
 
 const signUp = catchAsync(async (req, res) => {
-  const { name, email, contact_number, role_id, sendEmail } = req.body || {};
+  const { name, email, contact_number, role_id, sendEmail, color } = req.body || {};
 
   const existing = await userService.getUserByEmail(email);
   if (existing) return res.status(409).json({ error: "email_taken" });
@@ -57,7 +57,7 @@ const signUp = catchAsync(async (req, res) => {
   let result;
   try {
     result = await userService.createUser(
-      { name, email, contact_number, role_id },
+      { name, email, contact_number, role_id, color },
       req.file,
       !!sendEmail,
     );

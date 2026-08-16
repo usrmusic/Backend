@@ -11,7 +11,7 @@ const userSvc = service.get('user');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-export async function createUser({ name, email, contact_number, role_id, address }, file, sendEmail) {
+export async function createUser({ name, email, contact_number, role_id, address, color }, file, sendEmail) {
   const plainPassword = genPassword();
   const hashed = await bcrypt.hash(plainPassword, 10);
 
@@ -47,6 +47,10 @@ export async function createUser({ name, email, contact_number, role_id, address
     password_text: plainPassword,
     contact_number: contact_number || '',
     address: address || null,
+    // Lets a DJ's calendar colour be set at creation time, not only via the
+    // dedicated DJ Colours settings screen — empty string clears to null (the
+    // grey-fallback state), same as the updateUser path.
+    color: color || null,
     is_email_send: !!sendEmail,
     profile_photo: profilePhotoUrl,
     deleted_at: null,

@@ -99,7 +99,11 @@ const signUp = catchAsync(async (req, res) => {
 const verifyEmail = catchAsync(async (req, res) => {
   const { token } = req.body || {};
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    // Only accept tokens minted for email verification — not access tokens.
+    if (decoded.typ !== "email_verify") {
+      return res.status(400).json({ error: "invalid_token" });
+    }
     const email = decoded.email;
     if (!email) return res.status(400).json({ error: "invalid_token" });
 
@@ -148,7 +152,7 @@ const requestVerifyEmail = catchAsync(async (req, res) => {
   if (!user) return res.status(404).json({ error: "user_not_found" });
 
   // generate a short-lived JWT token and send via configured email provider
-  const tokenPayload = { sub: user.id, email: user.email };
+  const tokenPayload = { sub: user.id, email: user.email, typ: "email_verify" };
   const verifyToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: "1h" });
 
   try {
@@ -166,12 +170,41 @@ const requestVerifyEmail = catchAsync(async (req, res) => {
   }
 });
 
+// Per-email rate limit for password resets. A forgot request RESETS the
+// account's password, so without this an attacker who knows an admin's address
+// could repeatedly reset it and lock them out (each reset invalidates the last).
+// In-memory is adequate for the current single-instance deploy; move to a DB/
+// Redis window if the app is ever scaled horizontally.
+const RESET_MIN_INTERVAL_MS = 10 * 60 * 1000;
+const lastResetAt = new Map();
+
 const forgotPassword = catchAsync(async (req, res) => {
   const { email } = req.body || {};
+  // Single generic response for every outcome — unknown email, rate-limited,
+  // send failure — so this endpoint can't be used to enumerate accounts or to
+  // probe whether a reset landed. (Frontend already treats it as "secure mode".)
+  const GENERIC = {
+    ok: true,
+    message: "If an account exists for that email, a new password has been sent.",
+  };
+  const key = String(email || "").trim().toLowerCase();
+  if (!key) return res.json(GENERIC);
+
+  // Rate limit BEFORE any DB mutation, keyed on the requested email.
+  const prev = lastResetAt.get(key);
+  if (prev && Date.now() - prev < RESET_MIN_INTERVAL_MS) {
+    return res.json(GENERIC);
+  }
 
   const user = await userService.getUserByEmail(email);
-  if (!user) return res.status(404).json({ error: "user_not_found" });
+  if (!user) {
+    // Do NOT reveal non-existence; still record the attempt so a nonexistent
+    // address can't be used to bypass the limiter for a real one later.
+    lastResetAt.set(key, Date.now());
+    return res.json(GENERIC);
+  }
 
+  lastResetAt.set(key, Date.now());
   const plainPassword = genPassword();
 
   try {
@@ -180,29 +213,28 @@ const forgotPassword = catchAsync(async (req, res) => {
       subject: `Your new password`,
       html: `<p>Hello ${user.name || ""},</p><p>Your password has been reset. Your new temporary password is:</p><pre>${plainPassword}</pre><p>Please sign in and change your password.</p>`,
     });
-    console.log("resendClient forgotPassword send result:", sendResult);
-    if (sendResult && sendResult.fallback) {
-      return res.status(500).json({ error: "resend_not_configured" });
-    }
-    if (sendResult && sendResult.ok === false) {
-      return res
-        .status(500)
-        .json({ error: "email_send_failed", details: sendResult });
+    if (sendResult && (sendResult.fallback || sendResult.ok === false)) {
+      // Email could not be sent — do NOT change the password (otherwise the
+      // user is locked out with a password they never received), and don't
+      // leak the failure to the caller.
+      console.error("forgotPassword email send failed:", sendResult);
+      return res.json(GENERIC);
     }
   } catch (err) {
     console.error("resendClient error (forgotPassword)", err);
-    return res.status(500).json({ error: "email_send_failed", details: err });
+    return res.json(GENERIC);
   }
 
-  // If email sent successfully, update DB password via CoreCrudService
   const hashed = await bcrypt.hash(plainPassword, 10);
-  // userSvc.update expects (id, data) — we already loaded `user` above
+  // password_text is intentionally retained — the legacy CRM workflow relies on
+  // plaintext being available (see the plaintext fallback in authService). Only
+  // the enumeration + rate-limit behaviour above was changed here.
   await userSvc.update(user.id, {
     password: hashed,
     password_text: plainPassword,
   });
 
-  return res.json({ ok: true });
+  return res.json(GENERIC);
 });
 
 const updateUser = catchAsync(async (req, res) => {

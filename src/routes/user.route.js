@@ -8,14 +8,24 @@ import checkPermission from "../middleware/authorize.js";
 import { userValidation } from "../validation/index.js";
 import { userController } from "../controllers/index.js";
 import validate from "../middleware/validate.js";
+import rateLimit from "../middleware/rateLimit.js";
 
 const router = express.Router();
 
 router;
 
+// Brute-force protection: 10 login attempts per IP per 15 min. Login accepts a
+// legacy plaintext password fallback, so throttling /auth is the main defence
+// against credential stuffing. Successful logins count too, but 10/15min is far
+// above any human login rate.
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, prefix: "auth" });
+// Password reset triggers an email + password change; cap harder per IP. The
+// controller additionally rate-limits per target email.
+const forgotLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, prefix: "forgot" });
+
 router
   .route("/auth")
-  .post(validate(userValidation.signIn), userController.signIn);
+  .post(loginLimiter, validate(userValidation.signIn), userController.signIn);
 
 router
   .route("/")
@@ -68,7 +78,7 @@ router
   .get(verifyAccessToken, checkPermission("user"), userController.listDjColors);
 router
   .route("/forgot")
-  .post(validate(userValidation.forgotPassword), userController.forgotPassword);
+  .post(forgotLimiter, validate(userValidation.forgotPassword), userController.forgotPassword);
 router
   .route("/verify")
   .post(validate(userValidation.verifyEmail), userController.verifyEmail);

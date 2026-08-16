@@ -58,9 +58,15 @@ export default function errorHandler(err, req, res, next) { // eslint-disable-li
     return res.status(401).json({ error: 'invalid_token' });
   }
 
-  // Multer errors
+  // Multer errors (incl. file-size limit → LIMIT_FILE_SIZE)
   if (err && err.name === 'MulterError') {
-    return res.status(400).json({ error: err.message || 'file_upload_error' });
+    const tooBig = err.code === 'LIMIT_FILE_SIZE';
+    return res.status(tooBig ? 413 : 400).json({ error: tooBig ? 'file_too_large' : (err.message || 'file_upload_error') });
+  }
+
+  // body-parser payload-too-large (express.json/urlencoded limit exceeded)
+  if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+    return res.status(413).json({ error: 'payload_too_large' });
   }
 
   // Validation libraries often expose .errors or name

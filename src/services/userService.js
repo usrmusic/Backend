@@ -56,7 +56,10 @@ export async function createUser({ name, email, contact_number, role_id, address
 
   const user = await userSvc.create(data);
 
-  const tokenPayload = serializeForJson({ sub: user.id, email: user.email });
+  // typ:'email_verify' so this token can't be replayed as an access session
+  // (verifyAccessToken rejects any typ !== 'access'). It is returned in the
+  // create-user API response, so this separation matters.
+  const tokenPayload = serializeForJson({ sub: user.id, email: user.email, typ: 'email_verify' });
   const verifyToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1h' });
 
   let emailSent = false;

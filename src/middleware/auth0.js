@@ -14,6 +14,14 @@ export function verifyAccessToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    // Email-verification and password tokens are signed with the same secret but
+    // are NOT sessions. Reject any non-access token here so a verification link
+    // (which is emailed, and returned in some API responses) can't be replayed
+    // as a bearer session. Access tokens carry no `typ`, so this only blocks the
+    // purpose-tagged ones.
+    if (decoded && decoded.typ && decoded.typ !== 'access') {
+      return res.status(401).json({ error: 'invalid_token', details: 'wrong_token_type' });
+    }
     req.user = decoded;
     return next();
   } catch (err) {

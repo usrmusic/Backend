@@ -4,7 +4,7 @@ import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
 import eventNoteService from "../services/eventNoteService.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
-import generatePdfBufferFromHtml from "../utils/pdfGenerator.js";
+import { generateInvoicePdf } from "../utils/pdfGenerator.js";
 import renderSendQuote from "../templates/sendQuoteTemplate.js";
 import renderInvoice from "../templates/invoiceTemplate.js";
 import sendEmail from "../utils/mail/resendClient.js";
@@ -697,9 +697,19 @@ const sendInvoice = catchAsync(async (req, res) => {
   });
 
   // generate PDF buffer
+  // Was `generatePdfBufferFromHtml(emailHtml)` — `emailHtml` is not defined
+  // anywhere in this file, so every call threw ReferenceError into the catch
+  // below and send-invoice has been emailing clients with no PDF attached at
+  // all. Now renders the PDFKit invoice (see utils/pdfGenerator.js) directly
+  // from the same event/company/line-item data `invoiceHtml` uses for the
+  // email body below.
   let pdfBuffer = null;
   try {
-    pdfBuffer = await generatePdfBufferFromHtml(emailHtml);
+    pdfBuffer = await generateInvoicePdf({
+      event: fullEvent || event,
+      companyDetails,
+      enrichedDetails,
+    });
   } catch (e) {
     console.error(
       "[confirmEvents.sendInvoice] PDF generation failed",
@@ -787,17 +797,17 @@ const downloadInvoice = catchAsync(async (req, res) => {
       .catch(() => null);
   }
 
-  // prepare invoice HTML using existing renderer
-  const invoiceHtml = renderInvoice({
-    event,
-    companyDetails: companyDetails || {},
-    rawBody: "",
-    enrichedDetails: [],
-  });
-
   let pdfBuffer = null;
   try {
-    pdfBuffer = await generatePdfBufferFromHtml(invoiceHtml);
+    // NOTE: enrichedDetails: [] here is pre-existing behaviour, not something
+    // this port changed — this endpoint has never loaded event_package rows,
+    // so a downloaded invoice has always rendered with no line items. Left
+    // as-is; worth a separate fix if that's not intended.
+    pdfBuffer = await generateInvoicePdf({
+      event,
+      companyDetails: companyDetails || {},
+      enrichedDetails: [],
+    });
   } catch (e) {
     console.error(
       "[confirmEvents.downloadInvoice] PDF generation failed",

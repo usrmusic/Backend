@@ -16,6 +16,12 @@ model User {
   password_text                  String?         @db.VarChar(255)
   contact_number                 String          @db.VarChar(18)
   address                        String?         @db.VarChar(100)
+  // Calendar identity colour for staff/DJs, stored as a single `#rrggbb`.
+  // Null means "not assigned yet" — the calendars fall back to neutral grey
+  // so an unassigned DJ stays visually obvious rather than blending in.
+  // Lighter/darker chip tints are derived from this one value via color-mix()
+  // in the UI, which is why only one hex is stored rather than a set.
+  color                          String?         @db.VarChar(7)
   is_email_send                  Boolean?
   sidebar_active                 Boolean         @default(false)
   deleted_at                     DateTime?       @db.Timestamp(0)

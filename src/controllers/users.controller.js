@@ -229,6 +229,9 @@ const updateUser = catchAsync(async (req, res) => {
     data.contact_number = body.contact_number;
   if (body.role_id !== undefined) data.role_id = body.role_id;
   if (body.address !== undefined) data.address = body.address;
+  // An empty string clears the colour back to the grey fallback; Prisma needs
+  // a real null for that, not "".
+  if (body.color !== undefined) data.color = body.color || null;
   if (body.sendEmail !== undefined) data.is_email_send = !!body.sendEmail;
   else if (body.email_send !== undefined)
     data.is_email_send = !!body.email_send;
@@ -444,6 +447,49 @@ const listUserDropdown = catchAsync(async (req, res) => {
   res.json(serializeForJson(users));
 });
 
+/* Roster for the DJ Colours settings panel.
+
+   "Who is a DJ" is fuzzier than it looks: role 3 is the intended set, but
+   `events.dj_id` is a plain FK to `users` with nothing stopping an admin being
+   assigned to an event. Filtering on role alone would hide a DJ who is already
+   colouring real bookings on the calendar, so the roster is role 3 OR anyone
+   who has ever been set as `dj_id` on an event. */
+const listDjColors = catchAsync(async (req, res) => {
+  const djs = await prisma.user.findMany({
+    where: {
+      deleted_at: null,
+      OR: [
+        { role_id: BigInt(3) },
+        { events_events_dj_idTousers: { some: {} } },
+      ],
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      profile_photo: true,
+      color: true,
+      role_id: true,
+      _count: { select: { events_events_dj_idTousers: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  res.json(
+    serializeForJson({
+      data: djs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        email: d.email,
+        profile_photo: d.profile_photo,
+        color: d.color,
+        role_id: d.role_id,
+        event_count: d._count?.events_events_dj_idTousers ?? 0,
+      })),
+    }),
+  );
+});
+
 const currentUser = catchAsync(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'missing_token' });
   const sub = req.user.sub || req.user.id || req.user.email;
@@ -486,4 +532,5 @@ export default {
   getUser,
   currentUser,
   listUserDropdown,
+  listDjColors,
 };

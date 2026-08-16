@@ -1,23 +1,15 @@
 import prisma from '../utils/prismaClient.js';
-import { uploadStreamToS3, getSignedGetUrl } from '../utils/s3Client.js';
-import generatePdfBufferFromHtml from '../utils/pdfGenerator.js';
-import renderContract from '../templates/contractTemplate.js';
+import { uploadStreamToS3, getSignedGetUrl, getObjectBuffer } from '../utils/s3Client.js';
+import { generateContractPdf } from '../utils/pdfGenerator.js';
 import sendEmail from '../utils/mail/resendClient.js';
 
-// Fetch an S3 object via its presigned URL and return a base64 data URI.
-// We embed the bytes directly into the PDF so the renderer never has to make
-// a network request to S3 at PDF-generation time (matches the Laravel
-// file_get_contents + base64_encode pattern in template_view.blade.php).
-async function fetchAsDataUri(key) {
+// The PDFKit renderer takes image Buffers directly (doc.image() doesn't
+// accept a URL), so the admin signature is fetched as bytes rather than the
+// data-URI round-trip the old HTML renderer needed.
+async function fetchAsBuffer(key) {
   if (!key) return null;
   try {
-    const url = await getSignedGetUrl(String(key));
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
-    const ab = await resp.arrayBuffer();
-    const buf = Buffer.from(ab);
-    const ct = resp.headers.get('content-type') || 'image/png';
-    return `data:${ct};base64,${buf.toString('base64')}`;
+    return await getObjectBuffer(String(key));
   } catch {
     return null;
   }
@@ -73,25 +65,27 @@ export async function signContractForEvent({
       .catch(() => null);
   }
 
-  // Embed admin signature bytes directly so the PDF renderer doesn't depend
-  // on S3 fetches at render time.
-  const adminSignatureDataUri = company?.admin_signature
-    ? await fetchAsDataUri(company.admin_signature)
+  const adminSignatureBuf = company?.admin_signature
+    ? await fetchAsBuffer(company.admin_signature)
     : null;
 
+  // signatureDataUri arrives from the client's signing canvas as a base64
+  // data URI; PDFKit needs the raw bytes.
+  const sigBase64ForPdf = signatureDataUri.replace(/^data:image\/[^;]+;base64,/, '');
+  const signatureBuf = Buffer.from(sigBase64ForPdf, 'base64');
+
   const signedAt = new Date();
-  const html = renderContract({
-    event,
-    user,
-    company,
-    signatureDataUri,
-    adminSignatureDataUri,
-    signedAt,
-  });
 
   let pdfBuffer;
   try {
-    pdfBuffer = await generatePdfBufferFromHtml(html);
+    pdfBuffer = await generateContractPdf({
+      event,
+      user,
+      company,
+      signature: signatureBuf,
+      adminSignature: adminSignatureBuf,
+      signedAt,
+    });
   } catch (e) {
     console.error('[contractSign] pdf generation failed', e?.message || e);
     const err = new Error('pdf_generation_failed');
@@ -109,12 +103,11 @@ export async function signContractForEvent({
     throw err;
   }
 
-  // Store the raw signature PNG independently of the PDF.
-  const sigBase64 = signatureDataUri.replace(/^data:image\/[^;]+;base64,/, '');
-  const sigBuffer = Buffer.from(sigBase64, 'base64');
+  // Store the raw signature PNG independently of the PDF — reuses the same
+  // bytes already decoded above for the PDF itself.
   const sigKey = `signatures/event_${event.id}_${Date.now()}.png`;
   try {
-    await uploadStreamToS3(sigBuffer, sigKey, 'image/png');
+    await uploadStreamToS3(signatureBuf, sigKey, 'image/png');
   } catch (e) {
     console.error('[contractSign] signature upload failed', e?.message || e);
   }

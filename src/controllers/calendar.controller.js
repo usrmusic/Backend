@@ -34,6 +34,11 @@ const getCalenderEvents = catchAsync(async (req, res) => {
             users_events_user_idTousers: {
                 select: { id: true, name: true, profile_photo: true },
             },
+            // The DJ drives the event's colour on the calendar, so the relation
+            // has to come back here — previously only the client was selected.
+            users_events_dj_idTousers: {
+                select: { id: true, name: true, color: true },
+            },
         },
         perPage: 1000,
         sort: 'date:asc',

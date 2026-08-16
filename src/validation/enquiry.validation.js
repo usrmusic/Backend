@@ -156,7 +156,13 @@ const updateEnquiry = Joi.object({
         }),
       )
       .allow(null),
-  }),
+    // The frontend submits ONE payload object for both create and edit
+    // (enquiry/page.tsx), so it always includes create-only fields like
+    // is_new_client/client_id even on an update — updateEnquiry's controller
+    // never reads them. .unknown(true) (matching createEnquiry's own schema)
+    // tolerates those rather than rejecting the whole request for a field this
+    // endpoint simply ignores.
+  }).unknown(true),
 });
 
 const deleteEnquiry = Joi.object({

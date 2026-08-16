@@ -15,6 +15,7 @@ import userService from "../services/userService.js";
 import bcrypt from "bcrypt";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
+import { toMoney, isFullyPaid } from "../utils/money.js";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -829,14 +830,12 @@ const updateEnquiry = catchAsync(async (req, res) => {
           select: { total_cost_for_equipment: true },
         })
         .catch(() => null);
-      const totalCost = totalCostRow
-        ? Number(totalCostRow.total_cost_for_equipment || 0)
-        : 0;
       const paymentAgg = await tx.eventPayment
         .aggregate({ where: { event_id: Number(id) }, _sum: { amount: true } })
         .catch(() => ({ _sum: { amount: 0 } }));
-      const totalPayment = Number(paymentAgg._sum.amount || 0);
-      const paymentSent = totalPayment === totalCost ? 1 : 0;
+      const totalPayment = toMoney(paymentAgg._sum.amount);
+      // >= not === (overpayment / float drift), and safe parse of the VARCHAR.
+      const paymentSent = isFullyPaid(totalPayment, totalCostRow?.total_cost_for_equipment) ? 1 : 0;
       await tx.event
         .update({
           where: { id },

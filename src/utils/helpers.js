@@ -9,7 +9,7 @@
  */
 export function parseNumberLike(v) {
   if (v == null) return 0;
-  if (typeof v === 'number') return v;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   const s = String(v).replace(/[^0-9.\-]/g, '');
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;

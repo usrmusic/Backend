@@ -10,6 +10,8 @@ import renderInvoice from "../templates/invoiceTemplate.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
+import { toMoney, round2, isFullyPaid } from "../utils/money.js";
+import AppError from "../utils/AppError.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
 import { signContractForEvent } from "../services/contractSign.service.js";
 const eventSvc = services.get("event");
@@ -78,20 +80,24 @@ const confirmEvent = catchAsync(async (req, res) => {
     where: { id: eventId },
     select: { total_cost_for_equipment: true },
   });
-  const baseCost = currentEvent?.total_cost_for_equipment
-    ? Number(currentEvent.total_cost_for_equipment)
+  const baseCost = toMoney(currentEvent?.total_cost_for_equipment);
+
+  // finalCost: VAT-adjusted when the company charges VAT, else the base cost.
+  // Rounded to pennies before storing — otherwise float artifacts like
+  // 100*1.175 = 117.49999999999999 get written verbatim into the VARCHAR and
+  // then fail the fully-paid comparison forever.
+  const vatPct = (company && company.vat != null && company.vat_percentage)
+    ? Number(company.vat_percentage) / 100
     : 0;
+  const finalCost = round2(baseCost * (1 + vatPct));
 
   if (company && company.vat != null) {
-    const vatPct = company.vat_percentage ? Number(company.vat_percentage) / 100 : 0;
-    const totalWithVat = baseCost * (1 + vatPct);
-    const vatValue = baseCost * vatPct;
     await prisma.event.update({
       where: { id: eventId },
       data: {
-        total_cost_for_equipment: String(totalWithVat),
-        event_amount_without_vat: String(baseCost),
-        vat_value: String(vatValue),
+        total_cost_for_equipment: String(finalCost),
+        event_amount_without_vat: String(round2(baseCost)),
+        vat_value: String(round2(baseCost * vatPct)),
         is_vat_available_for_the_event: true,
       },
     });
@@ -101,11 +107,6 @@ const confirmEvent = catchAsync(async (req, res) => {
       data: { is_vat_available_for_the_event: false },
     });
   }
-
-  // finalCost: use VAT-adjusted value if applicable, else baseCost
-  const finalCost = company && company.vat != null
-    ? baseCost * (1 + (company.vat_percentage ? Number(company.vat_percentage) / 100 : 0))
-    : baseCost;
 
   // --- Step 6: note + fully-paid check + payment method — fire in parallel ---
   const [eventNote, totalPaymentRow, paymentWithMethod] = await Promise.all([
@@ -118,8 +119,9 @@ const confirmEvent = catchAsync(async (req, res) => {
     prisma.eventPayment.findUnique({ where: { id: payment.id }, include: { payment_methods: true } }),
   ]);
 
-  const totalPayment = Number(totalPaymentRow._sum.amount) || 0;
-  const paymentSent = totalPayment === finalCost;
+  const totalPayment = toMoney(totalPaymentRow._sum.amount);
+  // >= not ===: overpayment and a penny of float drift must still count as paid.
+  const paymentSent = isFullyPaid(totalPayment, finalCost);
   await prisma.event.update({ where: { id: eventId }, data: { is_event_payment_fully_paid: paymentSent } });
 
   const result = {
@@ -844,22 +846,38 @@ const refund = catchAsync(async (req, res) => {
   const body =
     req.validated && req.validated.body ? req.validated.body : req.body || {};
   const eventId = Number(params.id || body.event_id || 0);
-  const refundAmount = Number(body.refund_amount || body.amount || 0) || 0;
+  const refundAmount = round2(body.refund_amount ?? body.amount);
 
   if (!eventId) return res.status(400).json({ error: "event_id_required" });
+  if (!(refundAmount > 0)) return res.status(400).json({ error: "refund_must_be_positive" });
 
   const event = await prisma.event.findUnique({ where: { id: eventId } });
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
-  const previous = event.refund_amount ? Number(event.refund_amount) : 0;
-  const newRefund = previous + refundAmount;
+  const previous = round2(event.refund_amount);
 
   const updated = await prisma.$transaction(async (tx) => {
+    // Total actually received for this event — you can never refund more than
+    // that (cumulatively). Without this cap, refund_amount could exceed
+    // payments and drive the cancelled-event turnover/profit maths negative.
+    const paidRow = await tx.eventPayment.aggregate({ where: { event_id: eventId }, _sum: { amount: true } });
+    const totalPaid = toMoney(paidRow?._sum?.amount);
+    const newRefund = round2(previous + refundAmount);
+    if (newRefund > totalPaid) {
+      throw new AppError("refund_exceeds_total_paid", 400, {
+        totalPaid, alreadyRefunded: previous, requested: refundAmount,
+      });
+    }
+
     await tx.event.update({
       where: { id: eventId },
-      data: { refund_amount: newRefund },
+      data: {
+        refund_amount: newRefund,
+        // A refund means the event is no longer fully settled in the client's
+        // favour — recompute rather than leaving a stale "fully paid" flag.
+        is_event_payment_fully_paid: isFullyPaid(round2(totalPaid - newRefund), event.total_cost_for_equipment),
+      },
     });
-    // create a note recording the refund
     await eventNoteService
       .createNote(tx, {
         eventId,
@@ -879,11 +897,13 @@ const addPayment = catchAsync(async (req, res) => {
   const body =  req.body || {};
   const eventId = Number(params.id || query.id || 0);
   const paymentMethodId = Number(body.payment_method_id || 0) || 0;
-  const amount = Number(body.amount || body.payment_amount || 0) || 0;
+  const amount = round2(body.amount ?? body.payment_amount);
 
   if (!eventId) return res.status(400).json({ error: "event_id_required" });
   if (!paymentMethodId) return res.status(400).json({ error: "payment_method_required" });
-  if (!amount) return res.status(400).json({ error: "amount_required" });
+  // Must be strictly positive — a negative/zero "payment" would corrupt the
+  // paid total. (`!amount` previously let negatives through, since -500 is truthy.)
+  if (!(amount > 0)) return res.status(400).json({ error: "amount_must_be_positive" });
 
   // parse date: accept YYYY-MM-DD or DD-MM-YYYY via parseDate, fallback to new Date()
   let dateVal = null;
@@ -909,11 +929,12 @@ const addPayment = catchAsync(async (req, res) => {
       where: { event_id: eventId },
       _sum: { amount: true },
     });
-    const totalPayment = (totalPaymentRow && totalPaymentRow._sum && totalPaymentRow._sum.amount) || 0;
+    const totalPayment = toMoney(totalPaymentRow && totalPaymentRow._sum && totalPaymentRow._sum.amount);
 
     const totalCostRow = await tx.event.findUnique({ where: { id: eventId }, select: { total_cost_for_equipment: true } });
-    const totalCostNum = totalCostRow && totalCostRow.total_cost_for_equipment ? Number(totalCostRow.total_cost_for_equipment) : 0;
-    const paymentSent = totalCostNum && totalPayment === totalCostNum ? true : false;
+    // isFullyPaid handles the dirty VARCHAR (incl. the literal "NaN" present in
+    // the data), overpayment, and float drift — was `=== Number(varchar)`.
+    const paymentSent = isFullyPaid(totalPayment, totalCostRow?.total_cost_for_equipment);
 
     await tx.event.update({ where: { id: eventId }, data: { is_event_payment_fully_paid: paymentSent } });
 
@@ -946,15 +967,36 @@ const cancelEvent = catchAsync(async (req, res) => {
   const body =
     req.validated && req.validated.body ? req.validated.body : req.body || {};
   const eventId = Number(params.id || body.event_id || 0);
-  const refundAmount = Number(body.refund_amount || body.amount || 0) || 0;
+  // Cancel's refund is optional (you can cancel with no refund), so 0 is valid
+  // here — unlike the dedicated /refund endpoint, which requires a positive amount.
+  const refundAmount = round2(body.refund_amount ?? body.amount ?? 0);
+  if (refundAmount < 0) return res.status(400).json({ error: "refund_must_not_be_negative" });
 
   if (!eventId) return res.status(400).json({ error: "event_id_required" });
 
   const event = await prisma.event.findUnique({ where: { id: eventId } });
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
-  const previousRefund = event.refund_amount ? Number(event.refund_amount) : 0;
-  const newRefundAmount = previousRefund + refundAmount;
+  const previousRefund = round2(event.refund_amount);
+  const newRefundAmount = round2(previousRefund + refundAmount);
+
+  // Cumulative refund can never exceed what was actually paid — otherwise the
+  // dashboard's cancelled-event turnover/profit adjustment (which nets
+  // payments received against refund_amount) goes negative on a bookkeeping
+  // error rather than a real loss.
+  if (refundAmount > 0) {
+    const paidAgg = await prisma.eventPayment.aggregate({
+      where: { event_id: eventId },
+      _sum: { amount: true },
+    });
+    const totalPaid = toMoney(paidAgg?._sum?.amount);
+    if (newRefundAmount > totalPaid) {
+      return res.status(400).json({
+        error: "refund_exceeds_total_paid",
+        details: { totalPaid, alreadyRefunded: previousRefund, requested: refundAmount },
+      });
+    }
+  }
 
   // find CANCELLED status id if available
   let cancelledStatusId = null;

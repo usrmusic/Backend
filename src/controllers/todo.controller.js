@@ -25,6 +25,29 @@ const listTodo = catchAsync(async (req, res) => {
   const event_id = Number(rawId) || null;
   if (!event_id) return res.status(400).json({ error: 'event_id_required' });
 
+  // Authorization: todos are internal staff tasks. Without this any logged-in
+  // user (incl. a role-4 Client) could iterate event ids and read every event's
+  // task assignments, deadlines and staff emails (IDOR). Allow admin/staff
+  // (roles 1/2/3) freely; a Client may only see todos for their own event.
+  if (!req.user) return res.status(401).json({ error: 'missing_token' });
+  const sub = req.user.sub || req.user.id || req.user.email;
+  let userId = /^[0-9]+$/.test(String(sub)) ? Number(sub) : null;
+  if (!userId && req.user.email) {
+    const u = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+    userId = u ? Number(u.id) : null;
+  }
+  const [me, ev] = await Promise.all([
+    userId ? prisma.user.findUnique({ where: { id: userId }, select: { role_id: true } }) : null,
+    prisma.event.findUnique({ where: { id: event_id }, select: { user_id: true, dj_id: true } }),
+  ]);
+  if (!ev) return res.status(404).json({ error: 'event_not_found' });
+  const roleId = me?.role_id != null ? Number(me.role_id) : null;
+  const isStaff = roleId === 1 || roleId === 2 || roleId === 3;
+  const isOwnEvent = userId != null && (Number(ev.user_id) === userId || Number(ev.dj_id) === userId);
+  if (!isStaff && !isOwnEvent) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
   // Use core CRUD service `list` with a filter for event_id
   // Include related user records so frontend can display names instead of ids
   const todos = await todoSvc.list({

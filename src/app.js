@@ -11,11 +11,19 @@ import prisma from './utils/prismaClient.js';
 
 const app = express();
 
+// Behind Railway's proxy — required for req.ip to reflect the real client
+// (X-Forwarded-For) rather than the proxy, so the login rate limiter keys on
+// the actual caller. Trust exactly one hop.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'tiny' : 'dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Cap request body size to blunt memory-exhaustion DoS. 2mb comfortably covers
+// the largest legitimate JSON payload (a base64 signature data URI from the
+// contract-signing canvas is well under that); non-file endpoints never need more.
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // CORS: allow requests from the frontend hosts listed below (and allow no-origin requests)
 const allowedOrigins = [

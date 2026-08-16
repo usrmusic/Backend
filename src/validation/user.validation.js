@@ -16,6 +16,10 @@ const createUser = {
     address: Joi.string().allow(null, ""),
     email_send: Joi.boolean().default(false),
     sendEmail: Joi.boolean().default(false),
+    color: Joi.string()
+      .pattern(/^#[0-9a-fA-F]{6}$/)
+      .allow(null, "")
+      .messages({ "string.pattern.base": "color must be a #rrggbb hex value" }),
   }),
 };
 

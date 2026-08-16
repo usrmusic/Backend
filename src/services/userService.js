@@ -11,11 +11,13 @@ const userSvc = service.get('user');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-export async function createUser({ name, email, contact_number, role_id, address }, file, sendEmail) {
+export async function createUser({ name, email, contact_number, role_id, address, color }, file, sendEmail) {
   const plainPassword = genPassword();
   const hashed = await bcrypt.hash(plainPassword, 10);
 
-  const roleId = role_id != null ? BigInt(role_id) : BigInt(1);
+  // Default to role 4 (Client), the least-privileged role — NOT role 1
+  // (Super Admin). A missing role_id must never silently mint an admin.
+  const roleId = role_id != null ? BigInt(role_id) : BigInt(4);
 
   let profilePhotoUrl = null;
   if (file) {
@@ -45,6 +47,10 @@ export async function createUser({ name, email, contact_number, role_id, address
     password_text: plainPassword,
     contact_number: contact_number || '',
     address: address || null,
+    // Lets a DJ's calendar colour be set at creation time, not only via the
+    // dedicated DJ Colours settings screen — empty string clears to null (the
+    // grey-fallback state), same as the updateUser path.
+    color: color || null,
     is_email_send: !!sendEmail,
     profile_photo: profilePhotoUrl,
     deleted_at: null,
@@ -54,7 +60,10 @@ export async function createUser({ name, email, contact_number, role_id, address
 
   const user = await userSvc.create(data);
 
-  const tokenPayload = serializeForJson({ sub: user.id, email: user.email });
+  // typ:'email_verify' so this token can't be replayed as an access session
+  // (verifyAccessToken rejects any typ !== 'access'). It is returned in the
+  // create-user API response, so this separation matters.
+  const tokenPayload = serializeForJson({ sub: user.id, email: user.email, typ: 'email_verify' });
   const verifyToken = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '1h' });
 
   let emailSent = false;

@@ -4,8 +4,9 @@ import { checkPermission } from "../middleware/authorize.js";
 import {venueController} from "../controllers/index.js";
 import validate from "../middleware/validate.js";
 import { venueValidation } from "../validation/index.js";
-import multer from 'multer';
-const upload = multer();
+// Hardened upload (size limit + mime filter) — venue attachments may be images
+// or documents, so use the broad fileUpload config rather than a bare multer().
+import { fileUpload as upload } from "../utils/multerConfig.js";
 
 const router = express.Router();
 
@@ -20,9 +21,9 @@ router
     venueController.listVenues,
   )
   .post(
+    protectAdmin,
     upload.single('attachment'),
     validate(venueValidation.createVenue),
-    protectAdmin,
     venueController.createVenue,
   );
 router
@@ -41,9 +42,9 @@ router
     venueController.getVenue,
   )
   .put(
+    protectAdmin,
     upload.single('attachment'),
     validate(venueValidation.updateVenue),
-    protectAdmin,
     venueController.updateVenue,
   )
   .delete(

@@ -35,7 +35,8 @@ const confirmEvent = Joi.object({
   body: Joi.object({
     event_date: Joi.string().pattern(dateRegex).required(),
     company_name: Joi.string().required(),
-    deposit_amount: Joi.number().required(),
+    // A deposit is money in; it can't be negative. 0 is allowed (no deposit).
+    deposit_amount: Joi.number().min(0).required(),
     payment_method_id: Joi.number().integer().required(),
   }),
 });
@@ -51,13 +52,15 @@ const refund = Joi.object({
     id: Joi.number().integer().required(),
   }),
   body: Joi.object({
-    refund_amount: Joi.number().required(),
+    // A refund must be a positive amount; negatives would silently inflate
+    // turnover/profit via the cancelled-event accounting in the dashboard.
+    refund_amount: Joi.number().positive().required(),
   }),
 });
 
 const cancel = Joi.object({
   query: Joi.object({ id: Joi.number().integer().required() }),
-  body: Joi.object({ refund_amount: Joi.number().optional() }),
+  body: Joi.object({ refund_amount: Joi.number().min(0).optional() }),
 });
 
 const downloadInvoice = Joi.object({
@@ -122,7 +125,9 @@ const addPayment = Joi.object({
     body: Joi.object({
       payment_method_id: Joi.number().integer().required(),
       date: Joi.date().iso().required(),
-      amount: Joi.number().required(),
+      // A payment must be positive — a negative "payment" would reduce the paid
+      // total and corrupt the fully-paid / outstanding calculations.
+      amount: Joi.number().positive().required(),
     })
 })
 export default {

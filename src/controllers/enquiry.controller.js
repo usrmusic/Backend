@@ -15,6 +15,7 @@ import userService from "../services/userService.js";
 import bcrypt from "bcrypt";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
+import { toMoney, round2, isFullyPaid } from "../utils/money.js";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -178,10 +179,14 @@ const createEnquiry = catchAsync(async (req, res) => {
       details: data.event_details || null,
       dj_package_name: data.dj_package_name || null,
       dj_id: djId != null ? djId : undefined,
+      // round2 defends against float drift accumulated by the frontend's
+      // unrounded running-total sum (unit*qty added across every line item) —
+      // without it, a value like 129.99999999999997 gets written verbatim to
+      // this VARCHAR column and later printed on an invoice.
       total_cost_for_equipment:
-        data.total_cost != null ? String(data.total_cost) : null,
+        data.total_cost != null ? String(round2(data.total_cost)) : null,
       dj_cost_price_for_event:
-        data.dj_cost != null ? Number(data.dj_cost) : null,
+        data.dj_cost != null ? round2(data.dj_cost) : null,
       no_of_guests:
         data.no_of_guests != null ? String(data.no_of_guests) : null,
     });
@@ -213,9 +218,9 @@ const createEnquiry = catchAsync(async (req, res) => {
       dj_package_name: data.dj_package_name || null,
       dj_id: djId != null ? djId : null,
       total_cost_for_equipment:
-        data.total_cost != null ? String(data.total_cost) : null,
+        data.total_cost != null ? String(round2(data.total_cost)) : null,
       dj_cost_price_for_event:
-        data.dj_cost != null ? Number(data.dj_cost) : null,
+        data.dj_cost != null ? round2(data.dj_cost) : null,
       venue_id: venue?.id || (data.venue_id ? Number(data.venue_id) : null),
       user_id: Number(client.id),
       created_by: req.user && req.user.id ? Number(req.user.id) : null,
@@ -271,16 +276,19 @@ const createEnquiry = catchAsync(async (req, res) => {
       p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
     event_id: Number(event.id),
     package_type_id: packageTypeId != null ? BigInt(packageTypeId) : null,
-    sell_price: p.sell_price != null ? Number(p.sell_price) : null,
-    cost_price: p.cost_price != null ? Number(p.cost_price) : null,
+    // round2 on every price field for the same reason as updateEnquiry's
+    // makePackage — frontend-supplied per-line-item prices feed straight into
+    // invoices and dashboard aggregation.
+    sell_price: p.sell_price != null ? round2(p.sell_price) : null,
+    cost_price: p.cost_price != null ? round2(p.cost_price) : null,
     notes: packageTypeId === 2 ? (p.notes?.toString().trim() || null) : null,
     rig_notes: (p.rig_notes ?? p.rigNotes)?.toString().trim() || null,
     payment_send: p.payment_send || null,
     payment_date: p.payment_date ? new Date(p.payment_date) : null,
     quantity: p.quantity != null ? Number(p.quantity) : null,
-    total_price: p.total_price != null ? Number(p.total_price) : null,
+    total_price: p.total_price != null ? round2(p.total_price) : null,
     price_added_to_bill:
-      p.price_added_to_bill != null ? Number(p.price_added_to_bill) : null,
+      p.price_added_to_bill != null ? round2(p.price_added_to_bill) : null,
     created_at: new Date(),
   });
 
@@ -542,16 +550,19 @@ const updateEnquiry = catchAsync(async (req, res) => {
         p.equipment_order_id !== undefined ? Number(p.equipment_order_id) : null,
       event_id: Number(eventId),
       package_type_id: packageTypeId != null ? BigInt(packageTypeId) : null,
-      sell_price: p.sell_price != null ? Number(p.sell_price) : null,
-    cost_price: p.cost_price != null ? Number(p.cost_price) : null,
+      // round2 on every price field — these are frontend-supplied per line
+      // item and feed straight into invoices/dashboard aggregation, so any
+      // float drift here propagates everywhere downstream.
+      sell_price: p.sell_price != null ? round2(p.sell_price) : null,
+    cost_price: p.cost_price != null ? round2(p.cost_price) : null,
     notes: packageTypeId === 2 ? (p.notes?.toString().trim() || null) : null,
     rig_notes: (p.rig_notes ?? p.rigNotes)?.toString().trim() || null,
     payment_send: p.payment_send || null,
     payment_date: p.payment_date ? new Date(p.payment_date) : null,
     quantity: p.quantity != null ? Number(p.quantity) : null,
-    total_price: p.total_price != null ? Number(p.total_price) : null,
+    total_price: p.total_price != null ? round2(p.total_price) : null,
     price_added_to_bill:
-      p.price_added_to_bill != null ? Number(p.price_added_to_bill) : null,
+      p.price_added_to_bill != null ? round2(p.price_added_to_bill) : null,
     created_at: new Date(),
     };
   };
@@ -694,7 +705,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
     )
       evUpdateData.total_cost_for_equipment =
         (body.total_cost_for_equipment ?? body.total_cost) != null
-          ? String(body.total_cost_for_equipment ?? body.total_cost)
+          ? String(round2(body.total_cost_for_equipment ?? body.total_cost))
           : null;
     if (body.dj_cost_price !== undefined || body.dj_cost !== undefined)
       evUpdateData.dj_cost_price_for_event =
@@ -800,20 +811,24 @@ const updateEnquiry = catchAsync(async (req, res) => {
           updatedEvent.is_vat_available_for_the_event === 1
         ) {
           const vatPercentage = (company.vat_percentage || 0) / 100;
-          const eventTotalWithoutVat = Number(
+          const eventTotalWithoutVat = round2(
             body.total_cost_for_equipment ??
               updatedEvent.total_cost_for_equipment ??
               0,
           );
-          const vatValue = eventTotalWithoutVat * vatPercentage;
-          const totalWithVat = eventTotalWithoutVat * (1 + vatPercentage);
+          // Same bug as confirmEvents.controller.js's confirmEvent, fixed there
+          // earlier: unrounded multiplication (e.g. 100*1.175 =
+          // 117.49999999999999) written verbatim into a VARCHAR column breaks
+          // every later fully-paid/equality comparison for that event.
+          const vatValue = round2(eventTotalWithoutVat * vatPercentage);
+          const totalWithVat = round2(eventTotalWithoutVat * (1 + vatPercentage));
           await tx.event
             .update({
               where: { id },
               data: {
                 total_cost_for_equipment: String(totalWithVat),
-                event_amount_without_vat: eventTotalWithoutVat,
-                vat_value: vatValue,
+                event_amount_without_vat: String(eventTotalWithoutVat),
+                vat_value: String(vatValue),
               },
             })
             .catch(() => {});
@@ -829,14 +844,12 @@ const updateEnquiry = catchAsync(async (req, res) => {
           select: { total_cost_for_equipment: true },
         })
         .catch(() => null);
-      const totalCost = totalCostRow
-        ? Number(totalCostRow.total_cost_for_equipment || 0)
-        : 0;
       const paymentAgg = await tx.eventPayment
         .aggregate({ where: { event_id: Number(id) }, _sum: { amount: true } })
         .catch(() => ({ _sum: { amount: 0 } }));
-      const totalPayment = Number(paymentAgg._sum.amount || 0);
-      const paymentSent = totalPayment === totalCost ? 1 : 0;
+      const totalPayment = toMoney(paymentAgg._sum.amount);
+      // >= not === (overpayment / float drift), and safe parse of the VARCHAR.
+      const paymentSent = isFullyPaid(totalPayment, totalCostRow?.total_cost_for_equipment) ? 1 : 0;
       await tx.event
         .update({
           where: { id },

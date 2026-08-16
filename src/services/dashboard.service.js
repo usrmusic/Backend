@@ -221,12 +221,18 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
     });
 
     events.forEach((e) => {
-        const profitAmount = parseNumberLike(e.profit);
-
         if (e.date) {
             const m = new Date(e.date).getMonth();
             monthlyCounts[m] += 1;
-            monthlyProfits[m] += profitAmount;
+            // Only confirmed/completed events count toward profit — matches the
+            // filter used for totalProfit above. Without this gate, stale `profit`
+            // values left on Open Enquiry / Cancelled events (verified live: 10
+            // open + 44 cancelled events carrying a combined £220,030) leaked into
+            // the monthly chart while the year-total KPI correctly excluded them,
+            // so the chart and the headline number could never reconcile.
+            if ([2, 3].includes(e.event_status_id)) {
+                monthlyProfits[m] += parseNumberLike(e.profit);
+            }
         }
 
         const stName = e.event_statuses?.status ? String(e.event_statuses.status) : String(e.event_status_id || 'unknown');

@@ -22,15 +22,23 @@ export const BLACK = '#000000';
 export const F = 'Helvetica';
 export const FB = 'Helvetica-Bold';
 
-export const num = (v) => {
-  const n = Number(String(v ?? '').replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) ? n : 0;
-};
+import { round2 } from '../../utils/money.js';
 
-// Laravel printed bare "£{{ $value }}" (so 4250 -> "£4250"). Kept identical
-// rather than reformatted to £4,250.00 — the point of this port is to match
-// what the client already has, not to redesign it.
-export const gbp = (v) => `£${num(v)}`;
+// Rounds to pennies before use — without this, float artifacts upstream (e.g.
+// a VAT multiplication, or the frontend's unrounded running total) print
+// literally on a client-facing PDF: "£129.99999999999997" instead of "£130".
+export const num = (v) => round2(v);
+
+// Laravel printed bare "£{{ $value }}" (so 4250 -> "£4250", not "£4250.00").
+// Kept that formatting — the point of this port is to match what the client
+// already has — but the value going into it is now always clean pennies:
+// a whole pound prints with no decimals, a real fractional amount prints with
+// exactly 2 (never the 15-digit float tail a raw value could carry).
+export const gbp = (v) => {
+  const n = num(v);
+  const isWhole = Math.abs(n - Math.round(n)) < 1e-9;
+  return `£${isWhole ? Math.round(n) : n.toFixed(2)}`;
+};
 
 export const fmtDate = (d) => {
   if (!d) return '';

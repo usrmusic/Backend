@@ -435,6 +435,11 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
       user_id: true,
       names_id: true,
       event_status_id: true,
+      // Needed for the Open Enquiry redesign's Package column and
+      // Amount/Payment-status panel section — both genuinely stored fields,
+      // just not previously selected here.
+      dj_package_name: true,
+      deposit_amount: true,
       venues: { select: { id: true, venue: true } },
       users_events_user_idTousers: {
         select: { id: true, name: true, email: true, contact_number: true },

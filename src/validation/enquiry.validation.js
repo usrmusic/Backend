@@ -23,6 +23,11 @@ const listOpenEnquiries = Joi.object({
       .optional()
       .allow("", null),
     sortOrder: Joi.string().valid("asc", "desc").optional().default("asc"),
+    // Derived status (called/quoted) and the real dj_package_name value —
+    // see listOpenEnquiries in the controller for how each becomes a where
+    // clause.
+    status: Joi.string().valid("new", "open", "quoted").allow("", null),
+    event_type: Joi.string().trim().max(150).allow("", null),
   }).unknown(true),
 });
 

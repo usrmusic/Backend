@@ -398,9 +398,12 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
   // base where (open enquiries)
   const where = { event_status_id: 1 };
   if (search) {
-    // search event usr_name, venue name, and linked user fields (name/email/contact_number)
+    // search event usr_name, venue name, event details, and linked user
+    // fields (name/email/contact_number) — the frontend's placeholder promises
+    // "name, mobile, or event details", so `details` has to be in this OR too.
     where.OR = [
       { usr_name: { contains: search } },
+      { details: { contains: search } },
       // `venues` is a singular relation on Event — use `is` relation filter
       { venues: { is: { venue: { contains: search } } } },
       // `users_events_user_idTousers` is a singular relation on Event — use `is`
@@ -416,6 +419,41 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
         },
       },
     ];
+  }
+
+  // Status filter — "status" isn't a stored column on this page (every row is
+  // event_status_id=1); it's derived from the called/quoted flags, same
+  // derivation the frontend's Status column uses. Translated into a real
+  // where-clause here so filtering happens in SQL, not by fetching everything
+  // and filtering in JS.
+  const statusFilter = String(q.status || "").trim().toLowerCase();
+  // `called`/`quoted` are nullable booleans — 19 of 22 real rows are NULL, not
+  // false, and Prisma's `{ not: true }` compiles to SQL `<> true`, which never
+  // matches NULL (SQL comparisons against NULL are neither true nor false).
+  // Verified live: that naive form returned 0 rows for "new" instead of the
+  // real 19. `OR` has to sit at the where-clause level as a sibling condition
+  // (a nested `{ quoted: { OR: [...] } }` isn't valid Prisma), so "not
+  // quoted"/"not called" are appended to `where.AND` instead of assigned
+  // directly to `where.quoted`/`where.called`.
+  const notTrue = (field) => ({ OR: [{ [field]: null }, { [field]: false }] });
+  const statusAnd = [];
+  if (statusFilter === "quoted") {
+    where.quoted = true;
+  } else if (statusFilter === "open") {
+    where.called = true;
+    statusAnd.push(notTrue("quoted"));
+  } else if (statusFilter === "new") {
+    statusAnd.push(notTrue("called"), notTrue("quoted"));
+  }
+  if (statusAnd.length) {
+    where.AND = [...(where.AND || []), ...statusAnd];
+  }
+
+  // Event Type filter — dj_package_name is a real, already-selected column;
+  // exact match against one of the distinct values the frontend already shows.
+  const eventType = String(q.event_type || "").trim();
+  if (eventType) {
+    where.dj_package_name = eventType;
   }
   const events = await eventSvc.list({
     filter: where,
@@ -482,6 +520,41 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
 
   res.json(
     serializeForJson({ success: true, data, meta: { page, perPage, total } }),
+  );
+});
+
+/* Event counts grouped by event_status_id, across ALL events — not scoped to
+   open enquiries the way listOpenEnquiries is. Backs the Open Enquiry page's
+   KPI cards (Total / Open / Closed), which are deliberately a business-wide
+   lifecycle view rather than a breakdown of this page's own open-enquiry
+   dataset. Real status ids (event_statuses table): 1 OPEN, 2 CONFIRMED,
+   3 COMPLETED, 4 CANCELLED.
+
+   Open = OPEN + CONFIRMED (an enquiry that's been booked is still "open" —
+   nothing about it is finished yet). Closed = COMPLETED + CANCELLED (the
+   event has run its course, successfully or not). This makes open + closed
+   always exactly equal total — no event falls outside both buckets. */
+const getStatusCounts = catchAsync(async (req, res) => {
+  const grouped = await prisma.event.groupBy({
+    by: ["event_status_id"],
+    _count: { _all: true },
+  });
+
+  const countFor = (id) =>
+    grouped.find((g) => Number(g.event_status_id) === id)?._count?._all ?? 0;
+
+  const openEnquiry = countFor(1);
+  const confirmed = countFor(2);
+  const completed = countFor(3);
+  const cancelled = countFor(4);
+  const total = openEnquiry + confirmed + completed + cancelled;
+
+  res.json(
+    serializeForJson({
+      total,
+      open: openEnquiry + confirmed,
+      closed: completed + cancelled,
+    }),
   );
 });
 
@@ -1825,6 +1898,7 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
 
 export default {
   listOpenEnquiries,
+  getStatusCounts,
   createEnquiry,
   updateEnquiry,
   sendQuote,

@@ -80,6 +80,11 @@ router
     enquiryController.sendQuote,
   );
 
+// Must stay above /:id — otherwise "status-counts" is swallowed as an id param.
+router
+  .route("/status-counts")
+  .get(verifyAccessToken, checkPermission("open enquiry"), enquiryController.getStatusCounts);
+
 router
   .route("/:id")
   .get(

@@ -1320,7 +1320,24 @@ const getEnquiryWithDetails = catchAsync(async (req, res) => {
   if (!Number.isFinite(eventId))
     return res.status(400).json({ error: "event_id_required" });
 
-  const event = await eventSvc.getById(Number(eventId)).catch(() => null);
+  // Include the DJ relation (not just the raw dj_id FK) so the edit form can
+  // always render the assigned DJ's name even if that user was later
+  // soft-deleted and no longer appears in the active /user/get-dropdown list
+  // — otherwise the Select DJ field silently renders blank on edit for any
+  // enquiry whose DJ has since left.
+  const event = await eventSvc
+    .getById(Number(eventId), {
+      include: {
+        users_events_dj_idTousers: {
+          select: {
+            id: true,
+            name: true,
+            package_users: { select: { id: true, package_name: true } },
+          },
+        },
+      },
+    })
+    .catch(() => null);
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
   const packages = await prisma.eventPackage

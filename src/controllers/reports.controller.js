@@ -344,21 +344,57 @@ const suppliersReport = catchAsync(async (req, res) => {
     where: { ...where, date: { gte: today } },
   });
 
-  // total cost (sum event.total_cost_for_equipment, fallback to package totals) — use packagesByEvent
+  // totalCost/totalPaid must cover every event matching the active filters,
+  // not just the current page — `events`/`eventIds`/`packages`/`payments`
+  // above are all scoped by `page`/`perPage` for the table's own rows, so a
+  // separate, unpaginated fetch is needed here. Summing only the paginated
+  // subset (the previous approach) silently understated these stats on any
+  // page smaller than the full filtered result set.
+  const allMatchingEvents = await eventSvc.model.findMany({
+    where,
+    select: { id: true, total_cost_for_equipment: true },
+  });
+  const allEventIds = allMatchingEvents.map((e) => e.id);
+  const allCostByEvent = new Map(
+    allMatchingEvents.map((r) => [
+      Number(r.id),
+      Number(r.total_cost_for_equipment || 0),
+    ]),
+  );
+  const allPackagesForCost = allEventIds.length
+    ? await prisma.eventPackage.findMany({
+        where: { event_id: { in: allEventIds } },
+        select: { event_id: true, cost_price: true, quantity: true },
+      })
+    : [];
+  const allPackagesByEvent = new Map();
+  for (const p of allPackagesForCost) {
+    const id = Number(p.event_id);
+    if (!allPackagesByEvent.has(id)) allPackagesByEvent.set(id, []);
+    allPackagesByEvent.get(id).push(p);
+  }
+  const allPayments = allEventIds.length
+    ? await prisma.eventPayment.findMany({
+        where: { event_id: { in: allEventIds } },
+        select: { amount: true },
+      })
+    : [];
+
+  // total cost (sum event.total_cost_for_equipment, fallback to package totals)
   let totalCost = 0;
-  for (const id of eventIds) {
-    const c = Number(costByEvent.get(Number(id)) || 0);
+  for (const id of allEventIds) {
+    const c = Number(allCostByEvent.get(Number(id)) || 0);
     if (c > 0) {
       totalCost += c;
       continue;
     }
-    const pkgs = packagesByEvent.get(Number(id)) || [];
+    const pkgs = allPackagesByEvent.get(Number(id)) || [];
     for (const p of pkgs) {
       totalCost += (Number(p.cost_price) || 0) * (Number(p.quantity) || 0);
     }
   }
 
-  const totalPaid = payments.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalPaid = allPayments.reduce((s, r) => s + Number(r.amount || 0), 0);
   const remaining = totalCost - totalPaid;
 
   res.json(
@@ -631,6 +667,15 @@ const adminReport = catchAsync(async (req, res) => {
 			payment_remaining,
 			total_count,
 			remaining_events_count,
+			-- Window aggregates over the FULL filtered result set (evaluated
+			-- before the LIMIT/OFFSET below, same as total_count above) — the
+			-- KPI cards must reflect every matching event, not just the current
+			-- page. Summing the paginated JS rows instead (the previous
+			-- approach) silently understated these whenever perPage < total
+			-- matching events, e.g. the default 10-per-page admin report view
+			-- showing totals for 10 events while "Events" correctly showed 571.
+			SUM(total_cost) OVER() AS total_cost_sum,
+			SUM(payment_received) OVER() AS total_paid_sum,
 			event_id
 		FROM final_rows
 		ORDER BY ${safeSortField} ${sortDirection}, event_id DESC
@@ -664,11 +709,13 @@ const adminReport = catchAsync(async (req, res) => {
     rows && rows.length ? Number(rows[0].total_count || 0) : 0;
   const remainingEvents =
     rows && rows.length ? Number(rows[0].remaining_events_count || 0) : 0;
-  const totalCost = data.reduce((s, r) => s + Number(r.total_cost || 0), 0);
-  const totalPaid = data.reduce(
-    (s, r) => s + Number(r.payment_received || 0),
-    0,
-  );
+  // Read from the window-aggregate columns (see the SQL above), NOT a JS
+  // reduce over `data` — `data` is only the current page's rows, and the KPI
+  // cards need the total across every event matching the active filters.
+  const totalCost =
+    rows && rows.length ? Number(rows[0].total_cost_sum || 0) : 0;
+  const totalPaid =
+    rows && rows.length ? Number(rows[0].total_paid_sum || 0) : 0;
   const remaining = totalCost - totalPaid;
 
   res.json(

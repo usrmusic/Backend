@@ -162,7 +162,28 @@ const confirmEvent = catchAsync(async (req, res) => {
         .createEvent({ subject, content, startIso, endIso, location })
         .catch(() => null);
       if (created && created.id) {
-        // add an event note recording the external calendar id so we can find it later
+        // Persist the Graph event id in microsoft_events — this is what
+        // updateEvent()/deleteEvent() look up later (via
+        // prisma.microsoftEvent.findFirst/findMany on event_id) to know
+        // which Outlook event to patch or remove. The event note below is
+        // just a human-readable audit trail; it was previously the ONLY
+        // place this id was recorded, which meant updates/cancellations
+        // could never find it and silently never synced.
+        await prisma.microsoftEvent
+          .create({
+            data: {
+              event_id: BigInt(event.id),
+              microsoft_event_id: String(created.id),
+              created_at: new Date(),
+              updated_at: new Date(),
+            },
+          })
+          .catch((e) => {
+            console.error(
+              "[confirmEventsController] failed to persist microsoft_events row",
+              e?.message || e,
+            );
+          });
         await eventNoteService
           .createNote(prisma, {
             eventId: event.id,

@@ -3,6 +3,7 @@ import app from './app.js';
 import prisma from './utils/prismaClient.js';
 import startCompleteEventsJob from './jobs/completeEventsJob.js';
 import startRecalculateProfitsJob from './jobs/recalculateProfitsJob.js';
+import startPruneExpiredFilesJob from './jobs/pruneExpiredFilesJob.js';
 
 const PORT = process.env.PORT || 4000;
 const DB_CONNECT_MAX_RETRIES = 5;
@@ -58,6 +59,7 @@ async function start() {
   // now PDFKit, no browser process to babysit)
   const completeEventsTask = startCompleteEventsJob();
   const recalcProfitsTask = startRecalculateProfitsJob();
+  const pruneExpiredFilesTask = startPruneExpiredFilesJob();
 
   server.on('error', async (err) => {
     console.error('Server error', err);
@@ -88,6 +90,7 @@ async function start() {
     try {
       if (typeof completeEventsTask?.stop === 'function') completeEventsTask.stop();
       if (typeof recalcProfitsTask?.stop === 'function') recalcProfitsTask.stop();
+      if (typeof pruneExpiredFilesTask?.stop === 'function') pruneExpiredFilesTask.stop();
     } catch (_) {}
   });
 }

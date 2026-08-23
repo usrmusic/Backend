@@ -1,4 +1,5 @@
 export { default as enquiryValidation } from "./enquiry.validation.js";
+export { default as publicEnquiryValidation } from "./publicEnquiry.validation.js";
 export { default as clientValidation } from "./client.validation.js";
 export { default as userValidation } from "./user.validation.js";
 export { default as venueValidation } from "./venue.validation.js";

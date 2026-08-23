@@ -9,6 +9,7 @@ import companyRoutes from "./company.routes.js";
 import rolePermissionRoutes from "./rolePermission.routes.js";
 import emailContentRoutes from "./emailContent.routes.js";
 import enquiryRoutes from "./enquiry.routes.js";
+import publicEnquiryRoutes from "./publicEnquiry.routes.js";
 import confirmEventsRoutes from "./confirmEvents.routes.js";
 import todoRoutes from "./todo.routes.js";
 import fileUploadRoutes from "./fileUpload.routes.js";
@@ -68,6 +69,10 @@ const defaultRoutes = [
   {
     path: "/enquiry",
     route: enquiryRoutes,
+  },
+  {
+    path: "/enquiry-form",
+    route: publicEnquiryRoutes,
   },
   {
     path: "/confirm-event",

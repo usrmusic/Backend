@@ -380,6 +380,33 @@ async function applyOwnershipScope(where, req) {
   return where;
 }
 
+// Event picker for the confirmed-events page's own Select — deliberately NOT
+// the /rig-list/drop-down endpoint (which the frontend used to reuse). That
+// endpoint requires the "rig list" permission and is hard-blocked for Client,
+// so a Client account could never populate this dropdown to find their own
+// event. This one is scoped the same way as listConfirmEvents/listCompleted
+// above, so Admin sees everything, Staff sees their assigned events, and
+// Client sees their own — no rig-list permission involved.
+const listEventsDropdown = catchAsync(async (req, res) => {
+  let where = { event_status_id: { in: [2, 3] } };
+  where = await applyOwnershipScope(where, req);
+
+  const events = await prisma.event.findMany({
+    where,
+    orderBy: { date: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      date: true,
+      event_status_id: true,
+      venues: { select: { id: true, venue: true } },
+      users_events_user_idTousers: { select: { id: true, name: true } },
+    },
+  });
+
+  res.json(serializeForJson({ data: events }));
+});
+
 const listConfirmEvents = catchAsync(async (req, res) => {
   const q = req.query || {};
   const search = String(q.search || "").trim();
@@ -1551,6 +1578,7 @@ const updateEvent = catchAsync(async (req, res) => {
 export default {
   confirmEvent,
   listConfirmEvents,
+  listEventsDropdown,
   listCompletedConfirmEvents,
   getConfirmEvent,
   sendEventConfirmationEmail,

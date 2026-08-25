@@ -4,7 +4,7 @@ import {tokenController} from "../controllers/index.js";
 import { allowOwnerOr } from "../middleware/authorize.js";
 const upload = imageUpload;
 import { verifyAccessToken } from "../middleware/auth0.js";
-import checkPermission from "../middleware/authorize.js";
+import checkPermission, { checkPermissionAny } from "../middleware/authorize.js";
 import { userValidation } from "../validation/index.js";
 import { userController } from "../controllers/index.js";
 import validate from "../middleware/validate.js";
@@ -65,11 +65,15 @@ router
     validate(userValidation.deleteManyUsers),
     userController.deleteManyUsers,
   );
+// Laravel's equivalent (NewEnquiryService::getPackages()) gates this only by
+// enquiry-creation access, not user-management access — any Staff who can
+// open the enquiry form sees the full active DJ list to assign one
+// (including themselves), not just Admins.
 router
   .route("/get-dropdown")
   .get(
     verifyAccessToken,
-    checkPermission("user"),
+    checkPermissionAny(["user", "new enquiry", "open enquiry"]),
     userController.listUserDropdown,
   );
 // Must stay above `/:id` — otherwise "dj-colors" is swallowed as an id param.

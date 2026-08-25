@@ -70,8 +70,18 @@ const getEventsDropDown = catchAsync(async (req, res) => {
         // clients only see events where they are the client/user
         where.users_events_user_idTousers = { id: userId };
     } else if (scope === 'team') {
-        // team users see events they are involved in (dj or creator) or where they are assigned
-        where.OR = [ ...(where.OR || []), { dj_id: userId }, { created_by: userId }, { users_events_dj_idTousers: { id: userId } }, { users_events_user_idTousers: { id: userId } } ];
+        // team users see only events they're involved in (dj, creator, or
+        // assigned) — this MUST intersect with the search-text match above,
+        // not merge into the same OR array, or any event matching the
+        // search text (e.g. another client literally named "Test") leaks
+        // through regardless of who it actually belongs to.
+        const ownershipOr = [
+            { dj_id: userId },
+            { created_by: userId },
+            { users_events_dj_idTousers: { id: userId } },
+            { users_events_user_idTousers: { id: userId } },
+        ];
+        where.AND = [...(where.AND || []), { OR: ownershipOr }];
     }
         // If team scope and granular permissions provided, only include allowed statuses
         if (scope === 'team') {

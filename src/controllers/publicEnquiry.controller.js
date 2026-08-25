@@ -4,6 +4,7 @@ import { serializeForJson } from "../utils/serialize.js";
 import { v4 as uuidv4 } from "uuid";
 import { toDbDate } from "../utils/dateUtils.js";
 import sendEmail from "../utils/mail/resendClient.js";
+import { buildPublicEnquiryAdminEmail } from "../utils/mail/templates/publicEnquiryAdminEmail.js";
 import eventNoteService from "../services/eventNoteService.js";
 import services from "../services/index.js";
 import genPassword from "../utils/genPassword.js";
@@ -60,9 +61,7 @@ async function findOrCreateVenue(venueName) {
 // Backs the new website enquiry form (a public Next.js page replacing the
 // old Squarespace iframe target). No req.user (no session), no venue_id
 // picker, no DJ/equipment — just the lead-capture fields a website visitor
-// fills in. There is no event_type column on Event, so it's folded into the
-// same `details` text field the internal form's "event_details" already
-// writes to, rather than adding a migration for a single free-text label.
+// fills in.
 //
 // Deliberately always creates a NEW Event row rather than finding-and-updating
 // an existing open enquiry for this client — this is a public, unauthenticated
@@ -110,13 +109,10 @@ const createPublicEnquiry = catchAsync(async (req, res) => {
   const eventDateDb = toDbDate(data.event_date);
   const eventDateObj = eventDateDb ? new Date(eventDateDb) : null;
 
-  const details = data.event_type
-    ? `Event Type: ${data.event_type}\n\n${data.event_details || ""}`.trim()
-    : data.event_details || null;
-
   const event = await eventSvc.create({
     date: eventDateObj,
-    details,
+    event_type: data.event_type || null,
+    details: data.event_details || null,
     venue_id: venue?.id || null,
     user_id: Number(client.id),
     created_by: null,
@@ -133,19 +129,16 @@ const createPublicEnquiry = catchAsync(async (req, res) => {
     where: { role_id: BigInt(2), is_email_send: true },
   });
   const adminEmails = admins.map((a) => a.email);
-  await sendEmail({
-    to: adminEmails,
-    subject: "New Website Enquiry",
-    html: `A new enquiry has been submitted through the website form:<br>
-    Name: ${client.name}<br>
-    Email: ${client.email}<br>
-    Contact Number: ${client.contact_number}<br>
-    Event Date: ${data.event_date}<br>
-    Event Type: ${data.event_type || "N/A"}<br>
-    Venue: ${venue ? venue.venue : data.venue || "N/A"}<br>
-    Tell us more: ${data.event_details || "N/A"}<br>
-    `,
-  }).catch(() => {});
+  const { subject, html } = buildPublicEnquiryAdminEmail({
+    name: client.name,
+    email: client.email,
+    contact_number: client.contact_number,
+    event_date: data.event_date,
+    event_type: data.event_type,
+    venue: venue ? venue.venue : data.venue,
+    event_details: data.event_details,
+  });
+  await sendEmail({ to: adminEmails, subject, html }).catch(() => {});
 
   res.status(201).json(
     serializeForJson({

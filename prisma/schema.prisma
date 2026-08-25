@@ -89,6 +89,7 @@ model Event {
   special_requests_announcements String?         @db.Text
   usr_name                       String?         @db.VarChar(150)
   usr_date                       String?         @db.VarChar(10)
+  event_type                     String?         @db.VarChar(100)
   details                        String?         @db.Text
   is_email_sent                  Boolean         @default(false)
   total_cost_for_equipment       String?         @db.VarChar(255)

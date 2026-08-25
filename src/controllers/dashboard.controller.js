@@ -169,12 +169,13 @@ const getDashboardStats = catchAsync(async (req, res) => {
     if (user.role_id && Number(user.role_id) === 4) scope = 'personal';
 
     const stats = await dashboardService.getDashboardStats({ year, userId, scope, userRoleId: user.role_id });
-    // apply visibility rules:
+    // apply visibility rules (matches legacy Laravel CRM: turnover/profit KPIs and
+    // the pending-payments/sales-analytics widgets are Admin/Super Admin only —
+    // Staff and Client never see them, even scoped to their own events):
     // - admin: full data
-    // - team: no money-related fields or pending payments
-    // - personal: their own money/pendingPayments are shown
+    // - team / personal: no money-related fields or pending payments
     const outStats = { ...stats };
-    if (scope === 'team') {
+    if (scope !== 'admin') {
         delete outStats.totalTurnover;
         delete outStats.totalProfit;
         if (outStats.monthly) delete outStats.monthly.turnover;

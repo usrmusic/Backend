@@ -1,7 +1,7 @@
 import express from "express";
 import { verifyAccessToken } from "../middleware/auth0.js";
 import validate from "../middleware/validate.js";
-import { checkPermission } from "../middleware/authorize.js";
+import { checkPermission, requireAdmin, blockClient } from "../middleware/authorize.js";
 import { confirmEventsController } from "../controllers/index.js";
 import { confirmEventsValidation } from "../validation/index.js";
 
@@ -31,8 +31,12 @@ router
 router
   .route("/send-invoice")
   .post(
+    // Send Invoice never appears on the Client's confirmed-events toolbar in
+    // the legacy Laravel CRM (confirmed_events_client.blade.php's button set
+    // is Modify/Update/Print/Download Invoice only).
     verifyAccessToken,
     checkPermission("confirm event"),
+    blockClient,
     validate(confirmEventsValidation.sendEmail),
     confirmEventsController.sendInvoice,
   );
@@ -49,8 +53,11 @@ router
 router
   .route("/refund")
   .post(
+    // Refund is Admin/Super Admin only, matching the legacy Laravel CRM
+    // (confirmed_events.blade.php's Refund button only ever renders inside
+    // the @hasrole('Super Admin|Admin') branch — Staff and Client never get it).
     verifyAccessToken,
-    checkPermission("confirm event"),
+    requireAdmin,
     validate(confirmEventsValidation.refund),
     confirmEventsController.refund,
   );
@@ -58,8 +65,11 @@ router
 router
   .route("/cancel")
   .post(
+    // Cancel Event never appears on the Client's confirmed-events toolbar in
+    // the legacy Laravel CRM (same button set as Send Invoice above).
     verifyAccessToken,
     checkPermission("confirm event"),
+    blockClient,
     validate(confirmEventsValidation.cancel),
     confirmEventsController.cancelEvent,
   );
@@ -67,8 +77,11 @@ router
 router
   .route("/payment")
   .post(
+    // Add Payment is Admin/Super Admin only, matching the legacy Laravel CRM
+    // (sidebar_ui_new.blade.php's Add Payment form only renders for
+    // @hasrole('Super Admin|Admin') — Staff and Client never get it).
     verifyAccessToken,
-    checkPermission("confirm event"),
+    requireAdmin,
     validate(confirmEventsValidation.addPayment),
     confirmEventsController.addPayment,
   );

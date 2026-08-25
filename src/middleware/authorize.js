@@ -187,4 +187,44 @@ export async function ensureSuperAdmin(req, res, next) {
   }
 }
 
+// Passes if the user holds ANY of the given permissions (or manage_all/super_admin).
+export function checkPermissionAny(permissionNames) {
+  return async function (req, res, next) {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'missing_token' });
+
+      const sub = req.user.sub || req.user.id || req.user.email;
+      let userId = null;
+      if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+      if (!userId) {
+        const email = req.user.email || req.user['https://example.com/email'];
+        if (!email) return res.status(401).json({ error: 'missing_user_identity' });
+        const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+        if (!u) return res.status(403).json({ error: 'user_not_found' });
+        userId = Number(u.id);
+      }
+
+      const perms = await loadPermissionsForUserId(userId);
+      if (perms.has('manage_all') || perms.has('super_admin')) return next();
+      if (permissionNames.some((p) => perms.has(p))) return next();
+      return res.status(403).json({ error: 'forbidden', details: 'missing_permission' });
+    } catch (err) {
+      console.error('Authorization error', err);
+      return res.status(500).json({ error: 'authorization_error' });
+    }
+  };
+}
+
+// Hard-blocks the Client role (role_id 4) regardless of permission assignment.
+// Use as a defense-in-depth backstop on actions the legacy Laravel CRM never
+// exposes to a Client (Add Payment, Refund, Cancel Event, Send Invoice, Rig
+// List) — even if a Client account is ever accidentally granted the relevant
+// permission via the manage-access UI, this still blocks them.
+export function blockClient(req, res, next) {
+  if (req.user && Number(req.user.role_id) === 4) {
+    return res.status(403).json({ error: 'forbidden', details: 'client_role_not_allowed' });
+  }
+  next();
+}
+
 export default checkPermission;

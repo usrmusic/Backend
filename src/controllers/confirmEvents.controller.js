@@ -356,12 +356,37 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
   );
 });
 
+// Row-level ownership backstop matching the legacy Laravel CRM's
+// getConfirmedEvents() scoping (ConfirmedEventsController.php:154-169): Staff/DJ
+// only ever see events they're assigned to, a Client only their own bookings.
+// This guards against a Client/Staff account ever being misconfigured with the
+// "confirm event"/"complete event" permission in the live roles UI — the route
+// permission alone would otherwise return every client's data to them.
+async function applyOwnershipScope(where, req) {
+  const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+  let requesterId = null;
+  if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+  if (!requesterId && req.user && req.user.email) {
+    const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+    if (uu) requesterId = Number(uu.id);
+  }
+  if (!requesterId) return where;
+
+  const requester = await prisma.user.findUnique({ where: { id: requesterId }, select: { role_id: true } });
+  const roleId = requester ? Number(requester.role_id) : null;
+
+  if (roleId === 3) return { ...where, dj_id: requesterId };
+  if (roleId === 4) return { ...where, user_id: requesterId };
+  return where;
+}
+
 const listConfirmEvents = catchAsync(async (req, res) => {
   const q = req.query || {};
   const search = String(q.search || "").trim();
   const { page, limit } = parsePaginationParams(q);
 
-  const where = { event_status_id: 2 };
+  let where = { event_status_id: 2 };
+  where = await applyOwnershipScope(where, req);
   if (search) {
     where.OR = [
       { usr_name: { contains: search } },
@@ -396,7 +421,8 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
   const paymentStatus = String(q.paymentStatus || q.paymentstatus || "").trim().toLowerCase();
   const { page, limit } = parsePaginationParams(q);
 
-  const where = { event_status_id: 3 };
+  let where = { event_status_id: 3 };
+  where = await applyOwnershipScope(where, req);
   if (paymentStatus) {
     if (paymentStatus === "completed") {
       where.is_event_payment_fully_paid = true;
@@ -484,6 +510,7 @@ const getConfirmEvent = catchAsync(async (req, res) => {
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
   // Authorization: ensure requester may view this confirmed event
+  let isAdmin = false;
   try {
     // determine requesting user id
     const sub = req.user && (req.user.sub || req.user.id || req.user.email);
@@ -495,8 +522,8 @@ const getConfirmEvent = catchAsync(async (req, res) => {
     }
 
     const perms = requesterId ? await loadPermissionsForUserId(requesterId) : new Set();
-    const isAdmin = perms && (perms.has('manage_all') || perms.has('super_admin') || perms.has('confirm event'));
-    const hasViewConfirmed = perms && (perms.has('view_confirmed_events') || perms.has('view_confirmed_event') );
+    isAdmin = perms && (perms.has('manage_all') || perms.has('super_admin'));
+    const hasViewConfirmed = perms && (perms.has('view_confirmed_events') || perms.has('view_confirmed_event') || perms.has('confirm event'));
 
     let allowed = false;
     if (isAdmin || hasViewConfirmed) allowed = true;
@@ -621,6 +648,28 @@ const getConfirmEvent = catchAsync(async (req, res) => {
     event.event_packages = Array.isArray(event.event_package) ? event.event_package : [];
   } catch (e) {
     event.event_packages = [];
+  }
+
+  // Strip cost/profit-margin fields for anyone but Admin/Super Admin — matches
+  // the legacy Laravel CRM, which never renders dj_cost_price_for_event/profit
+  // to Staff or Client (only Admin/Super Admin's dashboard shows these
+  // figures; confirmed_events.blade.php never prints them as text at all).
+  // The Prisma `include` above pulls every scalar column including these, so
+  // without this they'd leak straight into the JSON response even though the
+  // frontend never renders them.
+  if (!isAdmin) {
+    delete event.dj_cost_price_for_event;
+    delete event.profit;
+    delete event.event_cost;
+    delete event.extra_cost;
+    // event.event_packages is the same array reference as event.event_package
+    // (aliased above), so one pass covers both.
+    if (Array.isArray(event.event_package)) {
+      for (const pkg of event.event_package) {
+        delete pkg.cost_price;
+        if (pkg.equipment) delete pkg.equipment.cost_price;
+      }
+    }
   }
 
   res.json(serializeForJson({ success: true, data: event }));

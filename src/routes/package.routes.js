@@ -21,7 +21,7 @@ router
     packageController.createPackage,
   );
 router.route("/get-dropdown")
-  .get(verifyAccessToken, packageController.getPackageDropdown);
+  .get(protectAdmin, packageController.getPackageDropdown);
 router
   .route("/:id")
   .get(

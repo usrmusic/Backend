@@ -556,8 +556,30 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
    event has run its course, successfully or not). This makes open + closed
    always exactly equal total — no event falls outside both buckets. */
 const getStatusCounts = catchAsync(async (req, res) => {
+  // Scope the same way listOpenEnquiries does — Staff only counts events
+  // they're assigned to or created, Client only counts their own events,
+  // Admin/Super Admin still see the global totals.
+  let where = {};
+  const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+  let requesterId = null;
+  if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+  if (!requesterId && req.user && req.user.email) {
+    const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+    if (uu) requesterId = Number(uu.id);
+  }
+  if (requesterId) {
+    const requester = await prisma.user.findUnique({ where: { id: requesterId }, select: { role_id: true } });
+    const roleId = requester ? Number(requester.role_id) : null;
+    if (roleId === 3) {
+      where = { OR: [{ dj_id: requesterId }, { created_by: requesterId }] };
+    } else if (roleId === 4) {
+      where = { OR: [{ user_id: requesterId }, { dj_id: requesterId }, { created_by: requesterId }] };
+    }
+  }
+
   const grouped = await prisma.event.groupBy({
     by: ["event_status_id"],
+    where,
     _count: { _all: true },
   });
 

@@ -544,17 +544,16 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
   );
 });
 
-/* Event counts grouped by event_status_id, across ALL events — not scoped to
-   open enquiries the way listOpenEnquiries is. Backs the Open Enquiry page's
-   KPI cards (Total / Open / Closed), which are deliberately a business-wide
-   lifecycle view rather than a breakdown of this page's own open-enquiry
-   dataset. Real status ids (event_statuses table): 1 OPEN, 2 CONFIRMED,
-   3 COMPLETED, 4 CANCELLED.
+/* Event counts grouped by event_status_id. Backs the Open Enquiry page's KPI
+   cards (Total / Open / Closed). Real status ids (event_statuses table):
+   1 OPEN, 2 CONFIRMED, 3 COMPLETED, 4 CANCELLED.
 
-   Open = OPEN + CONFIRMED (an enquiry that's been booked is still "open" —
-   nothing about it is finished yet). Closed = COMPLETED + CANCELLED (the
-   event has run its course, successfully or not). This makes open + closed
-   always exactly equal total — no event falls outside both buckets. */
+   Open = OPEN only — this has to match the row count of the open-enquiry
+   list rendered directly under these cards (which only ever queries
+   event_status_id=1), or the "Open: 3" card sitting over a 1-row table
+   looks broken. Closed = CONFIRMED + COMPLETED + CANCELLED (anything that's
+   moved on from being an open enquiry, whether that ended in a booking or
+   not). Open + closed always equals total. */
 const getStatusCounts = catchAsync(async (req, res) => {
   // Scope the same way listOpenEnquiries does — Staff only counts events
   // they're assigned to or created, Client only counts their own events,
@@ -595,8 +594,8 @@ const getStatusCounts = catchAsync(async (req, res) => {
   res.json(
     serializeForJson({
       total,
-      open: openEnquiry + confirmed,
-      closed: completed + cancelled,
+      open: openEnquiry,
+      closed: confirmed + completed + cancelled,
     }),
   );
 });

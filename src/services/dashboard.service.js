@@ -144,22 +144,12 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
      */
     // Build scope-aware where clause
     let baseWhere = { date: dateFilter };
-    // normalize role id to BigInt when possible
-    let roleIdBig = undefined;
-    try {
-        if (userRoleId !== null && userRoleId !== undefined) {
-            roleIdBig = typeof userRoleId === 'bigint' ? userRoleId : BigInt(userRoleId);
-        }
-    } catch (e) {
-        roleIdBig = undefined;
-    }
 
     if (scope === 'team') {
+        // Match by THIS user's id, never by role — matching on role_id would
+        // pull in every other Staff member's events too (any DJ with the
+        // same role), not just events actually assigned to this user.
         const teamOr = [];
-        if (roleIdBig !== undefined) {
-            teamOr.push({ users_events_dj_idTousers: { role_id: roleIdBig } });
-            teamOr.push({ users_events_user_idTousers: { role_id: roleIdBig } });
-        }
         if (userId) {
             teamOr.push({ dj_id: userId });
             teamOr.push({ created_by: userId });
@@ -380,11 +370,10 @@ async function getUpcomingEvents({ search = null, userId = null, scope = 'admin'
 
     let where = baseWhere;
     if (scope === 'team') {
+        // Match by THIS user's id, never by role — matching on role_id would
+        // pull in every other Staff member's events too (any DJ with the
+        // same role), not just events actually assigned to this user.
         const teamOr = [];
-        if (roleIdBig !== undefined) {
-            teamOr.push({ users_events_dj_idTousers: { role_id: roleIdBig } });
-            teamOr.push({ users_events_user_idTousers: { role_id: roleIdBig } });
-        }
         if (userId) {
             teamOr.push({ dj_id: userId });
             teamOr.push({ created_by: userId });

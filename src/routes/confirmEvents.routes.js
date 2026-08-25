@@ -20,6 +20,10 @@ router
   );
 
 router
+  .route("/events-dropdown")
+  .get(verifyAccessToken, checkPermission("confirm event"), confirmEventsController.listEventsDropdown);
+
+router
   .route("/completed")
   .get(
     verifyAccessToken,

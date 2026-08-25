@@ -7,7 +7,23 @@ export const listEvents = catchAsync(async (req, res) => {
   const opts = parseFilterSort(req.query || {});
   const today = new Date();
   const isoDate = today.toISOString().slice(0, 10);
-  const where = { ...(opts.where || {}), event_status_id: 2, date: { gte: new Date(isoDate) } };
+  let where = { ...(opts.where || {}), event_status_id: 2, date: { gte: new Date(isoDate) } };
+
+  // Staff only rigs their own events — Client can never reach this route
+  // (blocked by `blockClient`), Admin/Super Admin still see everything.
+  const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+  let requesterId = null;
+  if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+  if (!requesterId && req.user && req.user.email) {
+    const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+    if (uu) requesterId = Number(uu.id);
+  }
+  if (requesterId) {
+    const requester = await prisma.user.findUnique({ where: { id: requesterId }, select: { role_id: true } });
+    if (requester && Number(requester.role_id) === 3) {
+      where = { ...where, dj_id: requesterId };
+    }
+  }
 
   const events = await prisma.event.findMany({
     where,

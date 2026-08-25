@@ -1,16 +1,20 @@
 import express from 'express';
 import { verifyAccessToken } from '../middleware/auth0.js';
-import { requireAdmin } from '../middleware/authorize.js';
+import { checkPermission } from '../middleware/authorize.js';
 import {todoController} from '../controllers/index.js';
 import validate from '../middleware/validate.js';
 import {todoValidation} from '../validation/index.js';
 
 const router = express.Router();
 // Read endpoints are open to any authenticated user. Mutations
-// (create/update/delete) are admin-only. The complete-toggle has a
-// runtime check that allows the assigned user as well.
+// (create/update/delete) require the "confirm event" permission — matching
+// the legacy Laravel CRM, where todo routes sit inside the same can:confirm
+// event group with no extra role restriction, so Staff (who hold that
+// permission) can manage todos same as Admin; only Client is excluded
+// (Client never holds "confirm event"). The complete-toggle has a runtime
+// check that allows the assigned user as well.
 const authOnly = [verifyAccessToken];
-const adminGuard = [verifyAccessToken, requireAdmin];
+const adminGuard = [verifyAccessToken, checkPermission('confirm event')];
 
 // Todos for the current user
 router.route('/mine')

@@ -21,7 +21,7 @@ router
   );
 router
   .route("/get-dropdown")
-  .get(verifyAccessToken, equipmentController.getEquipmentDropdown);
+  .get(protectAdmin, equipmentController.getEquipmentDropdown);
 router
   .route("/:id")
   .get(

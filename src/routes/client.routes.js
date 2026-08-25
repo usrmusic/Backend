@@ -10,6 +10,11 @@ import { imageUpload as upload } from "../utils/multerConfig.js";
 const router = express.Router();
 
 // router.use(verifyAccessToken);
+// Laravel's Clients route technically accepts "confirm event" permission too,
+// but "Clients" only exists as a tab inside /contacts, and the only nav link
+// into /contacts is gated by "user" — so Staff never had a real path here in
+// Laravel either. No point leaving the API open on the broader permission
+// with no matching UI; "user" only, same as the rest of this file's routes.
 const protectAdmin = [verifyAccessToken, checkPermission("user")];
 
 router

@@ -455,6 +455,27 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
   if (eventType) {
     where.dj_package_name = eventType;
   }
+
+  // Staff/DJ only sees enquiries they're assigned to or created — the
+  // Node app's own addition, not present in the legacy Laravel CRM (its
+  // OpenEnquiryService returns every event unscoped, verified against
+  // OpenEnquiryService.php). Admin/Super Admin still sees everything.
+  {
+    const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+    let requesterId = null;
+    if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
+    if (!requesterId && req.user && req.user.email) {
+      const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
+      if (uu) requesterId = Number(uu.id);
+    }
+    if (requesterId) {
+      const requester = await prisma.user.findUnique({ where: { id: requesterId }, select: { role_id: true } });
+      if (requester && Number(requester.role_id) === 3) {
+        where.AND = [...(where.AND || []), { OR: [{ dj_id: requesterId }, { created_by: requesterId }] }];
+      }
+    }
+  }
+
   const events = await eventSvc.list({
     filter: where,
     sort: `${sortField}:${sortOrder}`,

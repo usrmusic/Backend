@@ -96,8 +96,11 @@ router
     confirmEventsController.getConfirmEvent,
   )
   .post(
+    // Confirming an enquiry (turning it into a confirmed event via a deposit)
+    // is Admin/Super Admin only, matching Laravel's Deposit form
+    // (@hasrole('Super Admin|Admin')) — Staff never gets this action.
     verifyAccessToken,
-    checkPermission("confirm event"),
+    requireAdmin,
     validate(confirmEventsValidation.confirmEvent),
     confirmEventsController.confirmEvent,
   )

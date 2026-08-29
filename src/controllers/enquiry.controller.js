@@ -1276,7 +1276,7 @@ const staffEquipment = catchAsync(async (req, res) => {
         .findMany({
           where: { id: { notIn: equipmentIds }, status: "ACTIVE" },
           include: { equipment_properties: { include: { properties: true } } },
-          orderBy: { name: "asc" },
+          orderBy: [{ sort_order: "asc" }, { name: "asc" }],
         })
         .catch(() => []);
     } else {
@@ -1284,7 +1284,7 @@ const staffEquipment = catchAsync(async (req, res) => {
         .findMany({
           where: { status: "ACTIVE" },
           include: { equipment_properties: { include: { properties: true } } },
-          orderBy: { name: "asc" },
+          orderBy: [{ sort_order: "asc" }, { name: "asc" }],
         })
         .catch(() => []);
     }

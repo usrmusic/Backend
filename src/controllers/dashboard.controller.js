@@ -67,8 +67,15 @@ const getEventsDropDown = catchAsync(async (req, res) => {
     // apply scope restrictions
     const where = { OR: or };
     if (scope === 'personal') {
-        // clients only see events where they are the client/user
+        // clients only see events where they are the client/user, and only
+        // ones that land on a page they can actually reach when clicked —
+        // Completed Events is blocked for Client entirely, so a completed/
+        // cancelled event here was a dead-end result (404/403 on click).
         where.users_events_user_idTousers = { id: userId };
+        where.NOT = [
+            { event_statuses: { status: { contains: 'complete' } } },
+            { event_statuses: { status: { contains: 'cancel' } } },
+        ];
     } else if (scope === 'team') {
         // team users see only events they're involved in (dj, creator, or
         // assigned) — this MUST intersect with the search-text match above,

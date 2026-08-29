@@ -18,7 +18,10 @@ class CoreCrudService {
     if (sort) {
       orderBy = String(sort).split(',').map((s) => {
         const [field, dir = 'asc'] = s.split(':').map((p) => p.trim());
-        return { [field]: dir };
+        // Dot notation (e.g. "users.name") sorts by a related model's field —
+        // Prisma needs that as a nested object, not a literal dotted key.
+        const parts = field.split('.');
+        return parts.reduceRight((acc, part) => ({ [part]: acc }), dir);
       });
     }
 

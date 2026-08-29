@@ -388,7 +388,10 @@ async function applyOwnershipScope(where, req) {
 // above, so Admin sees everything, Staff sees their assigned events, and
 // Client sees their own — no rig-list permission involved.
 const listEventsDropdown = catchAsync(async (req, res) => {
-  let where = { event_status_id: { in: [2, 3] } };
+  // Confirmed Events' own picker — only Confirmed events belong here, for
+  // every role. Completed events have their own page/dropdown; including
+  // status 3 here let Completed events leak into this picker for everyone.
+  let where = { event_status_id: 2 };
   where = await applyOwnershipScope(where, req);
 
   const events = await prisma.event.findMany({

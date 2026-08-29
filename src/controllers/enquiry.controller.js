@@ -178,6 +178,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       deposit_amount: data.deposit_amount != null ? data.deposit_amount : null,
       details: data.event_details || null,
       dj_package_name: data.dj_package_name || null,
+      event_type: data.event_type || null,
       dj_id: djId != null ? djId : undefined,
       // round2 defends against float drift accumulated by the frontend's
       // unrounded running-total sum (unit*qty added across every line item) —
@@ -216,6 +217,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       deposit_amount: data.deposit_amount != null ? data.deposit_amount : null,
       details: data.event_details || null,
       dj_package_name: data.dj_package_name || null,
+      event_type: data.event_type || null,
       dj_id: djId != null ? djId : null,
       total_cost_for_equipment:
         data.total_cost != null ? String(round2(data.total_cost)) : null,
@@ -498,6 +500,7 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
       // Amount/Payment-status panel section — both genuinely stored fields,
       // just not previously selected here.
       dj_package_name: true,
+      event_type: true,
       deposit_amount: true,
       venues: { select: { id: true, venue: true } },
       users_events_user_idTousers: {
@@ -808,6 +811,8 @@ const updateEnquiry = catchAsync(async (req, res) => {
     }
     if (body.dj_package_name !== undefined)
       evUpdateData.dj_package_name = body.dj_package_name || null;
+    if (body.event_type !== undefined)
+      evUpdateData.event_type = body.event_type || null;
     if (eventDateObj) evUpdateData.date = eventDateObj;
     if (startTimeObj) evUpdateData.start_time = startTimeObj;
     if (endTimeObj) evUpdateData.end_time = endTimeObj;

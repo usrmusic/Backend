@@ -23,6 +23,13 @@ router
   .route("/get-dropdown")
   .get(protectAdmin, equipmentController.getEquipmentDropdown);
 router
+  .route("/reorder")
+  .post(
+    protectAdmin,
+    validate(equipmentValidation.reorderEquipment),
+    equipmentController.reorderEquipment,
+  );
+router
   .route("/:id")
   .get(
     protectAdmin,

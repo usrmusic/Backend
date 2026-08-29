@@ -9,13 +9,22 @@ const supplierSvc = services.get("supplier");
 
 
 const listEquipment = catchAsync(async (req, res) => {
-  // Support `filter` (JSON), `search`/`q`, pagination and sorting query params
-  const perPage = Number(req.query.perPage || req.query.limit || req.params.perPage || req.params.limit || 25);
-  const page = Number(req.query.page || req.params.page || 1);
+  // Support `filter` (JSON), `search`/`q`, pagination and sorting query params.
+  // perPage="all" (used by the packages page's Equipment tab, which shows the
+  // whole list on one page) skips pagination entirely rather than capping at
+  // an arbitrary large number.
+  const showAll = req.query.perPage === "all" || req.params.perPage === "all";
+  const perPage = showAll
+    ? undefined
+    : Number(req.query.perPage || req.query.limit || req.params.perPage || req.params.limit || 25);
+  const page = showAll ? undefined : Number(req.query.page || req.params.page || 1);
+  // Ties on sort_order (rows never dragged, all default 0) fall back to name
+  // so the list doesn't look randomly shuffled before anyone reorders it.
   const sort =
     req.query.sort ||
     (req.query.sort_by ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}` : undefined)
-    || (req.params.sort_by ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}` : undefined);
+    || (req.params.sort_by ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}` : undefined)
+    || "sort_order:asc,name:asc";
 
   let filter = {};
   if (req.query.filter || req.params.filter) {
@@ -133,6 +142,28 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
   res.status(501).json({ error: "not_implemented" });
 });
 
+const reorderEquipment = catchAsync(async (req, res) => {
+  const body = req.body || {};
+  const idsInput = Array.isArray(body.ids) ? body.ids : null;
+  if (!idsInput || !idsInput.length)
+    return res.status(400).json({ error: "ids_required" });
+
+  const ids = idsInput.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+  if (ids.length !== idsInput.length)
+    return res.status(400).json({ error: "invalid_ids" });
+
+  await prisma.$transaction(
+    ids.map((id, index) =>
+      equipmentSvc.model.update({
+        where: { id },
+        data: { sort_order: index },
+      }),
+    ),
+  );
+
+  res.json({ ok: true });
+});
+
 const getEquipmentDropdown = catchAsync(async (req, res) => {
   const items = await equipmentSvc.model
     .findMany({
@@ -156,5 +187,6 @@ export default {
   updateEquipment,
   deleteEquipment,
   deleteManyEquipment,
+  reorderEquipment,
   getEquipmentDropdown,
 };

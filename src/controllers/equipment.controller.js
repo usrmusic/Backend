@@ -172,7 +172,7 @@ const getEquipmentDropdown = catchAsync(async (req, res) => {
         name: true,
       },
       where: { status: "ACTIVE" },
-      orderBy: { name: "asc" },
+      orderBy: [{ sort_order: "asc" }, { name: "asc" }],
     })
     .catch(() => []);
 

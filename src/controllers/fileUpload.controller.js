@@ -111,6 +111,75 @@ export const listFiles = catchAsync(async (req, res) => {
   });
 });
 
+// Self-scoped listing for the requesting user's own event files (e.g. Client
+// dashboard). Deliberately requires only a valid JWT, not the "file upload"
+// permission, since clients are never granted that admin-facing permission —
+// safe because the query is hard-scoped to events the requester owns.
+export const listMyFiles = catchAsync(async (req, res) => {
+  const requesterId = Number(req.user?.sub || req.user?.id);
+  if (!requesterId) return res.status(401).json({ error: "unauthorized" });
+
+  const perPage = Number(req.query.perPage || req.query.limit || 25);
+  const page = Number(req.query.page || 1);
+
+  const where = { events: { user_id: requesterId } };
+  if (req.query.search) where.file_name = { contains: req.query.search };
+
+  const [files, count] = await Promise.all([
+    prisma.fileUpload.findMany({
+      where,
+      orderBy: { created_at: "desc" },
+      take: perPage,
+      skip: (page - 1) * perPage,
+    }),
+    prisma.fileUpload.count({ where }),
+  ]);
+
+  res.json({
+    data: serializeForJson(files),
+    meta: {
+      total: count,
+      perPage,
+      page,
+      totalPages: perPage > 0 ? Math.ceil(count / perPage) : 1,
+    },
+  });
+});
+
+// Ownership-checked download counterpart to `listMyFiles` — used by clients
+// who lack the "file upload" permission required by the admin download route.
+export const downloadMyFile = catchAsync(async (req, res) => {
+  const requesterId = Number(req.user?.sub || req.user?.id);
+  const id = Number(req.params.id);
+  if (!requesterId) return res.status(401).json({ error: "unauthorized" });
+  if (!id) return res.status(400).json({ error: "invalid_id" });
+
+  const f = await prisma.fileUpload.findUnique({
+    where: { id },
+    include: { events: true },
+  });
+  if (!f) return res.status(404).json({ error: "not_found" });
+  if (!f.events || f.events.user_id !== requesterId) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  if ((process.env.FILE_STORAGE || "").toLowerCase() === "s3") {
+    return streamFileFromS3(f, res);
+  }
+
+  const uploadsDir = getUploadsDir();
+  const p = path.join(uploadsDir, f.file_name);
+  if (!fs.existsSync(p))
+    return res.status(404).json({ error: "file_not_found" });
+
+  const filename = f.original_name || path.basename(f.file_name);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${encodeURIComponent(filename)}"`,
+  );
+  return res.download(p, filename);
+});
+
 export const getFile = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
@@ -468,10 +537,12 @@ const downloadMedia = catchAsync(async (req, res) => {
 
 export default {
   listFiles,
+  listMyFiles,
   getFile,
   uploadfile,
   updateFileMetadata,
   downloadFile,
+  downloadMyFile,
   deleteFile,
   listMedia,
   uploadMedia,

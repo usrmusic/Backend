@@ -3,6 +3,17 @@ import Joi from "joi";
 const dateRegex = /^\d{2}-\d{2}-\d{4}$/; // DD-MM-YYYY
 const timeRegex = /^(?:[01]\d|2[0-3]):[0-5]\d$/; // HH:mm
 
+// Same fixed list as the public enquiry-form's "Type of Event" dropdown
+// (USRMucic/src/app/enquiry-form/page.tsx) — kept in sync manually since
+// the two forms live in different parts of the app.
+export const EVENT_TYPES = [
+  "Wedding Reception",
+  "Destination Wedding",
+  "Corporate",
+  "Jago/Sangeet",
+  "Other",
+];
+
 const allowedSortFields = [
   "date",
   "id",
@@ -58,6 +69,7 @@ const createEnquiry = Joi.object({
     event_details: Joi.string().allow("", null),
     dj_name: Joi.string().allow("", null),
     dj_package_name: Joi.string().allow("", null),
+    event_type: Joi.string().valid(...EVENT_TYPES).allow("", null),
     total_cost: Joi.number().allow(null),
     dj_cost: Joi.number().allow(null),
     equipment_data: Joi.array().items(equipmentItem).allow(null),
@@ -149,6 +161,7 @@ const updateEnquiry = Joi.object({
     dj_name: Joi.string().allow("", null),
     dj_id: Joi.number().integer().allow(null),
     dj_package_name: Joi.string().allow("", null),
+    event_type: Joi.string().valid(...EVENT_TYPES).allow("", null),
     total_cost: Joi.number().allow(null),
     dj_cost: Joi.number().allow(null),
     equipment_data: Joi.array().items(equipmentItem).allow(null),

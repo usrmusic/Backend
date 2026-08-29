@@ -19,8 +19,14 @@ const listEquipment = {
   query: Joi.object({
     search: Joi.string().trim().max(200).allow("", null),
     page: Joi.number().integer().min(1).default(1),
-    perPage: Joi.number().integer().min(1).max(100).default(25),
+    // "all" is used by the Equipment tab, which shows the whole list on one
+    // page (no pagination) so drag-and-drop reordering has every row in view.
+    perPage: Joi.alternatives()
+      .try(Joi.number().integer().min(1).max(500), Joi.string().valid("all"))
+      .default(25),
     sort: Joi.string().optional(),
+    sort_by: Joi.string().optional(),
+    sort_dir: Joi.string().valid("asc", "desc").optional(),
     supplier_id: Joi.alternatives().try(Joi.string(), Joi.number()).optional(),
     filter: Joi.alternatives().try(Joi.string(), Joi.object()).optional(),
   }),
@@ -68,6 +74,12 @@ const getEquipment = {
   }),
 };
 
+const reorderEquipment = {
+  body: Joi.object({
+    ids: Joi.array().items(Joi.number().integer()).min(1).required(),
+  }),
+};
+
 export default {
   createEquipment,
   updateEquipment,
@@ -75,4 +87,5 @@ export default {
   listEquipment,
   deleteManyEquipment,
   getEquipment,
+  reorderEquipment,
 };

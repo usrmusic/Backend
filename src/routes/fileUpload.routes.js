@@ -46,6 +46,15 @@ router
     fileUploadController.uploadMedia,
   );
 
+// Self-scoped routes (own event files only) — no "file upload" permission
+// required, since Client accounts are never granted it. Must be declared
+// before "/uploads/:id" so "mine" isn't captured as an :id param.
+router.route("/uploads/mine").get(verifyAccessToken, fileUploadController.listMyFiles);
+
+router
+  .route("/uploads/mine/:id/download")
+  .get(verifyAccessToken, fileUploadController.downloadMyFile);
+
 router
   .route("/uploads/:id")
   .get(

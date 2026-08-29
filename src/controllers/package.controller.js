@@ -8,8 +8,13 @@ const packageTypeSvc = services.get("PackageType");
 
 const listPackages = catchAsync(async (req, res) => {
   const q = req.query || {};
-  const page = q.page ? Math.max(1, Number(q.page)) : 1;
-  const limit = q.perPage
+  // perPage="all" shows every package on one page (matches Laravel's
+  // bootstrap-table config for this list — no server pagination there).
+  const showAll = q.perPage === "all";
+  const page = showAll ? undefined : q.page ? Math.max(1, Number(q.page)) : 1;
+  const limit = showAll
+    ? undefined
+    : q.perPage
     ? Math.min(100, Number(q.perPage))
     : q.limit
     ? Math.min(100, Number(q.limit))
@@ -43,7 +48,7 @@ const listPackages = catchAsync(async (req, res) => {
   res.json(
     serializeForJson({
       data: items,
-      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      meta: { total, page, limit, totalPages: showAll ? 1 : Math.ceil(total / limit) },
     }),
   );
 });
@@ -185,6 +190,11 @@ const updatePackage = catchAsync(async (req, res) => {
   const existing = await packageUserSvc.model.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ error: "package_not_found" });
 
+  const status =
+    body.status === "ACTIVE" || body.status === "INACTIVE"
+      ? body.status
+      : existing.status;
+
   const finalPackageName = package_name || existing.package_name || null;
   const cp = cost_price != null ? Number(cost_price) : sell_price != null ? Number(sell_price) : existing.cost_price;
   const sp = sell_price != null ? Number(sell_price) : existing.sell_price;
@@ -219,6 +229,7 @@ const updatePackage = catchAsync(async (req, res) => {
         package_name: finalPackageName,
         cost_price: cp,
         sell_price: sp,
+        status,
         user_id: user_id != null ? Number(user_id) : existing.user_id,
       },
     });

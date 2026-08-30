@@ -49,4 +49,14 @@ const adminReport = Joi.object({
     })
 });
 
-export default {suppliersReport, adminReport};
+const updateSupplierPayment = Joi.object({
+    params: Joi.object({
+        id: Joi.number().integer().required(),
+    }),
+    body: Joi.object({
+        payment_send: Joi.string().valid("yes", "no").allow(null).optional(),
+        payment_date: Joi.string().allow(null, "").optional(),
+    }),
+});
+
+export default {suppliersReport, adminReport, updateSupplierPayment};

@@ -25,4 +25,22 @@ router
     reportsController.adminReport,
   );
 
+router
+  .route("/suppliers/equipment/:id/payment")
+  .put(
+    verifyAccessToken,
+    checkPermission("supplier reporting"),
+    validate(reportsValidation.updateSupplierPayment),
+    reportsController.updateSupplierPaymentEquipment,
+  );
+
+router
+  .route("/suppliers/dj/:id/payment")
+  .put(
+    verifyAccessToken,
+    checkPermission("supplier reporting"),
+    validate(reportsValidation.updateSupplierPayment),
+    reportsController.updateSupplierPaymentDj,
+  );
+
 export default router;

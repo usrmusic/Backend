@@ -1,118 +1,131 @@
-# Backend Boilerplate (Express + Prisma v7)
+# USRMusic Backend
 
-RBAC backend using Node.js (ESM), Express, Prisma v7 (MySQL), Resend, and file uploads.
+REST API for USRMusic, a DJ/entertainment business management CRM. Built with Node.js (ESM), Express, and Prisma v7 over MySQL/MariaDB. Manages the full event lifecycle: lead capture → enquiries → confirmed events → digital contracts → invoices → payments → completed events.
+
+## Tech Stack
+
+- **Runtime:** Node.js (ESM, `"type": "module"`)
+- **Framework:** Express 4.x
+- **ORM:** Prisma v7 + `@prisma/adapter-mariadb`
+- **Database:** MySQL / MariaDB
+- **Auth:** Custom JWT (HS256) via `jsonwebtoken` + `bcrypt`
+- **Email:** Resend
+- **File storage:** AWS S3 (`@aws-sdk/client-s3`, presigned URLs), local disk in dev
+- **File upload:** Multer
+- **PDF generation:** PDFKit + Puppeteer (headless Chromium)
+- **Validation:** Joi
+- **Security:** Helmet, CORS allowlist
+- **Logging:** Morgan
+- **Scheduling:** node-cron (background jobs)
 
 ## Quick Start (Local Development)
 
-1. **Copy environment file:**
-```bash 
-copy .env.example .env.devlopment
+1. Create a `.env.local` file in the project root with the variables listed below (see [Environment Variables](#environment-variables)).
 
-```bash
-2. **Install dependencies:**
-```bash
-npm install
-```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-3. **Generate Prisma client:**
-```bash
-npx prisma generate
-```
+3. Generate the Prisma client:
+   ```bash
+   npx prisma generate
+   ```
 
-4. **Run dev server:**
-```bash
-npm run dev
-# Server runs on http://localhost:4000
-```
+4. Push the schema to your database (or run migrations):
+   ```bash
+   npx prisma db push
+   ```
+
+5. Run the dev server:
+   ```bash
+   npm run dev
+   # Server runs on http://localhost:4000 (or $PORT)
+   ```
 
 ## Project Structure
 
 ```
-backend/
-├── prisma/
-│   └── schema.prisma        # Prisma models (generated from CSV schema)
+Backend/
 ├── src/
-│   ├── app.js               # Express app setup
-│   ├── server.js            # Server entry + graceful shutdown
-│   ├── config/              # Environment config
-│   ├── controllers/         # Route controllers
-│   ├── middleware/          # Auth0 JWT verification
-│   ├── routes/              # API routes
-│   ├── utils/               # AppError, catchAsync, errorHandler
-│   └── prismaClient.js      # Prisma client instance
-├── uploads/                 # Local file uploads (use S3 in production)
-├── prisma.config.js         # Prisma v7 config (loads DATABASE_URL from env)
-├── .env.local               # Local environment variables
-└── package.json
+│   ├── server.js                  # Entry point, graceful shutdown (SIGINT/SIGTERM)
+│   ├── app.js                     # Express setup, middleware stack, route mounts
+│   ├── config/                    # Env loading, S3 client
+│   ├── middleware/                # Auth, permissions, error handling, validation
+│   ├── utils/                     # AppError, catchAsync, activity logger, email templates
+│   ├── services/                  # Business logic (per feature) + generic CRUD service
+│   ├── routes/                    # One file per feature, mounted in app.js
+│   ├── controllers/                # One file per feature
+│   ├── validation/                # Joi schemas per feature
+│   └── jobs/                      # Cron jobs (auto-complete events, recalc profits)
+├── prisma/
+│   └── schema.prisma              # Canonical DB schema
+├── scripts/
+│   └── pruneExpired.js            # Deletes expired file_uploads rows + S3 objects
+└── API_DOCUMENTATION.md           # Postman-style endpoint reference
 ```
 
 ## Environment Variables
 
-**Local (.env or .env.local):**
-- `DATABASE_URL` - MySQL connection (e.g., `mysql://root:@127.0.0.1:3306/usrmusic_dev`)
-- `PORT` - Server port (default: 4000)
-- `RESEND_API_KEY` - Resend API key for emails
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | — | MySQL connection string |
+| `PORT` | `4000` | HTTP listen port |
+| `JWT_SECRET` | — | HS256 signing key |
+| `JWT_ACCESS_EXPIRATION_MINUTES` | ~10080 (7d) | Access token TTL in minutes |
+| `REFRESH_TOKEN_DAYS` | `30` | Refresh token TTL in days |
+| `REFRESH_COOKIE_NAME` | — | httpOnly refresh cookie name |
+| `REFRESH_COOKIE_PATH` | `/` | Cookie path |
+| `COOKIE_SECURE` | — | `true` in production (HTTPS only) |
+| `COOKIE_SAME_SITE` | — | `lax` or `strict` |
+| `RESEND_API_KEY` | — | Resend email service API key |
+| `PERSISTENT_UPLOADS_DIR` | `./uploads` | Local file storage path |
+| `COMPLETE_EVENTS_CRON` | `0 0 * * *` | Cron for auto-completing past events |
+| `RECALCULATE_PROFITS_CRON` | `0 2 * * *` | Cron for profit recalculation |
+| `CONFIRMED_STATUS_ID` | `2` | Event status ID for "Confirmed" |
+| `COMPLETED_STATUS_ID` | `3` | Event status ID for "Completed" |
+| `PERM_CACHE_TTL_SEC` | `60` | Permission cache TTL in seconds |
+| `DEBUG_PERMS` | — | Set `true` to log permission checks |
+| `DEBUG_AUTH` | — | Set `true` to log auth middleware |
+| `NODE_ENV` | — | `development` or `production` |
 
-Prisma CLI env loading note:
-- When `NODE_ENV=local` the project will load `.env.local` then `.env`.
-- When `NODE_ENV=production` the project prefers injected envs (Railway) and will optionally load `.env.production`.
-- Otherwise `.env` is loaded. Set `NODE_ENV` appropriately when running Prisma commands locally.
-
-**Railway (set in project Environment variables):**
-- Railway auto-provides `DATABASE_URL` when you add a MySQL service
-- Set all other vars manually in Railway dashboard
+Also requires AWS credentials/region config for S3 (via standard AWS SDK env vars or an attached role) when file storage is used in production.
 
 ## Scripts
 
 ```bash
-npm run local       # Run with .env.local (via env-cmd)
-npm run dev         # Dev mode with nodemon + .env.local
-
-npx prisma generate                  # Generate Prisma client
+npm run dev                   # nodemon dev server, loads .env.local via env-cmd
+npm run local                 # one-off run, loads .env.local via env-cmd
+npm start                     # production start (node --max-old-space-size=512)
+npx prisma generate           # regenerate Prisma client after schema changes
+npx prisma db push            # sync schema to DB (dev)
+npx prisma migrate dev        # create + apply a migration (dev)
+npx prisma migrate deploy     # apply migrations (production)
+npx prisma studio             # visual DB browser at localhost:5555
 ```
 
 ## Deployment (Railway)
 
-1. **Create Railway project** and add a **MySQL** service.
-2. **Connect GitHub repo** to Railway.
-3. **Set environment variables** in Railway dashboard:
-   - `RESEND_API_KEY`
-   - `NODE_ENV=production`
-   - (Railway auto-provides `DATABASE_URL`)
+1. Create a Railway project and add a **MySQL** service (`DATABASE_URL` is auto-provided).
+2. Connect this GitHub repo to Railway.
+3. Set the remaining environment variables above in the Railway dashboard.
+4. Ensure Chromium is available in the deploy environment (required by Puppeteer for PDF generation).
+5. Build command: `npm install && npx prisma generate`
+6. Start command: `npm start`
+7. Run `npx prisma migrate deploy` for schema migrations as part of deploy.
 
-4. **Add build command** (optional, Railway auto-detects):
-   ```
-   npm install && npx prisma generate
-   ```
+## Auth & Permissions
 
-5. **Add start command**:
-   ```
-   npm run start
-   ```
+- JWT (HS256) access tokens + httpOnly refresh cookie, refresh tokens hashed and stored in `personal_access_tokens`.
+- Spatie-compatible RBAC: `role_has_permissions`, `model_has_permissions`, `model_has_roles`, checked via `checkPermission` middleware with an in-memory cache (`PERM_CACHE_TTL_SEC`).
+- Contract signing (`/api/contract/:token`, `/api/contract/:token/sign`) is public and token-based — no login required.
 
-6. **Run migrations** (one-time or in Railway deploy settings):
-   ```
-   npx prisma migrate deploy
-   ```
+## Background Jobs
 
-## Tech Stack
-
-- **Node.js** (ESM modules)
-- **Express** - Web framework
-- **Prisma v7** - ORM with MySQL
-- **Resend** - Email service
-- **Multer** - File uploads (disk storage; replace with S3 for production)
-- **Helmet** - Security headers
-- **Morgan** - HTTP logging
-
-## Auth & Security
-
-- **Centralized error handler** hides internal errors in production
-- **Graceful shutdown** disconnects Prisma on SIGTERM/SIGINT
-- All routes under `/api` are available; protect routes with `verifyAccessToken` middleware
+- **completeEventsJob** — daily: auto-marks past confirmed events as completed.
+- **recalculateProfitsJob** — daily: recomputes profit fields across events.
 
 ## Notes
 
-- The Prisma schema was generated from your CSV schema. If your DB already exists, point `DATABASE_URL` at it and run `npx prisma db pull` to sync models.
-- For production file uploads, replace local disk storage with S3/Railway volumes.
-- Add role-based middleware and sync super-user creation with Auth0 Management API as needed.
+- This backend, together with the Next.js frontend, is a feature-complete rewrite of a legacy Laravel monolith. Both share the same MySQL database.
+- See `API_DOCUMENTATION.md` for the full endpoint reference.

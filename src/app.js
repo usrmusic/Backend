@@ -30,6 +30,8 @@ const allowedOrigins = [
 	'http://localhost:3000',
 	'https://usrmusic.com',
 	'http://usrmusic.com',
+	'https://www.usrmusic.com',
+	'http://www.usrmusic.com',
 	'https://usr-music.vercel.app',
 	'https://usrmusic.vercel.app'
 ];

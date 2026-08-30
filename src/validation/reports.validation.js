@@ -49,6 +49,18 @@ const adminReport = Joi.object({
     })
 });
 
+const updateAdminReportRow = Joi.object({
+    params: Joi.object({
+        id: Joi.number().integer().required(),
+    }),
+    body: Joi.object({
+        extra_cost: Joi.number().optional(),
+        cost: Joi.number().optional(),
+        totalCost: Joi.number().optional(),
+        canceldeopsitAmount: Joi.number().optional(),
+    }),
+});
+
 const updateSupplierPayment = Joi.object({
     params: Joi.object({
         id: Joi.number().integer().required(),
@@ -59,4 +71,4 @@ const updateSupplierPayment = Joi.object({
     }),
 });
 
-export default {suppliersReport, adminReport, updateSupplierPayment};
+export default {suppliersReport, adminReport, updateAdminReportRow, updateSupplierPayment};

@@ -26,6 +26,15 @@ router
   );
 
 router
+  .route("/admin/:id")
+  .put(
+    verifyAccessToken,
+    checkPermission("admin reporting"),
+    validate(reportsValidation.updateAdminReportRow),
+    reportsController.updateAdminReportRow,
+  );
+
+router
   .route("/suppliers/equipment/:id/payment")
   .put(
     verifyAccessToken,

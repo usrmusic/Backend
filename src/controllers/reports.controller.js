@@ -503,6 +503,7 @@ const adminReport = catchAsync(async (req, res) => {
   );
 
   const data = (rows || []).map((r) => ({
+    event_id: Number(r.event_id),
     company_name: r.company_name || null,
     client_name: r.client_name || null,
     event_date: r.event_date || null,
@@ -549,6 +550,36 @@ const adminReport = catchAsync(async (req, res) => {
   );
 });
 
+// Admin Report's "Extra Cost" inline edit — matches Laravel's
+// AdminReportService::createExtraCostReport() exactly: the client sends back
+// the row's current `cost` (total_cost) and `totalCost` (total_price)
+// alongside the new extra_cost, and profit is recomputed from those —
+// same trust-the-client-for-the-rest-of-the-row approach Laravel uses,
+// since this is a single-cell edit, not a full event recalculation.
+// Blocked for Cancelled events (status 4) on the frontend, matching
+// Laravel's dbl-click block there.
+const updateAdminReportRow = catchAsync(async (req, res) => {
+  const id = Number(req.params.id);
+  const body = req.body || {};
+  const extraCost = Number(body.extra_cost || 0);
+  const cost = Number(body.cost || 0);
+  const totalCost = Number(body.totalCost || 0);
+  const cancelDepositAmount = Number(body.canceldeopsitAmount || 0);
+
+  const event = await prisma.event.findUnique({ where: { id }, select: { event_status_id: true } });
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  const overAllCost = extraCost + cost + (Number(event.event_status_id) === 4 ? cancelDepositAmount : 0);
+  const profit = totalCost - overAllCost;
+
+  const updated = await prisma.event.update({
+    where: { id },
+    data: { extra_cost: extraCost, profit },
+  });
+
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
 // Equipment-line payment toggle — updates event_package.payment_send/date,
 // matching Laravel's SuppliersReportService::createSupplierReport(). id is
 // the event_package row id (the "ep-<id>" row from suppliersReport above).
@@ -584,6 +615,7 @@ const updateSupplierPaymentDj = catchAsync(async (req, res) => {
 export default {
   suppliersReport,
   adminReport,
+  updateAdminReportRow,
   updateSupplierPaymentEquipment,
   updateSupplierPaymentDj,
 };

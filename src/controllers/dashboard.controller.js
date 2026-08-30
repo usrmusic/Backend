@@ -7,6 +7,17 @@ import { loadPermissionsForUserId } from '../middleware/authorize.js';
 
 const userSvc = service.get('user');
 
+// Admin/Super Admin (role_id 1 or 2) always get admin dashboard scope,
+// matching the same role fallback used elsewhere (requireAdmin(),
+// confirmEvents.controller.js isAdmin check) — permission strings alone
+// aren't a reliable signal for these two roles. Staff (3) and Client (4)
+// are untouched by this — they still fall through to 'team'/'personal'.
+const isAdminScope = (perms, roleId) => {
+    const rid = roleId != null ? Number(roleId) : null;
+    if (rid === 1 || rid === 2) return true;
+    return !!(perms && (perms.has('manage_all') || perms.has('super_admin')));
+};
+
 // Build allowed status filters from permissions, tolerant to naming variations
 const buildAllowedStatusFiltersFromPerms = (perms) => {
     const allowed = [];
@@ -47,7 +58,7 @@ const getEventsDropDown = catchAsync(async (req, res) => {
     const user = await userSvc.getById(userId);
     const perms = await loadPermissionsForUserId(userId);
     let scope = 'team';
-    if (perms && (perms.has('manage_all') || perms.has('super_admin'))) scope = 'admin';
+    if (isAdminScope(perms, user && user.role_id)) scope = 'admin';
     if (user && user.role_id && Number(user.role_id) === 4) scope = 'personal';
 
         // Build allowed status filters from granular permissions (robust)
@@ -181,7 +192,7 @@ const getDashboardStats = catchAsync(async (req, res) => {
 
     const perms = await loadPermissionsForUserId(userId);
     let scope = 'team';
-    if (perms && (perms.has('manage_all') || perms.has('super_admin'))) scope = 'admin';
+    if (isAdminScope(perms, user.role_id)) scope = 'admin';
     // role_id 4 = client (personal)
     if (user.role_id && Number(user.role_id) === 4) scope = 'personal';
 
@@ -231,7 +242,7 @@ const getUpcomingEvents = catchAsync(async (req, res) => {
 
     const perms = await loadPermissionsForUserId(userId);
     let scope = 'team';
-    if (perms && (perms.has('manage_all') || perms.has('super_admin'))) scope = 'admin';
+    if (isAdminScope(perms, user.role_id)) scope = 'admin';
     if (user.role_id && Number(user.role_id) === 4) scope = 'personal';
     const allowedStatusFilters = buildAllowedStatusFiltersFromPerms(perms);
 

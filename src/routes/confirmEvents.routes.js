@@ -90,6 +90,23 @@ router
     confirmEventsController.addPayment,
   );
 
+// Edit/delete of an existing payment row — same Admin-only gate as adding
+// one, since both mutate the same paid-total/outstanding calculations.
+router
+  .route("/payment/:id")
+  .put(
+    verifyAccessToken,
+    requireAdmin,
+    validate(confirmEventsValidation.updatePayment),
+    confirmEventsController.updatePayment,
+  )
+  .delete(
+    verifyAccessToken,
+    requireAdmin,
+    validate(confirmEventsValidation.deletePayment),
+    confirmEventsController.deletePayment,
+  );
+
 router
   .route("/:id")
   .get(

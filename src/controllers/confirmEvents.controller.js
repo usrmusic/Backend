@@ -1062,6 +1062,89 @@ const addPayment = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data: result }));
 });
 
+// Recompute is_event_payment_fully_paid off the current sum of event_payments
+// rows — shared by update/delete so an edited or removed payment can never
+// leave the event's paid-status a penny out of sync with its actual rows.
+async function recalcEventPaymentStatus(tx, eventId) {
+  const totalPaymentRow = await tx.eventPayment.aggregate({
+    where: { event_id: eventId },
+    _sum: { amount: true },
+  });
+  const totalPayment = toMoney(totalPaymentRow && totalPaymentRow._sum && totalPaymentRow._sum.amount);
+
+  const totalCostRow = await tx.event.findUnique({ where: { id: eventId }, select: { total_cost_for_equipment: true } });
+  const paymentSent = isFullyPaid(totalPayment, totalCostRow?.total_cost_for_equipment);
+
+  await tx.event.update({ where: { id: eventId }, data: { is_event_payment_fully_paid: paymentSent } });
+
+  return { totalPayment, paymentSent };
+}
+
+const updatePayment = catchAsync(async (req, res) => {
+  const paymentId = Number(req.params.id || 0);
+  const body = req.body || {};
+  if (!paymentId) return res.status(400).json({ error: "payment_id_required" });
+
+  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentId } });
+  if (!existing) return res.status(404).json({ error: "payment_not_found" });
+
+  const data = {};
+  if (body.amount !== undefined) {
+    const amount = round2(body.amount);
+    if (!(amount > 0)) return res.status(400).json({ error: "amount_must_be_positive" });
+    data.amount = amount;
+  }
+  if (body.date !== undefined) {
+    let dateVal;
+    try {
+      dateVal = parseDate(body.date) || new Date(body.date);
+    } catch (e) {
+      dateVal = new Date(body.date);
+    }
+    data.date = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  }
+  if (body.payment_method_id !== undefined) {
+    data.payment_method_id = Number(body.payment_method_id) || null;
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const payment = await tx.eventPayment.update({ where: { id: paymentId }, data });
+    const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
+
+    const paymentWithMethod = await tx.eventPayment
+      .findUnique({ where: { id: payment.id }, include: { payment_methods: true } })
+      .catch(() => null);
+
+    return {
+      id: payment.id,
+      event_id: payment.event_id,
+      payment_method: paymentWithMethod?.payment_methods?.name || null,
+      date: payment.date,
+      amount: payment.amount,
+      total_paid: totalPayment,
+      is_event_payment_fully_paid: paymentSent,
+    };
+  });
+
+  res.json(serializeForJson({ success: true, data: result }));
+});
+
+const deletePayment = catchAsync(async (req, res) => {
+  const paymentId = Number(req.params.id || 0);
+  if (!paymentId) return res.status(400).json({ error: "payment_id_required" });
+
+  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentId } });
+  if (!existing) return res.status(404).json({ error: "payment_not_found" });
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.eventPayment.delete({ where: { id: paymentId } });
+    const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
+    return { total_paid: totalPayment, is_event_payment_fully_paid: paymentSent };
+  });
+
+  res.json(serializeForJson({ success: true, event_id: existing.event_id, data: result }));
+});
+
 const cancelEvent = catchAsync(async (req, res) => {
   const params = req.query || {};
   const body =
@@ -1590,5 +1673,7 @@ export default {
   updateEvent,
   refund,
   addPayment,
+  updatePayment,
+  deletePayment,
   cancelEvent,
 };

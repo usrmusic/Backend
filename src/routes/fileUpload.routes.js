@@ -4,7 +4,7 @@ import { verifyAccessToken } from "../middleware/auth0.js";
 import validate from "../middleware/validate.js";
 import { fileUploadController } from "../controllers/index.js";
 import { fileUploadValidation } from "../validation/index.js";
-import { checkPermission } from "../middleware/authorize.js";
+import { checkPermission, checkPermissionAny } from "../middleware/authorize.js";
 
 const router = express.Router();
 const upload = fileUpload;
@@ -32,13 +32,13 @@ router
   .route("/media")
   .get(
     verifyAccessToken,
-    checkPermission("downloads"),
+    checkPermissionAny(["downloads", "media manager"]),
     validate(fileUploadValidation.listFiles),
     fileUploadController.listMedia,
   )
   .post(
     verifyAccessToken,
-    checkPermission("downloads"),
+    checkPermissionAny(["downloads", "media manager"]),
     mediaUpload.fields([
       { name: "media", maxCount: 1 },
       { name: "file", maxCount: 1 },
@@ -89,13 +89,13 @@ router
   .route("/media/:id/")
   .get(
     verifyAccessToken,
-    checkPermission("downloads"),
+    checkPermissionAny(["downloads", "media manager"]),
     validate(fileUploadValidation.downloadFile),
     fileUploadController.downloadMedia,
   )
   .delete(
     verifyAccessToken,
-    checkPermission("downloads"),
+    checkPermissionAny(["downloads", "media manager"]),
     validate(fileUploadValidation.deleteFile),
     fileUploadController.deleteMedia,
   );

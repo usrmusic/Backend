@@ -185,7 +185,6 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
     });
 
     // --- In-Memory Aggregations (Turnover, Profit, Monthly) ---
-    const totalEvents = events.length;
     let totalProfit = 0;
     let totalTurnover = 0;
 
@@ -197,6 +196,10 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
     const djCounts = {};
 
     const confirmedCompletedEvents = events.filter((e) => [2, 3].includes(e.event_status_id));
+    // "Events" stat card matches Laravel's confirmAndCompletedEvents count —
+    // confirmed + completed only, not every event in the year (open enquiries
+    // and cancelled events were inflating this number before).
+    const totalEvents = confirmedCompletedEvents.length;
     confirmedCompletedEvents.forEach((e) => {
         const netAmount = parseNumberLike(e.total_cost_for_equipment);
         const profitAmount = parseNumberLike(e.profit);
@@ -231,36 +234,57 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
         const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
     });
-    const openEnquiriesCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('open')).length;
     const confirmedEventsCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('confirm')).length;
+
+    // Open Enquiries count must match the real Open Enquiry list page exactly —
+    // that page has NO year/date filter (an open enquiry usually has no event
+    // date set yet), so counting from the year-scoped `events` array above
+    // silently dropped most of them. Mirrors enquiry.controller.js's own
+    // scoping: Staff (role 3) sees only their own, Client (role 4) sees only
+    // theirs, Admin/Super Admin see the global total.
+    let openEnquiryWhere = { event_status_id: 1 };
+    if (Number(userRoleId) === 3) {
+        openEnquiryWhere = { AND: [openEnquiryWhere, { OR: [{ dj_id: userId }, { created_by: userId }] }] };
+    } else if (Number(userRoleId) === 4) {
+        openEnquiryWhere = { AND: [openEnquiryWhere, { OR: [{ user_id: userId }, { dj_id: userId }, { created_by: userId }] }] };
+    }
+    const openEnquiriesCount = await prisma.event.count({ where: openEnquiryWhere });
 
     /**
      * 2. Secondary Queries: Executed in parallel via Promise.all
      */
-    const pendingWhere = { is_event_payment_fully_paid: false, date: dateFilter };
-    // apply same scoping to pending payments
-    const pendingWhereScoped = (() => {
-        if (scope === 'admin') return pendingWhere;
-        if (scope === 'team') return { AND: [pendingWhere, baseWhere] };
-        if (scope === 'personal') return { AND: [pendingWhere, baseWhere] };
-        return pendingWhere;
-    })();
+    // Pending Payments — matches Laravel's DashboardController exactly:
+    // ALL unpaid Completed events (event_status_id=3, no date limit) plus
+    // unpaid Confirmed events (event_status_id=2) due in the next 4 weeks.
+    // No year filter and no role scoping in Laravel — every role sees the
+    // same global list — so this deliberately ignores `dateFilter`/`baseWhere`.
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const fourWeeksOut = new Date(today);
+    fourWeeksOut.setDate(fourWeeksOut.getDate() + 28);
+    const pendingPaymentSelect = {
+        id: true,
+        couple_name: true,
+        total_cost_for_equipment: true,
+        date: true,
+        event_status_id: true,
+        event_payments: { select: { amount: true } },
+        users_events_user_idTousers: { select: { id: true, name: true, email: true } },
+    };
 
-    const [pendingPaymentsRaw, cancelDepositEvents, openEnquiries, calendarEvents, recentNotes] = await Promise.all([
-        // Pending Payments: Filtered by year + includes status ID
+    const [completedUnpaid, confirmedUnpaid, cancelDepositEvents, openEnquiries, calendarEvents, recentNotes] = await Promise.all([
         prisma.event.findMany({
-            where: pendingWhereScoped,
-            select: {
-                id: true,
-                couple_name: true,
-                deposit_amount: true,
-                date: true,
-                event_status_id: true,
-                event_payments: { select: { amount: true } },
-                users_events_user_idTousers: { select: { id: true, name: true, email: true } },
-            },
+            where: { event_status_id: 3, is_event_payment_fully_paid: false },
+            select: pendingPaymentSelect,
             orderBy: { date: 'asc' },
-            take: 50,
+        }),
+        prisma.event.findMany({
+            where: {
+                event_status_id: 2,
+                is_event_payment_fully_paid: false,
+                date: { gt: today, lte: fourWeeksOut },
+            },
+            select: pendingPaymentSelect,
+            orderBy: { date: 'asc' },
         }),
         // Cancelled events deposit/refund totals
         prisma.event.findMany({
@@ -308,10 +332,15 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
         })
     ]);
 
-    // Map pending payments to include outstanding balance
-    const pendingPayments = pendingPaymentsRaw.map((p) => {
+    // Map pending payments to include outstanding balance. "Expected" is
+    // total_cost_for_equipment, not deposit_amount — matches the formula
+    // Laravel actually uses to set is_event_payment_fully_paid
+    // (total_cost_for_equipment === SUM(event_payments.amount)).
+    // Completed-unpaid rows come first, then confirmed-unpaid — the two lists
+    // are concatenated, not globally re-sorted, matching Laravel's behaviour.
+    const pendingPayments = [...completedUnpaid, ...confirmedUnpaid].map((p) => {
         const paid = (p.event_payments || []).reduce((s, it) => s + parseNumberLike(it.amount), 0);
-        const expected = parseNumberLike(p.deposit_amount) || 0;
+        const expected = parseNumberLike(p.total_cost_for_equipment) || 0;
         return {
             id: p.id,
             couple_name: p.couple_name,

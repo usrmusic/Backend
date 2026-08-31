@@ -2,6 +2,7 @@ import prisma from '../utils/prismaClient.js';
 import { uploadStreamToS3, getSignedGetUrl, getObjectBuffer } from '../utils/s3Client.js';
 import { generateContractPdf } from '../utils/pdfGenerator.js';
 import sendEmail from '../utils/mail/resendClient.js';
+import { buildContractSignedEmail } from '../utils/mail/templates/contractSignedEmail.js';
 
 // The PDFKit renderer takes image Buffers directly (doc.image() doesn't
 // accept a URL), so the admin signature is fetched as bytes rather than the
@@ -162,12 +163,19 @@ export async function signContractForEvent({
 
   if (notify) {
     if (user?.email && signedUrl) {
+      const logoUrl = company?.company_logo
+        ? await getSignedGetUrl(company.company_logo).catch(() => null)
+        : null;
+      const { subject, html } = buildContractSignedEmail({
+        name: user.name || '',
+        signedUrl,
+        company,
+        logoUrl,
+      });
       sendEmail({
         to: [user.email],
-        subject: `Your signed contract — ${company?.name || 'USR Music'}`,
-        html: `<p>Hi ${user.name || ''},</p>
-               <p>Thanks for signing your contract. A copy is attached, and you can also download it here:</p>
-               <p><a href="${signedUrl}">Download signed contract (PDF)</a></p>`,
+        subject,
+        html,
         attachments: pdfBuffer
           ? [{ filename: `contract_${event.id}.pdf`, content: pdfBuffer }]
           : undefined,

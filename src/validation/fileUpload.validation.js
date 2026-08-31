@@ -1,11 +1,13 @@
 import Joi from "joi";
 
 const listFiles = Joi.object({
-  params: Joi.object({
+  query: Joi.object({
     search: Joi.string().trim().max(200).allow("", null),
     page: Joi.number().integer().min(1).default(1),
     perPage: Joi.number().integer().min(1).max(100).default(25),
     sort: Joi.string().optional(),
+    event_id: Joi.number().integer().optional(),
+    general: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
   }),
 });
 

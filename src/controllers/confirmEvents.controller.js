@@ -8,6 +8,7 @@ import { generateInvoicePdf } from "../utils/pdfGenerator.js";
 import renderSendQuote from "../templates/sendQuoteTemplate.js";
 import renderInvoice from "../templates/invoiceTemplate.js";
 import sendEmail from "../utils/mail/resendClient.js";
+import { buildUserCredentialEmail } from "../utils/mail/templates/userCredentialEmail.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
 import { toMoney, round2, isFullyPaid } from "../utils/money.js";
@@ -251,6 +252,24 @@ const confirmEvent = catchAsync(async (req, res) => {
     if (user && user.email) {
       await sendEmail({ to: [user.email], subject, html: clientHtml }).catch(
         () => {},
+      );
+    }
+
+    // Login credentials email — parity with Laravel's EventBooked ->
+    // SendCredentialsToClient listener, which fires at this exact point
+    // (deposit accepted / enquiry confirmed into an event). Node had no
+    // equivalent, so a client never received their portal login details.
+    if (user && user.email && user.password_text) {
+      const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
+        name: user.name || "Client",
+        email: user.email,
+        password: user.password_text,
+        loginUrl: process.env.FRONTEND_URL || "https://usrmusic.com/",
+      });
+      await sendEmail({ to: [user.email], subject: credSubject, html: credHtml }).catch(
+        (e) => {
+          console.error("[confirmEventsController] send credentials email failed", e?.message || e);
+        },
       );
     }
 

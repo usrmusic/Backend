@@ -28,7 +28,11 @@ const listOpenEnquiries = Joi.object({
   query: Joi.object({
     search: Joi.string().trim().max(100).allow("", null),
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).max(100).default(10),
+    // "all" is a valid sentinel value (see listOpenEnquiries in the
+    // controller) that returns every open enquiry unpaginated.
+    limit: Joi.alternatives()
+      .try(Joi.number().integer().min(1).max(1000), Joi.string().valid("all"))
+      .default(10),
     sortBy: Joi.string()
       .valid(...allowedSortFields)
       .optional()

@@ -381,11 +381,20 @@ const createEnquiry = catchAsync(async (req, res) => {
 // Open enquiry: list open enquiries (event_status_id = 1)
 const listOpenEnquiries = catchAsync(async (req, res) => {
   // find events with status = 1 (open enquiries)
-  const { page, limit: perPage } = parsePaginationParams({
-    page: req.query.page || req.query.p,
-    perPage: req.query.perPage || req.query.per_page || req.query.limit,
-    limit: req.query.limit,
-  });
+  const wantsAll =
+    String(req.query.perPage || "").toLowerCase() === "all" ||
+    String(req.query.limit || "").toLowerCase() === "all";
+  // parsePaginationParams caps at 100 (the sane default for every other
+  // list endpoint) — bypass it here only when the frontend's "All" option
+  // was explicitly chosen, capped at 1000 as a backstop against an
+  // unbounded query.
+  const { page, limit: perPage } = wantsAll
+    ? { page: 1, limit: 1000 }
+    : parsePaginationParams({
+        page: req.query.page || req.query.p,
+        perPage: req.query.perPage || req.query.per_page || req.query.limit,
+        limit: req.query.limit,
+      });
   const skip = (page - 1) * perPage;
 
   // Use validated query params (Joi middleware) for sorting; Joi enforces allowed values

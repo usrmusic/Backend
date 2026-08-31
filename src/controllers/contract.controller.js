@@ -134,7 +134,7 @@ const ensureContractTokenForEvent = catchAsync(async (req, res) => {
     });
   }
 
-  const base = (process.env.PUBLIC_FRONTEND_URL || '').replace(/\/$/, '');
+  const base = (process.env.PUBLIC_FRONTEND_URL || 'https://www.usrmusic.com').replace(/\/$/, '');
   const signing_url = base ? `${base}/contract/${event.contract_token}` : null;
 
   return res.json(
@@ -173,7 +173,7 @@ const sendContractLinkEmail = catchAsync(async (req, res) => {
   const user = event.users_events_user_idTousers;
   if (!user?.email) return res.status(400).json({ error: 'client_email_missing' });
 
-  const base = (process.env.PUBLIC_FRONTEND_URL || '').replace(/\/$/, '');
+  const base = (process.env.PUBLIC_FRONTEND_URL || 'https://www.usrmusic.com').replace(/\/$/, '');
   const signing_url = base ? `${base}/contract/${event.contract_token}` : null;
 
   if (!signing_url) {

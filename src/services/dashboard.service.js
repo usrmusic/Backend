@@ -295,9 +295,12 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
                 event_payments: { select: { amount: true } },
             },
         }),
-        // Open Enquiries List
+        // Open Enquiries List — no year filter, matching openEnquiriesCount
+        // above and Laravel's own open-enquiry widget query (an open enquiry
+        // usually has no event date yet, so year-scoping this dropped most
+        // of them).
         prisma.event.findMany({
-            where: (scope === 'admin') ? { event_statuses: { status: { contains: 'open' } }, date: dateFilter } : { AND: [{ event_statuses: { status: { contains: 'open' } }, date: dateFilter }, baseWhere] },
+            where: (scope === 'admin') ? { event_statuses: { status: { contains: 'open' } } } : { AND: [{ event_statuses: { status: { contains: 'open' } } }, baseWhere] },
             select: {
                 id: true,
                 couple_name: true,

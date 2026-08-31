@@ -49,6 +49,15 @@ export default function renderContractPdf(doc, {
 } = {}) {
   const userName = user?.name || event?.users_events_user_idTousers?.name || 'Client';
   const venue = event?.venues?.venue || '';
+  // Package/equipment lines — the contract previously showed only the total
+  // price with nothing describing what that price actually covers.
+  const packageLines = Array.isArray(event?.event_package)
+    ? event.event_package.map((p) => ({
+        name: p.equipment?.name || 'Item',
+        quantity: p.quantity ?? 1,
+        price: p.total_price ?? p.sell_price ?? 0,
+      }))
+    : [];
   const eventDate = fmtDate(event?.date);
   const total = fmtMoney(event?.total_cost_for_equipment);
   const deposit = fmtMoney(event?.deposit_amount);
@@ -110,6 +119,26 @@ export default function renderContractPdf(doc, {
 
   y = boxTop + boxH + 22;
 
+  // Package includes — DJ package name plus any equipment/extras attached
+  // to the event, so the contract actually shows what the price covers.
+  if (event?.dj_package_name || packageLines.length) {
+    doc.font(FB).fontSize(13).fillColor(INK).text('Package Includes', MARGIN, y);
+    y = doc.y + 6;
+    if (event?.dj_package_name) {
+      doc.font(FB).fontSize(9.5).fillColor(INK).text(event.dj_package_name, MARGIN, y);
+      y = doc.y + 4;
+    }
+    for (const line of packageLines) {
+      const qtyLabel = line.quantity > 1 ? `${line.quantity} x ` : '';
+      doc.font(F).fontSize(9).fillColor('#333333')
+        .text(`${qtyLabel}${line.name}`, MARGIN, y, { width: CONTENT_W - 70, continued: false });
+      doc.font(F).fontSize(9).fillColor('#333333')
+        .text(`£${fmtMoney(line.price)}`, MARGIN, y, { width: CONTENT_W, align: 'right' });
+      y = doc.y + 3;
+    }
+    y += 14;
+  }
+
   // Terms
   doc.font(FB).fontSize(13).fillColor(INK).text('Terms & Conditions', MARGIN, y);
   y = doc.y + 6;
@@ -117,8 +146,8 @@ export default function renderContractPdf(doc, {
     `By signing this contract you agree to the standard ${companyName} performance terms: deposit is ` +
     `non-refundable, the balance is due no later than 14 days before the event date, and ${companyName} ` +
     `will provide the equipment and services described above. Cancellations made less than 30 days before ` +
-    `the event are subject to the full balance. Any changes to the event date, venue or package must be ' +
-    'agreed in writing.`;
+    `the event are subject to the full balance. Any changes to the event date, venue or package must be ` +
+    `agreed in writing.`;
   doc.font(F).fontSize(9).fillColor('#333333')
     .text(terms, MARGIN, y, { width: CONTENT_W, lineGap: 2.5 });
 

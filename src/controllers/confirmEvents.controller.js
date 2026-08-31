@@ -5,8 +5,7 @@ import services from "../services/index.js";
 import eventNoteService from "../services/eventNoteService.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import { generateInvoicePdf } from "../utils/pdfGenerator.js";
-import renderSendQuote from "../templates/sendQuoteTemplate.js";
-import renderInvoice from "../templates/invoiceTemplate.js";
+import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import { buildUserCredentialEmail } from "../utils/mail/templates/userCredentialEmail.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
@@ -242,12 +241,16 @@ const confirmEvent = catchAsync(async (req, res) => {
     //   return `<div>${logo}<div>${addr}</div><div>${contact.join("<br />")}</div></div>`;
     // };
 
-    // render Blade-like HTML for client using renderer
+    // Matches Laravel's confirmed_events_mail.blade.php shell exactly.
     const firstName = user?.name || "Client";
-    const clientHtml = renderConfirmedEvent({
-      first_name: firstName,
-      body: bodyText,
-      companyDetails: companyDetails || {},
+    const logoUrl = companyDetails?.company_logo
+      ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
+      : null;
+    const clientHtml = buildUsrLetterEmail({
+      name: firstName,
+      bodyHtml: String(bodyText).replace(/\n/g, "<br/>"),
+      company: companyDetails,
+      logoUrl,
     });
     if (user && user.email) {
       await sendEmail({ to: [user.email], subject, html: clientHtml }).catch(
@@ -264,7 +267,7 @@ const confirmEvent = catchAsync(async (req, res) => {
         name: user.name || "Client",
         email: user.email,
         password: user.password_text,
-        loginUrl: process.env.FRONTEND_URL || "https://usrmusic.com/",
+        loginUrl: process.env.FRONTEND_URL || "https://www.usrmusic.com/login",
       });
       await sendEmail({ to: [user.email], subject: credSubject, html: credHtml }).catch(
         (e) => {
@@ -335,10 +338,14 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
   }
 
   const firstName = user?.name || "Client";
-  const clientHtml = renderConfirmedEvent({
-    first_name: firstName,
-    body: bodyText,
-    companyDetails: companyDetails || {},
+  const logoUrl = companyDetails?.company_logo
+    ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
+    : null;
+  const clientHtml = buildUsrLetterEmail({
+    name: firstName,
+    bodyHtml: String(bodyText).replace(/\n/g, "<br/>"),
+    company: companyDetails,
+    logoUrl,
   });
 
   try {
@@ -800,21 +807,16 @@ const sendInvoice = catchAsync(async (req, res) => {
     facebook: company?.facebook || null,
   };
 
-  const renderedBodyHtml = raw
-    ? (function () {
-        try {
-          return raw;
-        } catch (e) {
-          return String(raw).replace(/\n/g, "<br>");
-        }
-      })()
-    : "";
-  // Render invoice HTML that more closely matches Laravel's pdf.invoice layout
-  const invoiceHtml = renderInvoice({
-    event: fullEvent || event,
-    companyDetails,
-    rawBody: raw || renderedBodyHtml,
-    enrichedDetails,
+  // Matches Laravel's send_invoice.blade.php shell exactly — no itemised
+  // pricing table (that lives in the attached PDF, not the email body).
+  const invoiceLogoUrl = companyDetails.company_logo
+    ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
+    : null;
+  const invoiceHtml = buildUsrLetterEmail({
+    name: first_name,
+    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    company: companyDetails,
+    logoUrl: invoiceLogoUrl,
   });
 
   // generate PDF buffer
@@ -1255,13 +1257,29 @@ const cancelEvent = catchAsync(async (req, res) => {
       include: { users_events_user_idTousers: true },
     });
     const user = eventRow?.users_events_user_idTousers || null;
+    // Was looking up "EVENT CANCELLED", which doesn't exist — the real row
+    // is named "Cancel Event Email" (see email_contents id 9), so this
+    // always silently fell back to generic hardcoded text instead of the
+    // actual admin-edited cancellation copy.
     const template = await prisma.emailContent
-      .findFirst({ where: { email_name: "EVENT CANCELLED" } })
+      .findFirst({ where: { email_name: "Cancel Event Email" } })
       .catch(() => null);
     const subject = template?.subject || `Event Cancelled - #${eventId}`;
-    const bodyHtml =
+    const raw =
       template?.body ||
-      `<p>Your event #${eventId} has been cancelled.</p>${refundAmount ? `<p>Refund: ${refundAmount}</p>` : ""}`;
+      `Your event #${eventId} has been cancelled.${refundAmount ? ` Refund: ${refundAmount}` : ""}`;
+    const company = eventRow?.names_id
+      ? await prisma.companyName.findUnique({ where: { id: BigInt(eventRow.names_id) } }).catch(() => null)
+      : null;
+    const cancelLogoUrl = company?.company_logo
+      ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
+      : null;
+    const bodyHtml = buildUsrLetterEmail({
+      name: user?.name || "Client",
+      bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+      company,
+      logoUrl: cancelLogoUrl,
+    });
     if (user && user.email) {
       await sendEmail({ to: [user.email], subject, html: bodyHtml }).catch(
         () => {},

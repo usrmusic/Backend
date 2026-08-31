@@ -6,8 +6,7 @@ import { toDbDate } from "../utils/dateUtils.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import { generateQuotePdf } from "../utils/pdfGenerator.js";
-import { marked } from "marked";
-import renderSendQuote from "../templates/sendQuoteTemplate.js";
+import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
 import eventNoteService from "../services/eventNoteService.js";
 import services from "../services/index.js";
 import genPassword from "../utils/genPassword.js";
@@ -1104,14 +1103,6 @@ const sendInvoice = catchAsync(async (req, res) => {
 
   const event = await prisma.event.findUnique({ where: { id: eventId } });
 
-  const enrichedDetails = details.map((d) => ({
-    ...d,
-    is_vat_available_for_the_event: event?.is_vat_available_for_the_event,
-    event_amount_without_vat: event?.event_amount_without_vat,
-    vat_value: event?.vat_value,
-    total_cost_for_equipment: event?.total_cost_for_equipment,
-  }));
-
   const user = userId
     ? await prisma.user.findUnique({ where: { id: userId } })
     : null;
@@ -1127,7 +1118,17 @@ const sendInvoice = catchAsync(async (req, res) => {
   let raw = body.body || template?.body || `Invoice for event ${eventId}`;
   if (raw && body.amount)
     raw = String(raw).replace("{--amount--}", String(body.amount));
-  const html = `${String(raw).replace(/\n/g, "<br>")}<hr/><pre>${JSON.stringify(enrichedDetails, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2)}</pre>`;
+  // Matches Laravel's send_invoice.blade.php shell — was previously dumping
+  // the raw enrichedDetails JSON straight into the email body.
+  const logoUrl = company?.company_logo
+    ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
+    : null;
+  const html = buildUsrLetterEmail({
+    name: user?.name || "Client",
+    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    company,
+    logoUrl,
+  });
 
   const result = await prisma.$transaction(async (tx) => {
     if (companyId)
@@ -1477,7 +1478,7 @@ const sendBrochure = catchAsync(async (req, res) => {
   // fetch event + client email
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    include: { users_events_user_idTousers: { select: { email: true } } },
+    include: { users_events_user_idTousers: { select: { name: true, email: true } } },
   });
 
   const clientEmail = event?.users_events_user_idTousers?.email || body.email;
@@ -1522,11 +1523,19 @@ const sendBrochure = catchAsync(async (req, res) => {
     }
   }
 
-  const htmlParts = [];
-  if (raw) htmlParts.push(String(raw).replace(/\n/g, "<br>"));
-  if (brochureUrl)
-    htmlParts.push(`<p><a href="${brochureUrl}">Download Brochure</a></p>`);
-  const html = htmlParts.join("\n\n") || `Brochure for event ${eventId}`;
+  // Matches Laravel's usr_brochure.blade.php shell.
+  const bodyHtml = `${raw ? String(raw).replace(/\n/g, "<br/>") : ""}${
+    brochureUrl ? `<p><a href="${brochureUrl}">Download Brochure</a></p>` : ""
+  }`;
+  const logoUrl = company.company_logo
+    ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
+    : null;
+  const html = buildUsrLetterEmail({
+    name: event?.users_events_user_idTousers?.name || "Client",
+    bodyHtml,
+    company,
+    logoUrl,
+  });
 
   await sendEmail({ to: clientEmail, subject, html }).catch((e) => {
     console.error("[sendBrochure] sendEmail failed", e?.message || e);
@@ -1574,7 +1583,7 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
   // fetch event + client email
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    include: { users_events_user_idTousers: { select: { email: true } } },
+    include: { users_events_user_idTousers: { select: { name: true, email: true } } },
   });
   const clientEmail = event?.users_events_user_idTousers?.email || body.email;
   if (!clientEmail)
@@ -1609,9 +1618,17 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
     .catch(() => null);
   const subject = body.subject || template?.subject || "Update";
   const raw = body.body || template?.body || `Update for event ${eventId}`;
-  const html = String(raw).replace(/\n/g, "<br>");
+  // Matches Laravel's usr_update.blade.php shell.
+  const logoUrl = company.company_logo
+    ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
+    : null;
+  const html = buildUsrLetterEmail({
+    name: event?.users_events_user_idTousers?.name || "Client",
+    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    company,
+    logoUrl,
+  });
 
-  console.log(html, "html");
   await sendEmail({ to: clientEmail, subject, html }).catch((e) => {
     console.error("[sendUpdateEmail] sendEmail failed", e?.message || e);
   });
@@ -1758,23 +1775,26 @@ const sendQuote = catchAsync(async (req, res) => {
   const finalSubject =
     body.subject || template?.subject || `Quote : ${eventDateFormatted || ""}`;
 
-  // Render using the Laravel Blade HTML structure translated to Node
-  const renderedBodyHtml = raw
-    ? (function () {
-        try {
-          return marked(String(raw));
-        } catch (e) {
-          return String(raw).replace(/\n/g, "<br>");
-        }
-      })()
-    : "";
-  const emailHtml = renderSendQuote({
-    first_name,
-    body: raw || renderedBodyHtml,
-    companyDetails,
-    contract_token,
-    enrichedDetails,
-    event,
+  // Matches Laravel's open_enquiry_send_quote.blade.php exactly: the shared
+  // USR letter shell (greeting/body/logo/company block) plus the
+  // sign-your-contract paragraph — no itemised pricing table, which Node's
+  // old renderSendQuote invented and Laravel's template never had.
+  const contractSignUrl = contract_token
+    ? `${String(process.env.PUBLIC_FRONTEND_URL || "https://www.usrmusic.com").replace(/\/$/, "")}/contract/${contract_token}`
+    : null;
+  const bodyHtml = `${raw ? String(raw).replace(/\n/g, "<br/>") : ""}${
+    contractSignUrl
+      ? `<p style="margin-top:15px;">Before signing, please make sure to read and agree to all terms and conditions. You can sign your contract here: <a style="color:blue;" href="${contractSignUrl}">signature link</a><br/>This will also be available on the portal once you have your login details.</p>`
+      : ""
+  }`;
+  const logoUrl = companyDetails.company_logo
+    ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
+    : null;
+  const emailHtml = buildUsrLetterEmail({
+    name: first_name,
+    bodyHtml,
+    company: companyDetails,
+    logoUrl,
   });
   // Build emailHtml and printable HTML for PDF (already rendered above)
   const subjectToUse = finalSubject;

@@ -34,6 +34,12 @@ export default function renderInvoicePdf(doc, {
   const deposit = Array.isArray(event?.event_payments)
     ? event.event_payments.reduce((s, p) => s + num(p.amount), 0)
     : 0;
+  // Matches Laravel's GeneratePdfInvoice::prepareInvoiceData /
+  // InvoiceMail::build: $refundAndDeposit = $deposit - $refundAmount;
+  // $remainingAmount = $grandTotal - $refundAndDeposit. A refund reduces the
+  // amount counted as "received", which correspondingly raises "remaining".
+  const refundAmount = num(event?.refund_amount);
+  const refundAndDeposit = deposit - refundAmount;
 
   const totals = [];
   if (event?.is_vat_available_for_the_event && companyDetails?.vat) {
@@ -41,8 +47,8 @@ export default function renderInvoicePdf(doc, {
     totals.push(['VAT', gbp(event.vat_value)]);
   }
   totals.push(['Total Price', gbp(total)]);
-  totals.push(['Payment Received', gbp(deposit)]);
-  totals.push(['Payment Remaining', gbp(total - deposit)]);
+  totals.push(['Payment Received', gbp(refundAndDeposit)]);
+  totals.push(['Payment Remaining', gbp(total - refundAndDeposit)]);
 
   let ty = Math.max(doc.y + 60, 300);
   totals.forEach(([label, value]) => {

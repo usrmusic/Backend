@@ -94,6 +94,28 @@ export const listFiles = catchAsync(async (req, res) => {
   if (req.query.search) filter.file_name = { contains: req.query.search };
   if (req.query.event_id) filter.event_id = Number(req.query.event_id);
 
+  // Role-based visibility scoping, mirroring the legacy Laravel
+  // FileUploadController::getFileUploadData():
+  //   - role_id 1/2 (Super Admin/Admin) -> see all files, no extra restriction
+  //   - role_id 3 (Staff/DJ) -> general files, or files whose event's DJ is them
+  //   - everyone else (role_id 4/Client, or unknown) -> general files, or
+  //     files whose event belongs to them (event.user_id === requester)
+  const requesterId = Number(req.user?.sub || req.user?.id);
+  const roleId = req.user?.role_id != null ? Number(req.user.role_id) : null;
+
+  let scopedFilter = filter;
+  if (roleId !== 1 && roleId !== 2) {
+    const visibilityOr =
+      roleId === 3
+        ? { OR: [{ general: true }, { events: { dj_id: requesterId } }] }
+        : { OR: [{ events: { user_id: requesterId } }, { general: true }] };
+
+    scopedFilter =
+      Object.keys(filter).length > 0
+        ? { AND: [filter, visibilityOr] }
+        : visibilityOr;
+  }
+
   const perPage = Number(req.query.perPage || req.query.limit || 25);
   const page = Number(req.query.page || 1);
   const sort =
@@ -102,8 +124,8 @@ export const listFiles = catchAsync(async (req, res) => {
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
       : undefined);
 
-  const files = await fileSvc.list({ filter, perPage, page, sort });
-  const count = await fileSvc.model.count({ where: filter });
+  const files = await fileSvc.list({ filter: scopedFilter, perPage, page, sort });
+  const count = await fileSvc.model.count({ where: scopedFilter });
   const totalPages = perPage > 0 ? Math.ceil(count / perPage) : 1;
 
   res.json({

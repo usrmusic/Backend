@@ -16,6 +16,23 @@ const calendarUser = process.env.AZURE_CALENDAR_USER_ID || null;
 let cachedToken = null;
 let tokenExpiry = 0;
 
+// --- Timezone note (parity audit, do not "fix" without production TZ confirmation) ---
+// `events.start_time` / `events.end_time` are MySQL `TIME(0)` columns (no timezone
+// info at all). They're written via `parseTimeToUtcDate()` (see src/utils/helpers.js),
+// which builds a JS Date from the admin-typed HH:mm using the Node process's *local*
+// timezone and then calls `.toISOString()`. If the deployed process's local timezone
+// is UTC (the default for most Docker/Railway images, and nothing in this repo pins
+// `TZ` to anything else), that round-trip is an identity transform: the stored TIME
+// digits are the literal UK wall-clock digits the admin typed, with no DST math ever
+// applied — the same "naive local time stored as if UTC" quirk Laravel has.
+// If that assumption holds, the correct Graph payload would send those naive digits
+// with `timeZone: 'Europe/London'` (letting Graph apply BST/GMT correctly) instead of
+// tagging them `'UTC'` as done below. However, the actual runtime `TZ` for the
+// deployed container is set outside this repo (Railway env), so it cannot be
+// confirmed here with certainty — and if the assumption is wrong, switching to
+// 'Europe/London' would double-shift times and make them MORE wrong, not less.
+// Left as `'UTC'` intentionally pending confirmation of the deployed process TZ.
+
 async function getAccessToken() {
   if (!tenant || !clientId || !clientSecret) {
     throw new Error('Microsoft Graph credentials not configured (AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET)');
@@ -43,6 +60,81 @@ function ensureCalendarUser() {
   return calendarUser;
 }
 
+// `location` may be a plain string (legacy call sites — treated as displayName
+// only) or an object `{ displayName, address, locationType }`, matching the
+// `displayName`/`locationType`/`address` shape Laravel's MicrosoftGraphService
+// sends (see usrmusic_rep MicrosoftGraphService.php ~155-165).
+function normalizeLocation(location) {
+  if (!location) return { displayName: '' };
+  if (typeof location === 'string') return { displayName: location };
+  const loc = { displayName: location.displayName || '' };
+  if (location.locationType) loc.locationType = location.locationType;
+  if (location.address) {
+    loc.address = typeof location.address === 'string'
+      ? { street: location.address }
+      : location.address;
+  }
+  return loc;
+}
+
+/**
+ * Format the UK wall-clock time-of-day carried by a `Time(0)` field (e.g.
+ * `event.start_time`/`end_time`) as a 12-hour label, e.g. "7:00 PM".
+ * These columns have no timezone, so the digits are read via UTC getters —
+ * see the timezone note above for why the UTC-read digits are the intended
+ * UK local wall-clock time.
+ */
+function formatUkTimeLabel(date) {
+  if (!date) return '';
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  let hours = d.getUTCHours();
+  const minutes = d.getUTCMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${hours}:${String(minutes).padStart(2, '0')} ${ampm}`;
+}
+
+/**
+ * Build the subject/body/location for a calendar entry, matching Laravel's
+ * CreateEventInOutlookCalendar listener:
+ * - subject: "{ClientName} @ {Venue} ({start} - {end})"
+ * - body: bold DJ name + bullet list of "{quantity} X {equipment name}" (+ notes)
+ * - location: venue display name + address
+ *
+ * `event` should include `venues`, `users_events_user_idTousers` (client) and
+ * ideally `users_events_dj_idTousers` (DJ). `eventPackages` is an array of
+ * `{ quantity, notes, equipment: { name } }` rows (package_type_id in [1,2]).
+ */
+function buildEventCalendarContent({ event, eventPackages = [] } = {}) {
+  const clientName = event?.users_events_user_idTousers?.name || 'Client';
+  const djName = event?.users_events_dj_idTousers?.name || event?.dj_package_name || 'DJ';
+  const venueName = event?.venues?.venue || '';
+  const startLabel = formatUkTimeLabel(event?.start_time);
+  const endLabel = formatUkTimeLabel(event?.end_time);
+  const timeRange = startLabel && endLabel ? `${startLabel} - ${endLabel}` : (startLabel || endLabel || '');
+
+  let subject = clientName;
+  if (venueName) subject += ` @ ${venueName}`;
+  if (timeRange) subject += ` (${timeRange})`;
+
+  let content = `<b>${djName}</b>`;
+  content += `<br><ul style="list-style-type: disc; margin-left: 0px; padding-left:16px">`;
+  for (const pkg of eventPackages || []) {
+    const equipmentName = pkg?.equipment?.name;
+    if (!equipmentName) continue;
+    const quantity = Number(pkg?.quantity) || 1;
+    content += `<li>${quantity > 1 ? `${quantity} X ` : ''}${equipmentName}`;
+    if (pkg?.notes) content += `<br><span style="margin-left: 15px;">- ${pkg.notes}</span>`;
+    content += `</li>`;
+  }
+  content += `</ul>`;
+
+  const location = { displayName: venueName, address: event?.venues?.venue_address || undefined };
+
+  return { subject, content, location };
+}
+
 async function createEvent({ subject, content, startIso, endIso, location }) {
   try {
     const token = await getAccessToken();
@@ -53,7 +145,7 @@ async function createEvent({ subject, content, startIso, endIso, location }) {
       body: { contentType: 'HTML', content: content || '' },
       start: { dateTime: startIso, timeZone: 'UTC' },
       end: { dateTime: endIso, timeZone: 'UTC' },
-      location: { displayName: location || '' },
+      location: normalizeLocation(location),
     };
     const res = await axios.post(url, payload, { headers: { Authorization: `Bearer ${token}` } });
     return res.data; // includes id
@@ -73,7 +165,7 @@ async function updateEvent(graphEventId, { subject, content, startIso, endIso, l
     if (content !== undefined) payload.body = { contentType: 'HTML', content: content || '' };
     if (startIso) payload.start = { dateTime: startIso, timeZone: 'UTC' };
     if (endIso) payload.end = { dateTime: endIso, timeZone: 'UTC' };
-    if (location) payload.location = { displayName: location };
+    if (location) payload.location = normalizeLocation(location);
     await axios.patch(url, payload, { headers: { Authorization: `Bearer ${token}` } });
     return true;
   } catch (err) {
@@ -95,4 +187,4 @@ async function deleteEvent(graphEventId) {
   }
 }
 
-export default { createEvent, updateEvent, deleteEvent };
+export default { createEvent, updateEvent, deleteEvent, buildEventCalendarContent, formatUkTimeLabel };

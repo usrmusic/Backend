@@ -46,7 +46,6 @@ const confirmEvent = catchAsync(async (req, res) => {
   // --- Step 3: update event (invoice, status, names_id, deposit) ---
   const eventUpdateData = { invoice: Number(invoiceNumber), event_status_id: 2 };
   if (namesId) eventUpdateData.names_id = namesId;
-  if (depositAmount) eventUpdateData.deposit_amount = depositAmount;
   try {
     if (body.event_date) {
       const dt = toDbDate(body.event_date);
@@ -142,7 +141,7 @@ const confirmEvent = catchAsync(async (req, res) => {
     // load event details
     const event = await prisma.event.findUnique({
       where: { id: Number(result.event_id) },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
     if (event) {
       const startIso = event.start_time
@@ -155,9 +154,11 @@ const confirmEvent = catchAsync(async (req, res) => {
         : event.date
           ? new Date(event.date).toISOString()
           : null;
-      const subject = `USRMusic Event #${event.id} - ${event.users_events_user_idTousers?.name || "Client"}`;
-      const content = event.details || "";
-      const location = event.venues?.venue || "";
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: event.id, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event, eventPackages });
 
       const created = await microsoftGraph
         .createEvent({ subject, content, startIso, endIso, location })
@@ -1728,18 +1729,23 @@ const updateEvent = catchAsync(async (req, res) => {
   try {
     const fresh = await prisma.event.findUnique({
       where: { id: eventId },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
 
     const ms = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(eventId) } });
 
     if (ms?.microsoft_event_id && fresh) {
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event: fresh, eventPackages });
       await microsoftGraph.updateEvent(ms.microsoft_event_id, {
-        subject: `Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || "Client"}`,
-        content: fresh.brief_itinerary || "",
+        subject,
+        content,
         startIso: fresh.start_time?.toISOString() || fresh.date?.toISOString(),
         endIso: fresh.end_time?.toISOString() || fresh.date?.toISOString(),
-        location: fresh.venues?.venue || "",
+        location,
       }).catch(err => console.error("MS Graph Sync Failed:", err));
     }
   } catch (e) {

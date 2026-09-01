@@ -15,6 +15,11 @@ const JWT_SECRET = process.env.JWT_SECRET;
 export async function verifyCredentials(email, password) {
   const user = await userService.getUserByEmail(email);
   if (!user) throw new AppError('invalid_credentials', 401);
+  // Soft-deleted users must never authenticate (mirrors Laravel's
+  // SoftDeletes on the User model, which makes Auth::attempt unable to
+  // resolve such a user at all). Fail the same way as a wrong password so
+  // this doesn't leak account-deletion state to the caller.
+  if (user.deleted_at) throw new AppError('invalid_credentials', 401);
 
   const hashed = user.password || null;
   const plain = user.password_text || null;

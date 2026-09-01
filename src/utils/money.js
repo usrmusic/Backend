@@ -45,14 +45,23 @@ export function sumMoney(values = []) {
 }
 
 /**
- * Is an event fully paid? True only when it has a positive cost and the amount
- * paid covers it. Uses >= (overpayment still counts as paid) and compares
- * rounded-to-penny values so float drift can't leave a paid event marked unpaid.
+ * Is an event fully paid? Mirrors Laravel's `($totalPayment == $totalCost) ?
+ * 1 : 0` (used identically in EventNotesController.php and EventService.php)
+ * rather than a "more correct" >= check, because parity with the legacy app's
+ * behaviour is the point here, not independently redefining what "paid" means.
+ *
+ * PHP's loose `==` means a null/"0"/0 cost compares equal to a 0 payment, so
+ * an unpriced event with nothing paid reads as "fully paid" by default — kept
+ * here via the cost<=0 special case. It also means overpayment is NOT "fully
+ * paid" (an exact match is required), unlike a >= comparison. round2() is
+ * still used on both sides so float drift can't produce a false negative on
+ * an otherwise-exact match.
  */
 export function isFullyPaid(paid, cost) {
   const c = round2(cost);
-  if (c <= 0) return false;
-  return round2(paid) >= c;
+  const p = round2(paid);
+  if (c <= 0) return p <= 0;
+  return p === c;
 }
 
 export default { toMoney, round2, sumMoney, isFullyPaid };

@@ -4,6 +4,9 @@ import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
 import { logActivity } from "../utils/activityLogger.js";
+import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
+import { buildTodoAssignedEmailBody, TODO_ASSIGNED_EMAIL_SUBJECT } from "../utils/mail/templates/todoAssignedEmail.js";
+import sendEmail from "../utils/mail/resendClient.js";
 
 const todoSvc = services.get("todos");
 
@@ -81,9 +84,22 @@ const listAssignedTodos = catchAsync(async (req, res) => {
     userId = Number(u.id);
   }
 
+  // Mirrors Laravel's TodoService::getTodos()/getCompletedTodos(): admins/super
+  // admins (role_id 1/2) see every todo, Staff/Client (role_id 3/4) only see
+  // todos assigned to them or belonging to an event they own. Both branches
+  // default to incomplete todos, with `?complete=true` opting into Laravel's
+  // separate getCompletedTodos() view.
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { role_id: true } });
+  const roleId = me?.role_id != null ? Number(me.role_id) : null;
+  const complete = req.query?.complete === 'true' || req.query?.complete === true;
+
+  const filter = { complete };
+  if (roleId !== 1 && roleId !== 2) {
+    filter.OR = [{ assigned_to: userId }, { events: { user_id: userId } }];
+  }
+
   const todos = await todoSvc.list({
-    filter: { assigned_to: userId },
-    perPage: 50,
+    filter,
     include: {
       users_todos_assigned_toTousers: { select: { id: true, name: true, email: true } },
       users_todos_created_byTousers: { select: { id: true, name: true, email: true } },
@@ -130,8 +146,59 @@ const createTodo = catchAsync(async (req, res) => {
     },
   });
 
+  // Notify the assigned staff member — matches Laravel's TodoController::store(),
+  // which emails the assignee on every todo creation and only logs (never fails
+  // the request) if the send errors out.
+  notifyAssignedTodo(newTodo, assignedTo, req.user).catch((e) => {
+    console.error("[todoController] notifyAssignedTodo failed", e?.message || e);
+  });
+
   res.status(201).json(serializeForJson(newTodo));
 });
+
+async function notifyAssignedTodo(todo, assignedToId, requester) {
+  const [assignedUser, event] = await Promise.all([
+    prisma.user.findUnique({ where: { id: assignedToId }, select: { name: true, email: true } }),
+    prisma.event.findUnique({
+      where: { id: Number(todo.event_id) },
+      include: { users_events_user_idTousers: { select: { name: true } } },
+    }).catch(() => null),
+  ]);
+  if (!assignedUser?.email) return;
+
+  let createdPersonName = requester?.name || null;
+  if (!createdPersonName) {
+    const creatorId = Number(requester?.sub || requester?.id) || null;
+    if (creatorId) {
+      const creator = await prisma.user.findUnique({ where: { id: creatorId }, select: { name: true } }).catch(() => null);
+      createdPersonName = creator?.name || null;
+    }
+  }
+
+  const eventLabel = event
+    ? [event.date ? new Date(event.date).toLocaleDateString("en-GB") : null, event.users_events_user_idTousers?.name || null]
+        .filter(Boolean)
+        .join(" ")
+    : null;
+  const deadlineLabel = todo.deadline ? new Date(todo.deadline).toLocaleDateString("en-GB") : null;
+
+  const bodyHtml = buildTodoAssignedEmailBody({
+    createdPersonName,
+    action: todo.action,
+    eventLabel,
+    deadlineLabel,
+    comment: todo.comment,
+  });
+
+  const html = buildUsrLetterEmail({
+    name: assignedUser.name || "there",
+    bodyHtml,
+    company: null,
+    logoUrl: null,
+  });
+
+  await sendEmail({ to: [assignedUser.email], subject: TODO_ASSIGNED_EMAIL_SUBJECT, html });
+}
 
 const updateTodo = catchAsync(async (req, res) => {
   const eventId = await resolveEventId(req.params?.eventId || req.body?.event_id);

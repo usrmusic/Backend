@@ -180,6 +180,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       dj_package_name: data.dj_package_name || null,
       event_type: data.event_type || null,
       dj_id: djId != null ? djId : undefined,
+      is_vat_available_for_the_event: true,
       // round2 defends against float drift accumulated by the frontend's
       // unrounded running-total sum (unit*qty added across every line item) —
       // without it, a value like 129.99999999999997 gets written verbatim to
@@ -219,6 +220,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       dj_package_name: data.dj_package_name || null,
       event_type: data.event_type || null,
       dj_id: djId != null ? djId : null,
+      is_vat_available_for_the_event: true,
       total_cost_for_equipment:
         data.total_cost != null ? String(round2(data.total_cost)) : null,
       dj_cost_price_for_event:
@@ -298,6 +300,15 @@ const createEnquiry = catchAsync(async (req, res) => {
     // Ensure the package_types FK rows (1=BASIC, 2=EXTRAS) exist so inserts
     // that set package_type_id can't fail the foreign key. Idempotent.
     await ensurePackageTypes(prisma);
+
+    // remove existing event packages before recreating — without this,
+    // resubmitting the same enquiry form (which re-enters the "update
+    // existing open enquiry" branch above) doubles every equipment/extra
+    // line item on each resubmission. Matches updateEnquiry's
+    // delete-before-recreate pattern. Safe no-op for newly-created events.
+    await prisma.eventPackage
+      .deleteMany({ where: { event_id: Number(event.id) } })
+      .catch(() => {});
 
     const insertedEquipIds = new Set();
     for (const p of equipmentArray) {
@@ -976,7 +987,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
         if (
           company &&
           company.vat != null &&
-          updatedEvent.is_vat_available_for_the_event === 1
+          updatedEvent.is_vat_available_for_the_event === true
         ) {
           const vatPercentage = (company.vat_percentage || 0) / 100;
           const eventTotalWithoutVat = round2(
@@ -1084,14 +1095,23 @@ const updateEnquiry = catchAsync(async (req, res) => {
       const endIso = result?.end_time
         ? new Date(result.end_time).toISOString()
         : null;
+      // `result` (from the transaction's plain findUnique) doesn't carry the
+      // client/DJ/venue relations the calendar entry needs — re-fetch with
+      // them, same as the other two Graph sync call sites.
+      const fresh = await prisma.event.findUnique({
+        where: { id },
+        include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
+      }).catch(() => null);
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: id, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
+        event: fresh || result,
+        eventPackages,
+      });
       await microsoftGraph
-        .updateEvent(me.microsoft_event_id, {
-          subject: result?.dj_package_name || `Event ${id}`,
-          content: result?.details || "",
-          startIso,
-          endIso,
-          location: result?.venues?.venue || null,
-        })
+        .updateEvent(me.microsoft_event_id, { subject, content, startIso, endIso, location })
         .catch(() => null);
     }
   } catch (e) {}

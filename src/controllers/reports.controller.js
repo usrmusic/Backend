@@ -161,6 +161,41 @@ const suppliersReport = catchAsync(async (req, res) => {
     row_type: "equipment",
   }));
 
+  // Separate, unfiltered DJ query for the KPI totals only — Laravel's
+  // SuppliersReportController::calculateSupplierReport() totals queries
+  // (totalCost/totalPaid/remaining) leftJoin package_users with NO
+  // whereNotNull('package_users.user_id') filter, so a DJ row with no
+  // matching package_users record still contributes its cost (falling back
+  // to dj_cost_price_for_event or 0) to the totals. The row-level table
+  // (djRows above) intentionally keeps the NOT NULL filter to match
+  // Laravel's SuppliersReportService::getSuppliersReport() display query.
+  const djTotalsRows = await prisma.$queryRawUnsafe(
+    `
+    SELECT
+      e.id AS event_id,
+      e.payment_send,
+      e.event_status_id,
+      CASE
+        WHEN e.event_status_id = 3 THEN COALESCE(e.dj_cost_price_for_event, 0)
+        WHEN e.event_status_id = 2 THEN COALESCE(pu.cost_price, 0)
+        ELSE 0
+      END AS cost_price
+    FROM events e
+    LEFT JOIN package_users pu ON pu.user_id = e.dj_id AND pu.package_name = e.dj_package_name
+    LEFT JOIN users u ON u.id = e.dj_id
+    LEFT JOIN venues v ON v.id = e.venue_id
+    WHERE ${djFilter.sql}
+      ${djSearchSql}
+    `,
+    ...djFilter.params,
+    ...djSearchParams,
+  );
+
+  const mappedDjTotals = (djTotalsRows || []).map((r) => ({
+    cost_price: Number(r.cost_price || 0),
+    payment_send: r.payment_send || null,
+  }));
+
   const mappedDj = (djRows || []).map((r) => ({
     id: `dj-${r.event_id}`,
     event_id: Number(r.event_id),
@@ -184,12 +219,13 @@ const suppliersReport = catchAsync(async (req, res) => {
     return db - da;
   });
 
-  // Stats derive straight from this same merged, filtered row set — it
-  // already carries the exact per-line cost_price + payment_send Laravel's
-  // separate stat queries recompute independently, so summing here is
-  // guaranteed consistent with what the table itself shows.
-  const totalCost = merged.reduce((s, r) => s + r.cost_price, 0);
-  const totalPaid = merged
+  // Stats mirror Laravel's separate, independently-computed KPI totals:
+  // equipment rows come from the same filtered set the table shows, but DJ
+  // rows for the totals use the unfiltered djTotalsRows (see above) so a DJ
+  // with no matching package_users record still counts, matching Laravel.
+  const totalsRows = [...mappedEquipment, ...mappedDjTotals];
+  const totalCost = totalsRows.reduce((s, r) => s + r.cost_price, 0);
+  const totalPaid = totalsRows
     .filter((r) => r.payment_send === "yes")
     .reduce((s, r) => s + r.cost_price, 0);
   const remaining = totalCost - totalPaid;
@@ -258,6 +294,16 @@ const adminReport = catchAsync(async (req, res) => {
 
   const startDate = parseDateSafe(q.startDate || q.event_start_time);
   const endDate = parseDateSafe(q.endDate || q.event_end_time);
+  // Laravel's admin report always scopes to a year — the current year unless
+  // one is explicitly selected — independently of (and in addition to) any
+  // start/end date range, so both can apply at once. Same `year` param name
+  // as the supplier report for frontend consistency.
+  const year =
+    q.year !== undefined && q.year !== null && q.year !== ""
+      ? Number(q.year)
+      : new Date().getFullYear();
+  whereClauses.push("YEAR(e.date) = ?");
+  params.push(year);
 
   if (startDate) {
     whereClauses.push("e.date >= ?");
@@ -289,6 +335,12 @@ const adminReport = catchAsync(async (req, res) => {
       whereClauses.push("e.event_status_id = ?");
       params.push(resolvedStatus);
     }
+  } else {
+    // Laravel's AdminReportService::getAdminReport() scopes to
+    // whereIn('events.event_status_id', [2, 3, 4]) — confirmed/completed/
+    // cancelled, excluding Open Enquiries (status 1). Only apply this
+    // default when the caller hasn't explicitly requested a status.
+    whereClauses.push("e.event_status_id IN (2,3,4)");
   }
   if (q.search) {
     const s = String(q.search).trim();

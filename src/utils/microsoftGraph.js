@@ -16,22 +16,23 @@ const calendarUser = process.env.AZURE_CALENDAR_USER_ID || null;
 let cachedToken = null;
 let tokenExpiry = 0;
 
-// --- Timezone note (parity audit, do not "fix" without production TZ confirmation) ---
+// --- Timezone (confirmed against the production Railway env) ---
 // `events.start_time` / `events.end_time` are MySQL `TIME(0)` columns (no timezone
 // info at all). They're written via `parseTimeToUtcDate()` (see src/utils/helpers.js),
 // which builds a JS Date from the admin-typed HH:mm using the Node process's *local*
-// timezone and then calls `.toISOString()`. If the deployed process's local timezone
-// is UTC (the default for most Docker/Railway images, and nothing in this repo pins
-// `TZ` to anything else), that round-trip is an identity transform: the stored TIME
-// digits are the literal UK wall-clock digits the admin typed, with no DST math ever
-// applied — the same "naive local time stored as if UTC" quirk Laravel has.
-// If that assumption holds, the correct Graph payload would send those naive digits
-// with `timeZone: 'Europe/London'` (letting Graph apply BST/GMT correctly) instead of
-// tagging them `'UTC'` as done below. However, the actual runtime `TZ` for the
-// deployed container is set outside this repo (Railway env), so it cannot be
-// confirmed here with certainty — and if the assumption is wrong, switching to
-// 'Europe/London' would double-shift times and make them MORE wrong, not less.
-// Left as `'UTC'` intentionally pending confirmation of the deployed process TZ.
+// timezone and then calls `.toISOString()`. The deployed Railway environment has no
+// `TZ` variable set, so the container defaults to UTC — meaning that round-trip is an
+// identity transform: the stored TIME digits are the literal UK wall-clock digits the
+// admin typed, with no DST math ever applied (the same "naive local time stored as if
+// UTC" quirk Laravel has). So the `startIso`/`endIso` strings this module receives
+// already carry the correct UK wall-clock digits — they're just wrongly labelled
+// `Z`/UTC. `toNaiveLocalDateTime()` strips that label and `timeZone: 'Europe/London'`
+// (below) lets Graph apply BST/GMT correctly instead of treating the digits as UTC.
+function toNaiveLocalDateTime(isoString) {
+  if (!isoString) return isoString;
+  // "2026-09-06T19:00:00.000Z" -> "2026-09-06T19:00:00" (drop ms + trailing Z)
+  return String(isoString).replace(/\.\d+Z$/, '').replace(/Z$/, '');
+}
 
 async function getAccessToken() {
   if (!tenant || !clientId || !clientSecret) {
@@ -143,8 +144,8 @@ async function createEvent({ subject, content, startIso, endIso, location }) {
     const payload = {
       subject: subject || 'USRMusic Event',
       body: { contentType: 'HTML', content: content || '' },
-      start: { dateTime: startIso, timeZone: 'UTC' },
-      end: { dateTime: endIso, timeZone: 'UTC' },
+      start: { dateTime: toNaiveLocalDateTime(startIso), timeZone: 'Europe/London' },
+      end: { dateTime: toNaiveLocalDateTime(endIso), timeZone: 'Europe/London' },
       location: normalizeLocation(location),
     };
     const res = await axios.post(url, payload, { headers: { Authorization: `Bearer ${token}` } });
@@ -163,8 +164,8 @@ async function updateEvent(graphEventId, { subject, content, startIso, endIso, l
     const payload = {};
     if (subject) payload.subject = subject;
     if (content !== undefined) payload.body = { contentType: 'HTML', content: content || '' };
-    if (startIso) payload.start = { dateTime: startIso, timeZone: 'UTC' };
-    if (endIso) payload.end = { dateTime: endIso, timeZone: 'UTC' };
+    if (startIso) payload.start = { dateTime: toNaiveLocalDateTime(startIso), timeZone: 'Europe/London' };
+    if (endIso) payload.end = { dateTime: toNaiveLocalDateTime(endIso), timeZone: 'Europe/London' };
     if (location) payload.location = normalizeLocation(location);
     await axios.patch(url, payload, { headers: { Authorization: `Bearer ${token}` } });
     return true;

@@ -1,6 +1,7 @@
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const supplierSvc = services.get("supplier");
 
@@ -82,22 +83,58 @@ export const createSupplier = catchAsync(async (req, res) => {
       .json({ error: "supplier_create_failed", details: err && err.message });
   }
 
+  await logActivity(null, {
+    log_name: "supplier created",
+    description: `Supplier #${created?.id} created`,
+    subject_type: "Supplier",
+    subject_id: created?.id != null ? Number(created.id) : null,
+    causer_id: req.user?.id || null,
+    properties: { name: created?.name || null, company_name: created?.company_name || null },
+  });
+
   res.status(201).json(serializeForJson(created));
 });
 
 export const updateSupplier = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  const existingSupplier = await supplierSvc.getById(id).catch(() => null);
   const data = req.body ? { ...req.body } : {};
   data.updated_at = new Date();
   const updated = await supplierSvc.update(id, data);
+
+  await logActivity(null, {
+    log_name: "supplier updated",
+    description: `Supplier #${id} updated`,
+    subject_type: "Supplier",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old: existingSupplier
+        ? { name: existingSupplier.name, company_name: existingSupplier.company_name }
+        : null,
+      new: { name: updated?.name, company_name: updated?.company_name },
+    },
+  });
+
   res.json(serializeForJson(updated));
 });
 
 export const deleteSupplier = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  const supplierBeforeDelete = await supplierSvc.getById(id).catch(() => null);
   await supplierSvc.delete(id);
+
+  await logActivity(null, {
+    log_name: "supplier deleted",
+    description: `Supplier #${id} deleted`,
+    subject_type: "Supplier",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { name: supplierBeforeDelete?.name || null },
+  });
+
   res.json({ ok: true });
 });
 
@@ -127,6 +164,16 @@ const deleteManySuppliers = catchAsync(async (req, res) => {
   else if (req.body && typeof req.body.force !== 'undefined') force = !!req.body.force;
 
   await supplierSvc.deleteMany(ids, { force });
+
+  await logActivity(null, {
+    log_name: "suppliers bulk deleted",
+    description: `${ids.length} supplier(s) deleted`,
+    subject_type: "Supplier",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids, count: ids.length },
+  });
+
   res.json({ ok: true });
 });
 

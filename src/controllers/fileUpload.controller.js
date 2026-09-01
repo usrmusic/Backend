@@ -12,6 +12,7 @@ import services from "../services/index.js";
 import { serializeForJson } from "../utils/serialize.js";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import s3Client from "../utils/s3Client.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const fileSvc = services.get("FileUpload");
 const mediaSvc = services.get("Media");
@@ -93,6 +94,28 @@ export const listFiles = catchAsync(async (req, res) => {
   if (req.query.search) filter.file_name = { contains: req.query.search };
   if (req.query.event_id) filter.event_id = Number(req.query.event_id);
 
+  // Role-based visibility scoping, mirroring the legacy Laravel
+  // FileUploadController::getFileUploadData():
+  //   - role_id 1/2 (Super Admin/Admin) -> see all files, no extra restriction
+  //   - role_id 3 (Staff/DJ) -> general files, or files whose event's DJ is them
+  //   - everyone else (role_id 4/Client, or unknown) -> general files, or
+  //     files whose event belongs to them (event.user_id === requester)
+  const requesterId = Number(req.user?.sub || req.user?.id);
+  const roleId = req.user?.role_id != null ? Number(req.user.role_id) : null;
+
+  let scopedFilter = filter;
+  if (roleId !== 1 && roleId !== 2) {
+    const visibilityOr =
+      roleId === 3
+        ? { OR: [{ general: true }, { events: { dj_id: requesterId } }] }
+        : { OR: [{ events: { user_id: requesterId } }, { general: true }] };
+
+    scopedFilter =
+      Object.keys(filter).length > 0
+        ? { AND: [filter, visibilityOr] }
+        : visibilityOr;
+  }
+
   const perPage = Number(req.query.perPage || req.query.limit || 25);
   const page = Number(req.query.page || 1);
   const sort =
@@ -101,8 +124,8 @@ export const listFiles = catchAsync(async (req, res) => {
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
       : undefined);
 
-  const files = await fileSvc.list({ filter, perPage, page, sort });
-  const count = await fileSvc.model.count({ where: filter });
+  const files = await fileSvc.list({ filter: scopedFilter, perPage, page, sort });
+  const count = await fileSvc.model.count({ where: scopedFilter });
   const totalPages = perPage > 0 ? Math.ceil(count / perPage) : 1;
 
   res.json({
@@ -226,6 +249,15 @@ const updateFileMetadata = catchAsync(async (req, res) => {
     data: { file_name },
   });
 
+  await logActivity(prisma, {
+    log_name: "file metadata updated",
+    description: `File #${Number(id)} metadata updated`,
+    subject_type: "FileUpload",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: { old_file_name: f.file_name, new_file_name: file_name },
+  });
+
   if (
     process.env.FILE_STORAGE &&
     process.env.FILE_STORAGE.toLowerCase() === "s3" &&
@@ -285,6 +317,20 @@ export const uploadfile = catchAsync(async (req, res) => {
   };
 
   const created = await prisma.fileUpload.create({ data });
+
+  await logActivity(prisma, {
+    log_name: "file uploaded",
+    description: `File #${Number(created.id)} uploaded`,
+    subject_type: "FileUpload",
+    subject_id: Number(created.id),
+    causer_id: req.user?.id || null,
+    properties: {
+      file_name: data.file_name,
+      file_type: data.file_type,
+      event_id: data.event_id != null ? Number(data.event_id) : null,
+    },
+  });
+
   // produce download url for response
   let download_url = null;
   if (uploadRes && uploadRes.storage === "s3") {
@@ -330,6 +376,16 @@ const deleteFile = catchAsync(async (req, res) => {
   }
   // delete DB record
   await prisma.fileUpload.delete({ where: { id } });
+
+  await logActivity(prisma, {
+    log_name: "file deleted",
+    description: `File #${Number(id)} deleted`,
+    subject_type: "FileUpload",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: { file_name: f.file_name },
+  });
+
   res.json({ success: true });
 });
 
@@ -370,6 +426,16 @@ const deleteMedia = catchAsync(async (req, res) => {
 
   // delete DB record
   await prisma.media.delete({ where: { id } });
+
+  await logActivity(prisma, {
+    log_name: "media deleted",
+    description: `Media #${Number(id)} deleted`,
+    subject_type: "Media",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: { display_name: f.display_name },
+  });
+
   res.json({ success: true });
 });
 // export const downloadFile = catchAsync(async (req, res) => {
@@ -496,6 +562,15 @@ const uploadMedia = catchAsync(async (req, res) => {
   };
 
   const created = await mediaSvc.create(data);
+
+  await logActivity(prisma, {
+    log_name: "media uploaded",
+    description: `Media #${Number(created.id)} uploaded`,
+    subject_type: "Media",
+    subject_id: Number(created.id),
+    causer_id: req.user?.id || null,
+    properties: { display_name: data.display_name },
+  });
 
   return res.status(201).json({
     success: true,

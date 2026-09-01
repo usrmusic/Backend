@@ -4,6 +4,7 @@ import { serializeForJson } from '../utils/serialize.js';
 import dashboardService from '../services/dashboard.service.js';
 import service from '../services/index.js';
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
+import { logActivity } from '../utils/activityLogger.js';
 
 const userSvc = service.get('user');
 
@@ -217,6 +218,16 @@ const getDashboardStats = catchAsync(async (req, res) => {
 const recalculateProfits = catchAsync(async (req, res) => {
     const force = Boolean(req.body?.force);
     const result = await dashboardService.recalculateProfits({ force });
+
+    await logActivity(prisma, {
+        log_name: "profits recalculated",
+        description: "Bulk profit recalculation run",
+        subject_type: "Event",
+        subject_id: null,
+        causer_id: req.user?.id || null,
+        properties: result && result.updated !== undefined ? { updated_count: Number(result.updated) } : null,
+    });
+
     res.json({ ok: true, updated: result.updated });
 });
 

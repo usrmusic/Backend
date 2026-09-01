@@ -1,5 +1,23 @@
 import Joi from "joi";
 
+// Matches Laravel's StoreTodoRequest/UpdateTodoRequest `after_or_equal:today`
+// rule, which compares by calendar date, not exact timestamp — so "today" at
+// any time of day must still pass. `min('now')` would incorrectly reject
+// earlier times today, so compare against the start of today instead,
+// computed fresh on every validation (not frozen at module load).
+const deadlineSchema = Joi.date()
+  .iso()
+  .custom((value, helpers) => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    if (value < startOfToday) {
+      return helpers.error("date.min", { limit: "today" });
+    }
+    return value;
+  }, "deadline not before today")
+  .messages({ "date.min": "deadline must be today or later" })
+  .required();
+
 const listTodo = Joi.object({
     params: Joi.object({
         id: Joi.number().integer().required(),
@@ -13,7 +31,7 @@ const createTodo = Joi.object({
     body: Joi.object({
         assigned_to: Joi.number().integer().required(),
         action: Joi.string().required(),
-        deadline: Joi.date().iso().required(),
+        deadline: deadlineSchema,
         comment: Joi.string().optional(),
         complete: Joi.boolean().required(),
     }),
@@ -27,7 +45,7 @@ const updateTodo = Joi.object({
     body: Joi.object({
         assigned_to: Joi.number().integer().required(),
         action: Joi.string().required(),
-        deadline: Joi.date().iso().required(),
+        deadline: deadlineSchema,
         comment: Joi.string().optional(),
         complete: Joi.boolean().required(),
     }),

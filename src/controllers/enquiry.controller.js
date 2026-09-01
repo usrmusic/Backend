@@ -15,6 +15,7 @@ import bcrypt from "bcrypt";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
 import { toMoney, round2, isFullyPaid } from "../utils/money.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -179,6 +180,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       dj_package_name: data.dj_package_name || null,
       event_type: data.event_type || null,
       dj_id: djId != null ? djId : undefined,
+      is_vat_available_for_the_event: true,
       // round2 defends against float drift accumulated by the frontend's
       // unrounded running-total sum (unit*qty added across every line item) —
       // without it, a value like 129.99999999999997 gets written verbatim to
@@ -218,6 +220,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       dj_package_name: data.dj_package_name || null,
       event_type: data.event_type || null,
       dj_id: djId != null ? djId : null,
+      is_vat_available_for_the_event: true,
       total_cost_for_equipment:
         data.total_cost != null ? String(round2(data.total_cost)) : null,
       dj_cost_price_for_event:
@@ -298,6 +301,15 @@ const createEnquiry = catchAsync(async (req, res) => {
     // that set package_type_id can't fail the foreign key. Idempotent.
     await ensurePackageTypes(prisma);
 
+    // remove existing event packages before recreating — without this,
+    // resubmitting the same enquiry form (which re-enters the "update
+    // existing open enquiry" branch above) doubles every equipment/extra
+    // line item on each resubmission. Matches updateEnquiry's
+    // delete-before-recreate pattern. Safe no-op for newly-created events.
+    await prisma.eventPackage
+      .deleteMany({ where: { event_id: Number(event.id) } })
+      .catch(() => {});
+
     const insertedEquipIds = new Set();
     for (const p of equipmentArray) {
       const pkg = makePackage(p, 1); // basics → package_type_id 1
@@ -348,6 +360,21 @@ const createEnquiry = catchAsync(async (req, res) => {
   } catch (e) {
     console.error("[createEnquiry] package persistence error", e?.code, e?.message);
   }
+
+  await logActivity(prisma, {
+    log_name: "enquiry created",
+    description: `Enquiry created for event #${Number(event.id)}`,
+    subject_type: "Event",
+    subject_id: Number(event.id),
+    causer_id: req.user?.id || null,
+    properties: {
+      client_name: client?.name || null,
+      venue_id: venue?.id != null ? Number(venue.id) : data.venue_id != null ? Number(data.venue_id) : null,
+      ...(djId != null ? { dj_id: Number(djId) } : {}),
+      total_cost: data.total_cost != null ? data.total_cost : null,
+    },
+  });
+
   //use resend to send email to admin where role id == 2
   const admins = await prisma.user.findMany({
     where: { role_id: BigInt(2), is_email_send: true },
@@ -887,6 +914,25 @@ const updateEnquiry = catchAsync(async (req, res) => {
     // ensure FK rows for package_type_id exist (1=BASIC, 2=EXTRAS)
     await ensurePackageTypes(tx);
 
+    // Snapshot the package rows as they stood before this edit — the only way
+    // to reconstruct "what changed" afterwards, since the rows below get
+    // wiped and recreated wholesale rather than diffed.
+    const previousPackages = (
+      await tx.eventPackage
+        .findMany({
+          where: { event_id: Number(id) },
+          select: { equipment_id: true, package_type_id: true, sell_price: true, quantity: true },
+        })
+        .catch(() => [])
+    ).map((p) => ({
+      // BigInt fields don't survive JSON.stringify (used by logActivity) —
+      // must convert before they ever reach that call.
+      equipment_id: p.equipment_id != null ? Number(p.equipment_id) : null,
+      package_type_id: p.package_type_id != null ? Number(p.package_type_id) : null,
+      sell_price: p.sell_price,
+      quantity: p.quantity,
+    }));
+
     // remove existing event packages and recreate
     try {
       await tx.eventPackage.deleteMany({ where: { event_id: Number(id) } });
@@ -941,7 +987,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
         if (
           company &&
           company.vat != null &&
-          updatedEvent.is_vat_available_for_the_event === 1
+          updatedEvent.is_vat_available_for_the_event === true
         ) {
           const vatPercentage = (company.vat_percentage || 0) / 100;
           const eventTotalWithoutVat = round2(
@@ -991,7 +1037,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
         .catch(() => {});
     } catch (e) {}
 
-    // create an update note for the event (no activity log here)
+    // create an update note for the event
     await eventNoteService
       .createNote(tx, {
         eventId: Number(id),
@@ -999,6 +1045,38 @@ const updateEnquiry = catchAsync(async (req, res) => {
         created_by: req.user?.id || null,
       })
       .catch(() => {});
+
+    // Audit the package/pricing change — without this there was no way to
+    // trace a total_cost_for_equipment jump back to which equipment/extras
+    // were actually ticked in a given edit (had to be reconstructed by hand
+    // from raw DB state for a real client pricing complaint).
+    await logActivity(tx, {
+      log_name: "event package updated",
+      description: `Event #${id} package/pricing updated`,
+      subject_type: "Event",
+      subject_id: Number(id),
+      causer_id: req.user?.id || null,
+      properties: {
+        old_total_cost_for_equipment: existingEvent.total_cost_for_equipment,
+        new_total_cost_for_equipment:
+          body.total_cost_for_equipment ?? body.total_cost ?? updatedEvent.total_cost_for_equipment,
+        old_packages: previousPackages,
+        new_packages: [
+          ...equipmentArray.map((p) => ({
+            equipment_id: p.equipment_id ?? p.equipment?.id ?? p.id ?? null,
+            package_type_id: 1,
+            sell_price: p.sell_price ?? null,
+            quantity: p.quantity ?? null,
+          })),
+          ...extraArray.map((p) => ({
+            equipment_id: p.equipment_id ?? p.equipment?.id ?? p.id ?? null,
+            package_type_id: 2,
+            sell_price: p.sell_price ?? null,
+            quantity: p.quantity ?? null,
+          })),
+        ],
+      },
+    });
 
     return await tx.event.findUnique({ where: { id } });
   });
@@ -1017,14 +1095,23 @@ const updateEnquiry = catchAsync(async (req, res) => {
       const endIso = result?.end_time
         ? new Date(result.end_time).toISOString()
         : null;
+      // `result` (from the transaction's plain findUnique) doesn't carry the
+      // client/DJ/venue relations the calendar entry needs — re-fetch with
+      // them, same as the other two Graph sync call sites.
+      const fresh = await prisma.event.findUnique({
+        where: { id },
+        include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
+      }).catch(() => null);
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: id, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
+        event: fresh || result,
+        eventPackages,
+      });
       await microsoftGraph
-        .updateEvent(me.microsoft_event_id, {
-          subject: result?.dj_package_name || `Event ${id}`,
-          content: result?.details || "",
-          startIso,
-          endIso,
-          location: result?.venues?.venue || null,
-        })
+        .updateEvent(me.microsoft_event_id, { subject, content, startIso, endIso, location })
         .catch(() => null);
     }
   } catch (e) {}
@@ -1436,6 +1523,16 @@ const addNote = catchAsync(async (req, res) => {
     notes,
     created_by: req.user?.id || null,
   });
+
+  await logActivity(prisma, {
+    log_name: "event note added",
+    description: `Note added to event #${event_id}`,
+    subject_type: "Event",
+    subject_id: Number(event_id),
+    causer_id: req.user?.id || null,
+    properties: { notes },
+  });
+
   res.json(serializeForJson({ success: true, data: created }));
 });
 
@@ -1548,6 +1645,14 @@ const sendBrochure = catchAsync(async (req, res) => {
       notes: noteText,
       created_by: req.user?.id || null,
     });
+    await logActivity(tx, {
+      log_name: "brochure sent",
+      description: `Brochure emailed for event #${eventId}`,
+      subject_type: "Event",
+      subject_id: Number(eventId),
+      causer_id: req.user?.id || null,
+      properties: { to: clientEmail, company_id: company?.id != null ? Number(company.id) : null },
+    });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
@@ -1639,6 +1744,14 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
       eventId,
       notes: noteText,
       created_by: req.user?.id || null,
+    });
+    await logActivity(tx, {
+      log_name: "update email sent",
+      description: `Update email sent for event #${eventId}`,
+      subject_type: "Event",
+      subject_id: Number(eventId),
+      causer_id: req.user?.id || null,
+      properties: { to: clientEmail, company_id: company?.id != null ? Number(company.id) : null },
     });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
@@ -1849,6 +1962,14 @@ const sendQuote = catchAsync(async (req, res) => {
       notes: `Quote sent - ${companyName}`,
       created_by: req.user?.id || null,
     });
+    await logActivity(tx, {
+      log_name: "quote sent",
+      description: `Quote emailed for event #${eventId}`,
+      subject_type: "Event",
+      subject_id: Number(eventId),
+      causer_id: req.user?.id || null,
+      properties: { to: to || null, company_id: companyId != null ? Number(companyId) : null },
+    });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
@@ -1904,9 +2025,25 @@ const deleteEnquiry = catchAsync(async (req, res) => {
         await tx.user.delete({ where: { id: userId } }).catch(() => {});
       }
       await tx.event.delete({ where: { id: eventId } }).catch(() => {});
+      await logActivity(tx, {
+        log_name: "enquiry deleted",
+        description: `Enquiry #${eventId} deleted`,
+        subject_type: "Event",
+        subject_id: Number(eventId),
+        causer_id: req.user?.id || null,
+        properties: { client_name: user?.name || null },
+      });
       return { success: true, id: userId };
     } else {
       await tx.event.delete({ where: { id: eventId } }).catch(() => {});
+      await logActivity(tx, {
+        log_name: "enquiry deleted",
+        description: `Enquiry #${eventId} deleted`,
+        subject_type: "Event",
+        subject_id: Number(eventId),
+        causer_id: req.user?.id || null,
+        properties: { client_name: user?.name || null },
+      });
       return { success: true, id: eventId };
     }
   });
@@ -1980,9 +2117,25 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
         await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
       }
       await tx.event.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+      await logActivity(tx, {
+        log_name: "enquiries bulk deleted",
+        description: `${ids.length} enquiries deleted`,
+        subject_type: "Event",
+        subject_id: null,
+        causer_id: req.user?.id || null,
+        properties: { ids, count: ids.length },
+      });
       return { success: true, id: primaryUserId };
     } else {
       await tx.event.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+      await logActivity(tx, {
+        log_name: "enquiries bulk deleted",
+        description: `${ids.length} enquiries deleted`,
+        subject_type: "Event",
+        subject_id: null,
+        causer_id: req.user?.id || null,
+        properties: { ids, count: ids.length },
+      });
       return { success: true, ids };
     }
   });

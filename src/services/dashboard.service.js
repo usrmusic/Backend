@@ -482,16 +482,89 @@ async function getUpcomingEvents({ search = null, userId = null, scope = 'admin'
 }
 
 async function recalculateProfits({ force = false } = {}) {
-	const where = force ? {} : { profit: null };
-	const events = await prisma.event.findMany({ where, select: { id: true, event_amount_without_vat: true, event_cost: true } });
+	// Laravel's AdminReportService only ever recomputes profit for
+	// Confirmed/Completed/Cancelled events (event_status_id IN (2,3,4)) —
+	// Open Enquiries (1) have no cost/profit concept yet.
+	const statusFilter = { event_status_id: { in: [2, 3, 4] } };
+	// `event_cost` was never being written anywhere, so every event's
+	// `profit` was silently computed against a null cost (≈ full revenue).
+	// A plain `{ profit: null }` filter would never pick those already-wrong
+	// rows back up for correction, so also recompute whenever `event_cost`
+	// is still null — that's exactly the set poisoned by the old bug.
+	const where = force ? statusFilter : { AND: [statusFilter, { OR: [{ profit: null }, { event_cost: null }] }] };
+
+	const events = await prisma.event.findMany({
+		where,
+		select: {
+			id: true,
+			event_status_id: true,
+			total_cost_for_equipment: true,
+			extra_cost: true,
+			dj_id: true,
+			dj_package_name: true,
+			dj_cost_price_for_event: true,
+		},
+	});
 
 	if (events.length === 0) return { updated: 0 };
 
-	// Compute all profits in-memory first — no DB calls in the loop
-	const updates = events.map((e) => ({
-		id: e.id,
-		profit: parseNumberLike(e.event_amount_without_vat) - parseNumberLike(e.event_cost),
-	}));
+	const eventIds = events.map((e) => e.id);
+
+	// Sum each event's equipment cost (basic + extras together — Laravel's
+	// event_cost is their combined total, see AdminReportService::adminAllReport)
+	// plus its DJ's cost, using the exact same status-dependent cost source as
+	// reports.controller.js's pkg_agg/dj_pkg CTEs: once an event is
+	// Completed/Cancelled (3/4) costs are frozen to the historical
+	// event_package.cost_price / events.dj_cost_price_for_event snapshot;
+	// while still Open/Confirmed (1/2) they track the live
+	// equipment.cost_price / package_users.cost_price.
+	const placeholders = eventIds.map(() => "?").join(",");
+	const costRows = await prisma.$queryRawUnsafe(
+		`
+		SELECT
+			e.id AS event_id,
+			COALESCE(pkg.cost_total, 0) AS pkg_cost_total,
+			(CASE WHEN e.event_status_id IN (3,4) THEN COALESCE(e.dj_cost_price_for_event, 0) ELSE COALESCE(dp.cost_price, 0) END) AS dj_cost
+		FROM events e
+		LEFT JOIN (
+			SELECT
+				ep.event_id,
+				SUM(
+					(CASE WHEN ev.event_status_id IN (3,4) THEN COALESCE(ep.cost_price, 0) ELSE COALESCE(eq.cost_price, 0) END)
+					* COALESCE(ep.quantity, 0)
+				) AS cost_total
+			FROM event_package ep
+			JOIN events ev ON ev.id = ep.event_id
+			LEFT JOIN equipment eq ON eq.id = ep.equipment_id
+			WHERE ep.event_id IN (${placeholders})
+			GROUP BY ep.event_id
+		) pkg ON pkg.event_id = e.id
+		LEFT JOIN (
+			SELECT user_id, package_name, MAX(COALESCE(cost_price, 0)) AS cost_price
+			FROM package_users
+			GROUP BY user_id, package_name
+		) dp ON dp.user_id = e.dj_id AND dp.package_name = e.dj_package_name
+		WHERE e.id IN (${placeholders})
+		`,
+		...eventIds,
+		...eventIds,
+	);
+
+	const costById = new Map();
+	for (const row of costRows || []) {
+		costById.set(Number(row.event_id), {
+			pkgCostTotal: parseNumberLike(row.pkg_cost_total),
+			djCost: parseNumberLike(row.dj_cost),
+		});
+	}
+
+	// Compute all event_cost/profit values in-memory first — no DB calls in the loop
+	const updates = events.map((e) => {
+		const costs = costById.get(e.id) || { pkgCostTotal: 0, djCost: 0 };
+		const eventCost = costs.pkgCostTotal + costs.djCost;
+		const profit = parseNumberLike(e.total_cost_for_equipment) - eventCost - parseNumberLike(e.extra_cost);
+		return { id: e.id, eventCost, profit };
+	});
 
 	// Batch into chunks of 500 per transaction — reduces N roundtrips to ceil(N/500)
 	const CHUNK_SIZE = 500;
@@ -499,7 +572,7 @@ async function recalculateProfits({ force = false } = {}) {
 	for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
 		const chunk = updates.slice(i, i + CHUNK_SIZE);
 		await prisma.$transaction(
-			chunk.map((u) => prisma.event.update({ where: { id: u.id }, data: { profit: u.profit } }))
+			chunk.map((u) => prisma.event.update({ where: { id: u.id }, data: { event_cost: u.eventCost, profit: u.profit } }))
 		);
 		updated += chunk.length;
 	}

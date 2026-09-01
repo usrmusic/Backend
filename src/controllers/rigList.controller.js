@@ -2,6 +2,7 @@ import prisma from '../utils/prismaClient.js';
 import catchAsync from '../utils/catchAsync.js';
 import { parseFilterSort } from '../utils/queryHelpers.js';
 import { serializeForJson } from '../utils/serialize.js';
+import { logActivity } from '../utils/activityLogger.js';
 
 export const listEvents = catchAsync(async (req, res) => {
   const opts = parseFilterSort(req.query || {});
@@ -89,6 +90,20 @@ export const StoreRigListNotes = catchAsync(async (req, res) => {
       rigList_event_notes: notes || note || null,
       extra_data_rigList: JSON.stringify(extra),
       updated_at: new Date(),
+    },
+  });
+
+  await logActivity(prisma, {
+    log_name: "rig list updated",
+    description: `Rig list notes updated for event #${id}`,
+    subject_type: "Event",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: {
+      old_rigList_event_notes: existing.rigList_event_notes,
+      new_rigList_event_notes: notes || note || null,
+      old_extra_data_rigList: existing.extra_data_rigList,
+      new_extra_data_rigList: extra,
     },
   });
 

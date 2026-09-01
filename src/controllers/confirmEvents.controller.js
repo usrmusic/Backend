@@ -14,6 +14,7 @@ import { toMoney, round2, isFullyPaid } from "../utils/money.js";
 import AppError from "../utils/AppError.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
 import { signContractForEvent } from "../services/contractSign.service.js";
+import { logActivity } from "../utils/activityLogger.js";
 const eventSvc = services.get("event");
 
 
@@ -45,7 +46,6 @@ const confirmEvent = catchAsync(async (req, res) => {
   // --- Step 3: update event (invoice, status, names_id, deposit) ---
   const eventUpdateData = { invoice: Number(invoiceNumber), event_status_id: 2 };
   if (namesId) eventUpdateData.names_id = namesId;
-  if (depositAmount) eventUpdateData.deposit_amount = depositAmount;
   try {
     if (body.event_date) {
       const dt = toDbDate(body.event_date);
@@ -141,7 +141,7 @@ const confirmEvent = catchAsync(async (req, res) => {
     // load event details
     const event = await prisma.event.findUnique({
       where: { id: Number(result.event_id) },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
     if (event) {
       const startIso = event.start_time
@@ -154,9 +154,11 @@ const confirmEvent = catchAsync(async (req, res) => {
         : event.date
           ? new Date(event.date).toISOString()
           : null;
-      const subject = `USRMusic Event #${event.id} - ${event.users_events_user_idTousers?.name || "Client"}`;
-      const content = event.details || "";
-      const location = event.venues?.venue || "";
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: event.id, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event, eventPackages });
 
       const created = await microsoftGraph
         .createEvent({ subject, content, startIso, endIso, location })
@@ -299,6 +301,19 @@ const confirmEvent = catchAsync(async (req, res) => {
       e?.message || e,
     );
   }
+
+  await logActivity(prisma, {
+    log_name: "event confirmed",
+    description: `Event #${eventId} confirmed`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+    properties: {
+      deposit_amount: depositAmount,
+      invoice_number: invoiceNumber,
+      total_cost_for_equipment: finalCost,
+    },
+  });
 
   res.json(serializeForJson({ success: true, data: result }));
 });
@@ -1006,6 +1021,20 @@ const refund = catchAsync(async (req, res) => {
         created_by: req.user?.id || null,
       })
       .catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "event refunded",
+      description: `Event #${eventId} refund updated`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: eventId,
+        old_refund_amount: previous,
+        new_refund_amount: newRefund,
+      },
+    });
+
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
@@ -1068,6 +1097,19 @@ const addPayment = catchAsync(async (req, res) => {
       notes: `Payment received - ${amount}`,
       created_by: req.user?.id || null,
     }).catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "payment added",
+      description: `Payment added for event #${eventId}`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: eventId,
+        amount: Number(amount),
+        payment_method_id: Number(paymentMethodId),
+      },
+    });
 
     return {
       id: payment.id,
@@ -1136,6 +1178,27 @@ const updatePayment = catchAsync(async (req, res) => {
       .findUnique({ where: { id: payment.id }, include: { payment_methods: true } })
       .catch(() => null);
 
+    await logActivity(tx, {
+      log_name: "payment updated",
+      description: `Payment #${paymentId} updated for event #${existing.event_id}`,
+      subject_type: "EventPayment",
+      subject_id: paymentId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: Number(existing.event_id),
+        old: {
+          amount: existing.amount,
+          payment_method_id: existing.payment_method_id != null ? Number(existing.payment_method_id) : null,
+          date: existing.date,
+        },
+        new: {
+          amount: payment.amount,
+          payment_method_id: payment.payment_method_id != null ? Number(payment.payment_method_id) : null,
+          date: payment.date,
+        },
+      },
+    });
+
     return {
       id: payment.id,
       event_id: payment.event_id,
@@ -1160,6 +1223,21 @@ const deletePayment = catchAsync(async (req, res) => {
   const result = await prisma.$transaction(async (tx) => {
     await tx.eventPayment.delete({ where: { id: paymentId } });
     const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
+
+    await logActivity(tx, {
+      log_name: "payment deleted",
+      description: `Payment #${paymentId} deleted for event #${existing.event_id}`,
+      subject_type: "EventPayment",
+      subject_id: paymentId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: Number(existing.event_id),
+        amount: existing.amount,
+        payment_method_id: existing.payment_method_id != null ? Number(existing.payment_method_id) : null,
+        date: existing.date,
+      },
+    });
+
     return { total_paid: totalPayment, is_event_payment_fully_paid: paymentSent };
   });
 
@@ -1225,6 +1303,18 @@ const cancelEvent = catchAsync(async (req, res) => {
         created_by: req.user?.id || null,
       })
       .catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "event cancelled",
+      description: `Event #${eventId} cancelled`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: eventId,
+        refund_amount: newRefundAmount,
+      },
+    });
 
     // best-effort: if there's a microsoft events table entry, attempt any cleanup (no-op here)
     return await tx.event.findUnique({ where: { id: eventId } });
@@ -1620,22 +1710,42 @@ const updateEvent = catchAsync(async (req, res) => {
     created_by: req.user?.id || null,
   }).catch(() => {});
 
+  await logActivity(prisma, {
+    log_name: "confirmed event updated",
+    description: `Confirmed event #${eventId} details updated`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+    properties: {
+      event_id: eventId,
+      changed_fields: Object.keys(eventUpdateData),
+      dj_id: eventUpdateData.dj_id != null ? Number(eventUpdateData.dj_id) : undefined,
+      venue_id: eventUpdateData.venue_id != null ? Number(eventUpdateData.venue_id) : undefined,
+      date: eventUpdateData.date ?? undefined,
+    },
+  });
+
   // 5. External Sync (Microsoft Graph)
   try {
     const fresh = await prisma.event.findUnique({
       where: { id: eventId },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
 
     const ms = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(eventId) } });
 
     if (ms?.microsoft_event_id && fresh) {
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event: fresh, eventPackages });
       await microsoftGraph.updateEvent(ms.microsoft_event_id, {
-        subject: `Event #${fresh.id} - ${fresh.users_events_user_idTousers?.name || "Client"}`,
-        content: fresh.brief_itinerary || "",
+        subject,
+        content,
         startIso: fresh.start_time?.toISOString() || fresh.date?.toISOString(),
         endIso: fresh.end_time?.toISOString() || fresh.date?.toISOString(),
-        location: fresh.venues?.venue || "",
+        location,
       }).catch(err => console.error("MS Graph Sync Failed:", err));
     }
   } catch (e) {

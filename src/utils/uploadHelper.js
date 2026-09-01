@@ -110,10 +110,21 @@ export async function getDownloadUrl(fileKey, opts = {}) {
 }
 
 // Remove expired files whose `delete_after` is past. This deletes the object from storage and removes the fileUpload row.
+// Matches Laravel's DeleteExpiredFiles command: only files attached to a
+// Completed (3) or Cancelled (4) event are eligible. Laravel's whereHas()
+// requires the event relation to exist, so files with no event_id (general/
+// unattached uploads) and files on Confirmed (2) events are never touched —
+// deleting those was destroying live data.
 export async function pruneExpiredFiles(prismaClient) {
   if (!prismaClient) throw new Error('prismaClient_required');
   const now = new Date();
-  const expired = await prismaClient.fileUpload.findMany({ where: { delete_after: { lte: now } } }).catch(()=>[]);
+  const expired = await prismaClient.fileUpload.findMany({
+    where: {
+      delete_after: { lte: now },
+      event_id: { not: null },
+      events: { event_status_id: { in: [3, 4] } },
+    },
+  }).catch(()=>[]);
   for (const f of expired) {
     try {
       if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {

@@ -14,6 +14,7 @@ import { toMoney, round2, isFullyPaid } from "../utils/money.js";
 import AppError from "../utils/AppError.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
 import { signContractForEvent } from "../services/contractSign.service.js";
+import { logActivity } from "../utils/activityLogger.js";
 const eventSvc = services.get("event");
 
 
@@ -299,6 +300,19 @@ const confirmEvent = catchAsync(async (req, res) => {
       e?.message || e,
     );
   }
+
+  await logActivity(prisma, {
+    log_name: "event confirmed",
+    description: `Event #${eventId} confirmed`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+    properties: {
+      deposit_amount: depositAmount,
+      invoice_number: invoiceNumber,
+      total_cost_for_equipment: finalCost,
+    },
+  });
 
   res.json(serializeForJson({ success: true, data: result }));
 });
@@ -1006,6 +1020,20 @@ const refund = catchAsync(async (req, res) => {
         created_by: req.user?.id || null,
       })
       .catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "event refunded",
+      description: `Event #${eventId} refund updated`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: eventId,
+        old_refund_amount: previous,
+        new_refund_amount: newRefund,
+      },
+    });
+
     return await tx.event.findUnique({ where: { id: eventId } });
   });
 
@@ -1068,6 +1096,19 @@ const addPayment = catchAsync(async (req, res) => {
       notes: `Payment received - ${amount}`,
       created_by: req.user?.id || null,
     }).catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "payment added",
+      description: `Payment added for event #${eventId}`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: eventId,
+        amount: Number(amount),
+        payment_method_id: Number(paymentMethodId),
+      },
+    });
 
     return {
       id: payment.id,
@@ -1136,6 +1177,27 @@ const updatePayment = catchAsync(async (req, res) => {
       .findUnique({ where: { id: payment.id }, include: { payment_methods: true } })
       .catch(() => null);
 
+    await logActivity(tx, {
+      log_name: "payment updated",
+      description: `Payment #${paymentId} updated for event #${existing.event_id}`,
+      subject_type: "EventPayment",
+      subject_id: paymentId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: Number(existing.event_id),
+        old: {
+          amount: existing.amount,
+          payment_method_id: existing.payment_method_id != null ? Number(existing.payment_method_id) : null,
+          date: existing.date,
+        },
+        new: {
+          amount: payment.amount,
+          payment_method_id: payment.payment_method_id != null ? Number(payment.payment_method_id) : null,
+          date: payment.date,
+        },
+      },
+    });
+
     return {
       id: payment.id,
       event_id: payment.event_id,
@@ -1160,6 +1222,21 @@ const deletePayment = catchAsync(async (req, res) => {
   const result = await prisma.$transaction(async (tx) => {
     await tx.eventPayment.delete({ where: { id: paymentId } });
     const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
+
+    await logActivity(tx, {
+      log_name: "payment deleted",
+      description: `Payment #${paymentId} deleted for event #${existing.event_id}`,
+      subject_type: "EventPayment",
+      subject_id: paymentId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: Number(existing.event_id),
+        amount: existing.amount,
+        payment_method_id: existing.payment_method_id != null ? Number(existing.payment_method_id) : null,
+        date: existing.date,
+      },
+    });
+
     return { total_paid: totalPayment, is_event_payment_fully_paid: paymentSent };
   });
 
@@ -1225,6 +1302,18 @@ const cancelEvent = catchAsync(async (req, res) => {
         created_by: req.user?.id || null,
       })
       .catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "event cancelled",
+      description: `Event #${eventId} cancelled`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: {
+        event_id: eventId,
+        refund_amount: newRefundAmount,
+      },
+    });
 
     // best-effort: if there's a microsoft events table entry, attempt any cleanup (no-op here)
     return await tx.event.findUnique({ where: { id: eventId } });
@@ -1619,6 +1708,21 @@ const updateEvent = catchAsync(async (req, res) => {
     notes: "Event details updated via management portal",
     created_by: req.user?.id || null,
   }).catch(() => {});
+
+  await logActivity(prisma, {
+    log_name: "confirmed event updated",
+    description: `Confirmed event #${eventId} details updated`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+    properties: {
+      event_id: eventId,
+      changed_fields: Object.keys(eventUpdateData),
+      dj_id: eventUpdateData.dj_id != null ? Number(eventUpdateData.dj_id) : undefined,
+      venue_id: eventUpdateData.venue_id != null ? Number(eventUpdateData.venue_id) : undefined,
+      date: eventUpdateData.date ?? undefined,
+    },
+  });
 
   // 5. External Sync (Microsoft Graph)
   try {

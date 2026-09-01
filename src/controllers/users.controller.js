@@ -13,6 +13,7 @@ import * as authService from "../services/authService.js";
 import userService from "../services/userService.js";
 import service from "../services/index.js";
 import { loadPermissionsForUserId } from "../middleware/authorize.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const userSvc = service.get("user");
 const roleSvc = service.get("roles");
@@ -71,6 +72,18 @@ const signUp = catchAsync(async (req, res) => {
   }
 
   const { user, plainPassword, verifyToken, emailSent, resendResult } = result;
+
+  await logActivity(prisma, {
+    log_name: "user created",
+    description: `User ${user.id} created`,
+    subject_type: "User",
+    subject_id: Number(user.id),
+    causer_id: req.user?.id || null,
+    properties: {
+      email: user.email,
+      role_id: typeof user.role_id === "bigint" ? Number(user.role_id) : user.role_id,
+    },
+  });
 
   const safeUser = serializeForJson({
     id: user.id,
@@ -269,6 +282,15 @@ const resetPasswordWithToken = catchAsync(async (req, res) => {
   await userSvc.update(user.id, { password: hashed, password_text: password });
   await prisma.password_resets.delete({ where: { email: record.email } }).catch(() => {});
 
+  await logActivity(prisma, {
+    log_name: "password reset via token",
+    description: `Password reset via token for user ${user.id}`,
+    subject_type: "User",
+    subject_id: Number(user.id),
+    causer_id: Number(user.id),
+    properties: {},
+  });
+
   return res.json({ ok: true });
 });
 
@@ -322,14 +344,45 @@ const updateUser = catchAsync(async (req, res) => {
 
   data.updated_at = new Date();
   const user = await userSvc.update(id, data);
+
+  await logActivity(prisma, {
+    log_name: "user updated",
+    description: `User ${id} updated`,
+    subject_type: "User",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old: {
+        name: existing.name,
+        email: existing.email,
+        role_id: typeof existing.role_id === "bigint" ? Number(existing.role_id) : existing.role_id,
+      },
+      new: {
+        name: user.name,
+        email: user.email,
+        role_id: typeof user.role_id === "bigint" ? Number(user.role_id) : user.role_id,
+      },
+    },
+  });
+
   res.json(serializeForJson(user));
 });
 
 const deleteUser = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
+  const existingUser = await userSvc.getById(id);
   const result = await userSvc.delete(id);
   // If no result was returned, the user was not found
   if (!result) return res.status(404).json({ error: "user_not_found" });
+
+  await logActivity(prisma, {
+    log_name: "user deleted",
+    description: `User ${id} deleted`,
+    subject_type: "User",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { email: existingUser?.email || null },
+  });
   // If a soft-delete was performed, the result should include `deleted_at`.
   if (result.deleted_at) {
     return res.json({
@@ -387,6 +440,16 @@ const deleteManyUsers = catchAsync(async (req, res) => {
 
   // Normalize response
   const count = result && typeof result.count === "number" ? result.count : undefined;
+
+  await logActivity(prisma, {
+    log_name: "users bulk deleted",
+    description: `${ids.length} users bulk deleted`,
+    subject_type: "User",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids, count },
+  });
+
   res.json({ ok: true, count });
 });
 
@@ -508,6 +571,15 @@ const resetPassword = catchAsync(async (req, res) => {
   await userSvc.update(user.id, {
     password: hashed,
     password_text: plainPassword,
+  });
+
+  await logActivity(prisma, {
+    log_name: "user password reset",
+    description: `Password reset for user ${user.id}`,
+    subject_type: "User",
+    subject_id: Number(user.id),
+    causer_id: req.user?.id || null,
+    properties: {},
   });
 
   return res.json({ ok: true, email: user.email });

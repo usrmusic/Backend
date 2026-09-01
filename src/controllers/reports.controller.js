@@ -2,6 +2,7 @@ import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import { parseFilterSort } from "../utils/queryHelpers.js";
+import { logActivity } from "../utils/activityLogger.js";
 // Supplier/DJ payment-tracking report — parity with Laravel's
 // SuppliersReportService::getSuppliersReport() + SuppliersReportController's
 // calculateSupplierReport()/updateData(). This is an accounts-payable view
@@ -566,7 +567,7 @@ const updateAdminReportRow = catchAsync(async (req, res) => {
   const totalCost = Number(body.totalCost || 0);
   const cancelDepositAmount = Number(body.canceldeopsitAmount || 0);
 
-  const event = await prisma.event.findUnique({ where: { id }, select: { event_status_id: true } });
+  const event = await prisma.event.findUnique({ where: { id }, select: { event_status_id: true, extra_cost: true, profit: true } });
   if (!event) return res.status(404).json({ error: "event_not_found" });
 
   const overAllCost = extraCost + cost + (Number(event.event_status_id) === 4 ? cancelDepositAmount : 0);
@@ -575,6 +576,20 @@ const updateAdminReportRow = catchAsync(async (req, res) => {
   const updated = await prisma.event.update({
     where: { id },
     data: { extra_cost: extraCost, profit },
+  });
+
+  await logActivity(prisma, {
+    log_name: "event costs adjusted",
+    description: `Extra cost/profit adjusted on event #${id}`,
+    subject_type: "Event",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old_extra_cost: event.extra_cost,
+      new_extra_cost: extraCost,
+      old_profit: event.profit,
+      new_profit: profit,
+    },
   });
 
   res.json(serializeForJson({ success: true, data: updated }));
@@ -593,6 +608,16 @@ const updateSupplierPaymentEquipment = catchAsync(async (req, res) => {
       payment_date: payment_date ? new Date(payment_date) : null,
     },
   });
+
+  await logActivity(prisma, {
+    log_name: "supplier payment marked",
+    description: `Supplier payment marked for event_package #${id}`,
+    subject_type: "EventPackage",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { payment_send: payment_send ?? null, payment_date: payment_date ?? null },
+  });
+
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
@@ -609,6 +634,16 @@ const updateSupplierPaymentDj = catchAsync(async (req, res) => {
       payment_date: payment_date ? new Date(payment_date) : null,
     },
   });
+
+  await logActivity(prisma, {
+    log_name: "dj payment marked",
+    description: `DJ payment marked for event #${id}`,
+    subject_type: "Event",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { payment_send: payment_send ?? null, payment_date: payment_date ?? null },
+  });
+
   res.json(serializeForJson({ success: true, data: updated }));
 });
 

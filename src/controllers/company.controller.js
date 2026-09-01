@@ -6,8 +6,16 @@ import { serializeForJson } from "../utils/serialize.js";
 import path from "path";
 import fs from "fs";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const companySvc = services.get("CompanyName");
+
+function maskAccountNumber(v) {
+  if (!v) return null;
+  const s = String(v);
+  if (s.length <= 4) return s;
+  return `****${s.slice(-4)}`;
+}
 
 
 function getUploadsDir() {
@@ -121,6 +129,16 @@ const createCompany = catchAsync(async (req, res) => {
   }
 
   const created = await companySvc.create(data);
+
+  await logActivity(prisma, {
+    log_name: "company created",
+    description: `Company #${Number(created.id)} created`,
+    subject_type: "CompanyName",
+    subject_id: Number(created.id),
+    causer_id: req.user?.id || null,
+    properties: { name: created.name },
+  });
+
   res.status(201).json({ data: serializeForJson(created) });
 });
 
@@ -215,6 +233,27 @@ const updateCompany = catchAsync(async (req, res) => {
   }
 
   const updated = await companySvc.update(BigInt(id), data);
+
+  await logActivity(prisma, {
+    log_name: "company updated",
+    description: `Company #${id} updated`,
+    subject_type: "CompanyName",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old_vat: existing.vat ?? null,
+      new_vat: data.vat ?? null,
+      old_vat_percentage: existing.vat_percentage ?? null,
+      new_vat_percentage: data.vat_percentage ?? null,
+      old_bank_name: existing.bank_name ?? null,
+      new_bank_name: data.bank_name ?? null,
+      old_sort_code: existing.sort_code ?? null,
+      new_sort_code: data.sort_code ?? null,
+      old_account_number: maskAccountNumber(existing.account_number),
+      new_account_number: maskAccountNumber(data.account_number),
+    },
+  });
+
   res.json({ data: serializeForJson(updated) });
 });
 
@@ -237,6 +276,16 @@ const deleteCompanies = catchAsync(async (req, res) => {
   }
 
   await companySvc.forceDeleteMany(ids.map((i) => BigInt(i)));
+
+  await logActivity(prisma, {
+    log_name: "companies bulk deleted",
+    description: `${ids.length} company(ies) deleted`,
+    subject_type: "CompanyName",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids, count: ids.length },
+  });
+
   res.json({ ok: true });
 });
 
@@ -259,6 +308,16 @@ const deleteCompany = catchAsync(async (req, res) => {
   }
 
   await companySvc.forceDelete(BigInt(id));
+
+  await logActivity(prisma, {
+    log_name: "company deleted",
+    description: `Company #${id} deleted`,
+    subject_type: "CompanyName",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { name: company.name },
+  });
+
   res.json({ ok: true });
 });
 

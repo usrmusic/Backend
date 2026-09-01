@@ -7,6 +7,7 @@ import { uploadFile } from "../utils/uploadHelper.js";
 import genPassword from "../utils/genPassword.js";
 import { toDbDate } from "../utils/dateUtils.js";
 import userService from "../services/userService.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const userSvc = services.get("user");
 const eventSvc = services.get("event");
@@ -95,6 +96,15 @@ export const createClient = catchAsync(async (req, res) => {
       console.error("createClient: failed to create event for date", d, e);
     }
   }
+
+  await logActivity(prisma, {
+    log_name: "client created",
+    description: `Client ${user.id} created`,
+    subject_type: "Client",
+    subject_id: Number(user.id),
+    causer_id: req.user?.id || null,
+    properties: { name: user.name, email: user.email },
+  });
 
   const safeUser = serializeForJson({
     id: user.id,
@@ -241,8 +251,31 @@ export const updateClient = catchAsync(async (req, res) => {
   // set updater
   data.updated_by = req.user ? Number(req.user.id) : null;
 
+  // Capture pre-update values for the audit log
+  const existingClient = await userSvc.getById(id);
+
   // Use service layer so soft-delete/other hooks are honored
   const user = await userSvc.update(id, data);
+
+  await logActivity(prisma, {
+    log_name: "client updated",
+    description: `Client ${id} updated`,
+    subject_type: "Client",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old: {
+        name: existingClient?.name,
+        email: existingClient?.email,
+        contact_number: existingClient?.contact_number,
+      },
+      new: {
+        name: user.name,
+        email: user.email,
+        contact_number: user.contact_number,
+      },
+    },
+  });
 
   // If event date(s) provided, create simple event records linked to this user.
   const createdEvents = [];
@@ -293,9 +326,21 @@ export const deleteClient = catchAsync(async (req, res) => {
           : undefined;
   const force = forceVal === true || forceVal === "true" || forceVal === "1";
 
+  const existingClient = await userSvc.getById(id);
+
   if (force) {
     // Force permanent delete
     await userSvc.delete(id, { force: true });
+
+    await logActivity(prisma, {
+      log_name: "client deleted",
+      description: `Client ${id} deleted`,
+      subject_type: "Client",
+      subject_id: id,
+      causer_id: req.user?.id || null,
+      properties: { name: existingClient?.name || null, email: existingClient?.email || null },
+    });
+
     return res.json({ ok: true, forced: true });
   }
 
@@ -308,6 +353,16 @@ export const deleteClient = catchAsync(async (req, res) => {
     });
 
   await userSvc.update(id, { deleted_at: new Date() });
+
+  await logActivity(prisma, {
+    log_name: "client deleted",
+    description: `Client ${id} deleted`,
+    subject_type: "Client",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { name: existingClient?.name || null, email: existingClient?.email || null },
+  });
+
   res.json({ ok: true, softDeleted: true });
 });
 
@@ -356,6 +411,16 @@ export const deleteManyClients = catchAsync(async (req, res) => {
     const del = await prisma.user.deleteMany({
       where: { id: { in: numericIds } },
     });
+
+    await logActivity(prisma, {
+      log_name: "clients bulk deleted",
+      description: `${numericIds.length} clients bulk deleted`,
+      subject_type: "Client",
+      subject_id: null,
+      causer_id: req.user?.id || null,
+      properties: { ids: numericIds, count: del.count },
+    });
+
     return res.json({ ok: true, count: del.count, forced: true });
   }
 
@@ -367,6 +432,16 @@ export const deleteManyClients = catchAsync(async (req, res) => {
       updated_by: req.user ? Number(req.user.id) : null,
     },
   });
+
+  await logActivity(prisma, {
+    log_name: "clients bulk deleted",
+    description: `${numericIds.length} clients bulk deleted`,
+    subject_type: "Client",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids: numericIds, count: updates.count },
+  });
+
   res.json({
     ok: true,
     softDeleted: true,

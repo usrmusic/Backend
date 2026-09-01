@@ -3,6 +3,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import { uploadFile } from "../utils/uploadHelper.js";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const venueSvc = services.get("venue");
 
@@ -103,12 +104,25 @@ const createVenue = catchAsync(async (req, res) => {
       .json({ error: "venue_create_failed", details: err && err.message });
   }
 
+  await logActivity(null, {
+    log_name: "venue created",
+    description: `Venue #${created?.id} created`,
+    subject_type: "Venue",
+    subject_id: created?.id != null ? Number(created.id) : null,
+    causer_id: req.user?.id || null,
+    properties: { venue: created?.venue || null },
+  });
+
   res.status(201).json(serializeForJson(created));
 });
 
 const updateVenue = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+
+  const existingVenue = await prisma.venue
+    .findUnique({ where: { id } })
+    .catch(() => null);
 
   const allowed = [
     "venue",
@@ -149,6 +163,21 @@ const updateVenue = catchAsync(async (req, res) => {
   }
 
   const updated = await venueSvc.update(id, data);
+
+  await logActivity(null, {
+    log_name: "venue updated",
+    description: `Venue #${id} updated`,
+    subject_type: "Venue",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old: existingVenue
+        ? { venue: existingVenue.venue, venue_address: existingVenue.venue_address }
+        : null,
+      new: { venue: updated?.venue, venue_address: updated?.venue_address },
+    },
+  });
+
   res.json(serializeForJson(updated));
 });
 
@@ -159,9 +188,21 @@ const deleteVenue = catchAsync(async (req, res) => {
   const forceVal = (req.params && req.params.force !== undefined ? req.params.force : req.query && req.query.force !== undefined ? req.query.force : req.body && req.body.force !== undefined ? req.body.force : undefined);
   const force = (forceVal === true || forceVal === 'true' || forceVal === '1');
 
+  const venueBeforeDelete = await prisma.venue
+    .findUnique({ where: { id }, select: { venue: true } })
+    .catch(() => null);
+
   if (force) {
     try {
       await venueSvc.delete(id, { force: true });
+      await logActivity(null, {
+        log_name: "venue deleted",
+        description: `Venue #${id} deleted`,
+        subject_type: "Venue",
+        subject_id: id,
+        causer_id: req.user?.id || null,
+        properties: { venue: venueBeforeDelete?.venue || null, forced: true },
+      });
       return res.json({ ok: true, forced: true });
     } catch (err) {
       console.error("venueSvc.delete (force) error", err);
@@ -187,6 +228,15 @@ const deleteVenue = catchAsync(async (req, res) => {
       .status(500)
       .json({ error: "venue_delete_failed", details: err && err.message });
   }
+
+  await logActivity(null, {
+    log_name: "venue deleted",
+    description: `Venue #${id} deleted`,
+    subject_type: "Venue",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { venue: venueBeforeDelete?.venue || null, forced: false },
+  });
 
   res.json({ ok: true, softDeleted: true });
 });
@@ -235,10 +285,26 @@ const deleteManyVenues = catchAsync(async (req, res) => {
 
   if (force) {
     const del = await venueSvc.forceDeleteMany(numericIds);
+    await logActivity(null, {
+      log_name: "venues bulk deleted",
+      description: `${numericIds.length} venue(s) deleted`,
+      subject_type: "Venue",
+      subject_id: null,
+      causer_id: req.user?.id || null,
+      properties: { ids: numericIds, count: numericIds.length, forced: true },
+    });
     return res.json({ ok: true, count: del.count, forced: true });
   }
 
   const updates = await venueSvc.deleteMany(numericIds);
+  await logActivity(null, {
+    log_name: "venues bulk deleted",
+    description: `${numericIds.length} venue(s) deleted`,
+    subject_type: "Venue",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids: numericIds, count: numericIds.length, forced: false },
+  });
   return res.json({ ok: true, count: updates.count, forced: false });
 });
 

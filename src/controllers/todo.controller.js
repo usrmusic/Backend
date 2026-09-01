@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const todoSvc = services.get("todos");
 
@@ -115,6 +116,20 @@ const createTodo = catchAsync(async (req, res) => {
   };
 
   const newTodo = await todoSvc.create(todoData);
+
+  await logActivity(prisma, {
+    log_name: "todo created",
+    description: `Todo #${Number(newTodo.id)} created`,
+    subject_type: "Todo",
+    subject_id: Number(newTodo.id),
+    causer_id: req.user?.id || null,
+    properties: {
+      event_id: Number(event_id),
+      action: todoData.action,
+      assigned_to: Number(assignedTo),
+    },
+  });
+
   res.status(201).json(serializeForJson(newTodo));
 });
 
@@ -141,6 +156,22 @@ const updateTodo = catchAsync(async (req, res) => {
   };
 
   const updated = await todoSvc.update(todoId, updateData);
+
+  await logActivity(prisma, {
+    log_name: "todo updated",
+    description: `Todo #${Number(todoId)} updated`,
+    subject_type: "Todo",
+    subject_id: Number(todoId),
+    causer_id: req.user?.id || null,
+    properties: {
+      event_id: Number(eventId),
+      action: updateData.action,
+      assigned_to: Number(assignedTo),
+      deadline: updateData.deadline,
+      complete: updateData.complete,
+    },
+  });
+
   res.json(serializeForJson(updated));
 });
 
@@ -184,6 +215,16 @@ const toggleTodoComplete = catchAsync(async (req, res) => {
     where: { id: todoId },
     data: { complete: !!req.body?.complete },
   });
+
+  await logActivity(prisma, {
+    log_name: updated.complete ? "todo completed" : "todo reopened",
+    description: `Todo #${Number(todoId)} marked ${updated.complete ? "complete" : "incomplete"}`,
+    subject_type: "Todo",
+    subject_id: Number(todoId),
+    causer_id: req.user?.id || null,
+    properties: { complete: !!updated.complete },
+  });
+
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
@@ -193,10 +234,14 @@ const deleteTodo = catchAsync(async (req, res) => {
   if (!todoId) return res.status(400).json({ error: 'todo_id_required' });
 
   // optional: check event match
+  let existingForLog = null;
   if (eventId) {
     const existing = await todoSvc.getById(todoId).catch(() => null);
     if (!existing) return res.status(404).json({ error: 'todo_not_found' });
     if (Number(existing.event_id) !== Number(eventId)) return res.status(400).json({ error: 'event_mismatch' });
+    existingForLog = existing;
+  } else {
+    existingForLog = await todoSvc.getById(todoId).catch(() => null);
   }
 
   // determine force flag (query or body); accept 'true'|'1' string as well
@@ -204,6 +249,16 @@ const deleteTodo = catchAsync(async (req, res) => {
   const force = forceRaw === true || forceRaw === 'true' || forceRaw === '1';
 
   const result = await todoSvc.delete(todoId, { force }).catch(() => null);
+
+  await logActivity(prisma, {
+    log_name: "todo deleted",
+    description: `Todo #${Number(todoId)} deleted`,
+    subject_type: "Todo",
+    subject_id: Number(todoId),
+    causer_id: req.user?.id || null,
+    properties: { action: existingForLog?.action || null },
+  });
+
   res.json(serializeForJson({ success: true, deleted: result || null }));
 });
 

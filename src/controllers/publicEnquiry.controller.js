@@ -10,6 +10,7 @@ import services from "../services/index.js";
 import genPassword from "../utils/genPassword.js";
 import userService from "../services/userService.js";
 import bcrypt from "bcrypt";
+import { logActivity } from "../utils/activityLogger.js";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -139,6 +140,15 @@ const createPublicEnquiry = catchAsync(async (req, res) => {
     event_details: data.event_details,
   });
   await sendEmail({ to: adminEmails, subject, html }).catch(() => {});
+
+  await logActivity(prisma, {
+    log_name: "public enquiry created",
+    description: `Public enquiry submitted for ${client.name}`,
+    subject_type: "Event",
+    subject_id: Number(event.id),
+    causer_id: null,
+    properties: { client_name: client.name, source_ip: req.ip || null },
+  });
 
   res.status(201).json(
     serializeForJson({

@@ -12,6 +12,7 @@ import services from "../services/index.js";
 import { serializeForJson } from "../utils/serialize.js";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import s3Client from "../utils/s3Client.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const fileSvc = services.get("FileUpload");
 const mediaSvc = services.get("Media");
@@ -226,6 +227,15 @@ const updateFileMetadata = catchAsync(async (req, res) => {
     data: { file_name },
   });
 
+  await logActivity(prisma, {
+    log_name: "file metadata updated",
+    description: `File #${Number(id)} metadata updated`,
+    subject_type: "FileUpload",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: { old_file_name: f.file_name, new_file_name: file_name },
+  });
+
   if (
     process.env.FILE_STORAGE &&
     process.env.FILE_STORAGE.toLowerCase() === "s3" &&
@@ -285,6 +295,20 @@ export const uploadfile = catchAsync(async (req, res) => {
   };
 
   const created = await prisma.fileUpload.create({ data });
+
+  await logActivity(prisma, {
+    log_name: "file uploaded",
+    description: `File #${Number(created.id)} uploaded`,
+    subject_type: "FileUpload",
+    subject_id: Number(created.id),
+    causer_id: req.user?.id || null,
+    properties: {
+      file_name: data.file_name,
+      file_type: data.file_type,
+      event_id: data.event_id != null ? Number(data.event_id) : null,
+    },
+  });
+
   // produce download url for response
   let download_url = null;
   if (uploadRes && uploadRes.storage === "s3") {
@@ -330,6 +354,16 @@ const deleteFile = catchAsync(async (req, res) => {
   }
   // delete DB record
   await prisma.fileUpload.delete({ where: { id } });
+
+  await logActivity(prisma, {
+    log_name: "file deleted",
+    description: `File #${Number(id)} deleted`,
+    subject_type: "FileUpload",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: { file_name: f.file_name },
+  });
+
   res.json({ success: true });
 });
 
@@ -370,6 +404,16 @@ const deleteMedia = catchAsync(async (req, res) => {
 
   // delete DB record
   await prisma.media.delete({ where: { id } });
+
+  await logActivity(prisma, {
+    log_name: "media deleted",
+    description: `Media #${Number(id)} deleted`,
+    subject_type: "Media",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: { display_name: f.display_name },
+  });
+
   res.json({ success: true });
 });
 // export const downloadFile = catchAsync(async (req, res) => {
@@ -496,6 +540,15 @@ const uploadMedia = catchAsync(async (req, res) => {
   };
 
   const created = await mediaSvc.create(data);
+
+  await logActivity(prisma, {
+    log_name: "media uploaded",
+    description: `Media #${Number(created.id)} uploaded`,
+    subject_type: "Media",
+    subject_id: Number(created.id),
+    causer_id: req.user?.id || null,
+    properties: { display_name: data.display_name },
+  });
 
   return res.status(201).json({
     success: true,

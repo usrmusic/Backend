@@ -5,6 +5,7 @@ import { getSignedGetUrl, deleteObjectFromS3 } from '../utils/s3Client.js';
 import sendEmail from '../utils/mail/resendClient.js';
 import { signContractForEvent } from '../services/contractSign.service.js';
 import { randomUUID } from 'crypto';
+import { logActivity } from '../utils/activityLogger.js';
 
 // Public: load the event for signing using the contract_token UUID.
 // Mirrors Laravel SignatureController::showContractForm.
@@ -107,6 +108,22 @@ const signContractByToken = catchAsync(async (req, res) => {
       ip: req.ip || req.headers['x-forwarded-for']?.toString() || null,
       userAgent: req.headers['user-agent']?.toString().slice(0, 250) || null,
     });
+
+    // Public route — no req.user. The client's own id (found via the event
+    // being signed) is the causer here, not an admin.
+    await logActivity(prisma, {
+      log_name: 'contract signed',
+      description: `Contract #${Number(result.contract_id)} signed for event #${event.id}`,
+      subject_type: 'Contract',
+      subject_id: Number(result.contract_id),
+      causer_id: event.user_id ?? null,
+      properties: {
+        event_id: Number(event.id),
+        ip: req.ip || null,
+        user_agent: req.headers['user-agent']?.toString() || null,
+      },
+    });
+
     return res.json(serializeForJson({ success: true, data: result }));
   } catch (e) {
     if (e?.code === 'event_not_found') return res.status(404).json({ error: 'event_not_found' });
@@ -136,6 +153,15 @@ const ensureContractTokenForEvent = catchAsync(async (req, res) => {
 
   const base = (process.env.PUBLIC_FRONTEND_URL || 'https://www.usrmusic.com').replace(/\/$/, '');
   const signing_url = base ? `${base}/contract/${event.contract_token}` : null;
+
+  // Never log the token itself — it's the credential for the public signing link.
+  await logActivity(prisma, {
+    log_name: 'contract token generated',
+    description: `Signing token generated for event #${event.id}`,
+    subject_type: 'Event',
+    subject_id: Number(event.id),
+    causer_id: req.user?.id || null,
+  });
 
   return res.json(
     serializeForJson({
@@ -197,6 +223,15 @@ const sendContractLinkEmail = catchAsync(async (req, res) => {
       data: { contract_emailed_at: new Date() },
     })
     .catch(() => {});
+
+  // Never log the token itself — it's the credential for the public signing link.
+  await logActivity(prisma, {
+    log_name: 'contract link sent',
+    description: `Contract signing link emailed for event #${event.id}`,
+    subject_type: 'Event',
+    subject_id: Number(event.id),
+    causer_id: req.user?.id || null,
+  });
 
   return res.json(
     serializeForJson({
@@ -286,6 +321,8 @@ const deleteContract = catchAsync(async (req, res) => {
   });
   if (!row) return res.status(404).json({ error: 'contract_not_found' });
 
+  const eventIdForLog = Number(row.event_id);
+
   // Best-effort S3 cleanup — failures are logged but do not block the DB delete.
   if (row.signed_pdf_path) {
     await deleteObjectFromS3(String(row.signed_pdf_path)).catch((e) =>
@@ -322,6 +359,15 @@ const deleteContract = catchAsync(async (req, res) => {
         })
         .catch(() => {});
     }
+  });
+
+  await logActivity(prisma, {
+    log_name: 'contract deleted',
+    description: `Signed contract #${Number(row.id)} deleted for event #${eventIdForLog}`,
+    subject_type: 'Contract',
+    subject_id: Number(row.id),
+    causer_id: req.user?.id || null,
+    properties: { event_id: eventIdForLog },
   });
 
   return res.json({ success: true });

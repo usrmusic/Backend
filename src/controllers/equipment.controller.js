@@ -2,6 +2,7 @@ import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const equipmentSvc = services.get("equipment");
 const supplierSvc = services.get("supplier");
@@ -77,11 +78,33 @@ const createEquipment = catchAsync(async (req, res) => {
       const supplier = await supplierSvc.create(supplierPayload).catch((e) => { throw e; });
       if (supplier && supplier.id) {
         body.supplier_id = supplier.id;
+        await logActivity(null, {
+          log_name: "supplier created",
+          description: `Supplier #${supplier.id} created`,
+          subject_type: "Supplier",
+          subject_id: Number(supplier.id),
+          causer_id: req.user?.id || null,
+          properties: { name: supplier.name || null },
+        });
       }
       // remove supplier_name so Prisma won't try to write an unknown column
       delete body.supplier_name;
     }
     const created = await equipmentSvc.create(body).catch((e) => { throw e; });
+
+    await logActivity(null, {
+      log_name: "equipment created",
+      description: `Equipment #${created?.id} created`,
+      subject_type: "Equipment",
+      subject_id: created?.id != null ? Number(created.id) : null,
+      causer_id: req.user?.id || null,
+      properties: {
+        name: created?.name || null,
+        cost_price: created?.cost_price != null ? Number(created.cost_price) : null,
+        sell_price: created?.sell_price != null ? Number(created.sell_price) : null,
+      },
+    });
+
     return res.status(201).json(serializeForJson(created));
   }
   res.status(501).json({ error: "not_implemented" });
@@ -95,12 +118,44 @@ const updateEquipment = catchAsync(async (req, res) => {
   if (!body.supplier_id && body.supplier_name && supplierSvc && typeof supplierSvc.create === 'function') {
     const supplierPayload = { name: String(body.supplier_name) };
     const supplier = await supplierSvc.create(supplierPayload).catch((e) => { throw e; });
-    if (supplier && supplier.id) body.supplier_id = supplier.id;
+    if (supplier && supplier.id) {
+      body.supplier_id = supplier.id;
+      await logActivity(null, {
+        log_name: "supplier created",
+        description: `Supplier #${supplier.id} created`,
+        subject_type: "Supplier",
+        subject_id: Number(supplier.id),
+        causer_id: req.user?.id || null,
+        properties: { name: supplier.name || null },
+      });
+    }
     delete body.supplier_name;
   }
 
   if (equipmentSvc && typeof equipmentSvc.update === "function") {
+    const existingEquipment = await equipmentSvc.getById(id).catch(() => null);
     const updated = await equipmentSvc.update(id, body).catch((e) => { throw e; });
+
+    await logActivity(null, {
+      log_name: "equipment updated",
+      description: `Equipment #${id} updated`,
+      subject_type: "Equipment",
+      subject_id: id,
+      causer_id: req.user?.id || null,
+      properties: {
+        old: existingEquipment
+          ? {
+              cost_price: existingEquipment.cost_price != null ? Number(existingEquipment.cost_price) : null,
+              sell_price: existingEquipment.sell_price != null ? Number(existingEquipment.sell_price) : null,
+            }
+          : null,
+        new: {
+          cost_price: updated?.cost_price != null ? Number(updated.cost_price) : null,
+          sell_price: updated?.sell_price != null ? Number(updated.sell_price) : null,
+        },
+      },
+    });
+
     return res.json(serializeForJson(updated));
   }
   res.status(501).json({ error: "not_implemented" });
@@ -110,7 +165,18 @@ const deleteEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
   if (equipmentSvc && typeof equipmentSvc.delete === "function") {
+    const equipmentBeforeDelete = await equipmentSvc.getById(id).catch(() => null);
     await equipmentSvc.delete(id);
+
+    await logActivity(null, {
+      log_name: "equipment deleted",
+      description: `Equipment #${id} deleted`,
+      subject_type: "Equipment",
+      subject_id: id,
+      causer_id: req.user?.id || null,
+      properties: { name: equipmentBeforeDelete?.name || null },
+    });
+
     return res.json({ ok: true });
   }
   res.status(501).json({ error: "not_implemented" });
@@ -137,6 +203,16 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
         throw err;
       }
     }
+
+    await logActivity(null, {
+      log_name: "equipment bulk deleted",
+      description: `${ids.length} equipment item(s) deleted`,
+      subject_type: "Equipment",
+      subject_id: null,
+      causer_id: req.user?.id || null,
+      properties: { ids, count: ids.length },
+    });
+
     return res.json({ ok: true });
   }
   res.status(501).json({ error: "not_implemented" });
@@ -160,6 +236,15 @@ const reorderEquipment = catchAsync(async (req, res) => {
       }),
     ),
   );
+
+  await logActivity(null, {
+    log_name: "equipment reordered",
+    description: "Equipment display order changed",
+    subject_type: "Equipment",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids },
+  });
 
   res.json({ ok: true });
 });

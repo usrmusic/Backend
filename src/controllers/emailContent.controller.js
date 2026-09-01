@@ -2,6 +2,7 @@ import catchAsync from "../utils/catchAsync.js";
 import AppError from "../utils/AppError.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const emailContentSvc = services.get("emailContent");
 
@@ -50,6 +51,22 @@ export const updateEmailContent = catchAsync(async (req, res) => {
   if (updateData.id) delete updateData.id;
 
   const updated = await emailContentSvc.update(BigInt(id), updateData);
+
+  await logActivity(null, {
+    log_name: "email template updated",
+    description: `Email template #${Number(id)} updated`,
+    subject_type: "EmailContent",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: {
+      old_subject: existing.subject,
+      new_subject: updateData.subject,
+      body_changed:
+        updateData.body !== undefined &&
+        String(updateData.body) !== String(existing.body),
+    },
+  });
+
   res.json(serializeForJson(updated));
 });
 

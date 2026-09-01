@@ -2,6 +2,7 @@ import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 const packageUserSvc = services.get("package_users");
 const packageTypeSvc = services.get("PackageType");
@@ -133,6 +134,19 @@ const createPackage = catchAsync(async (req, res) => {
     return pkg;
   });
 
+  await logActivity(prisma, {
+    log_name: "package created",
+    description: `Package #${Number(created.id)} created`,
+    subject_type: "PackageUser",
+    subject_id: Number(created.id),
+    causer_id: req.user?.id || null,
+    properties: {
+      package_name: finalPackageName,
+      cost_price: cp,
+      sell_price: sp,
+    },
+  });
+
   // Fetch main package record without including `package_user_equipment` to avoid
   // Prisma attempting to select a non-existent `id` column on that table.
   const base = await packageUserSvc.model.findUnique({
@@ -222,6 +236,18 @@ const updatePackage = catchAsync(async (req, res) => {
 //       }))
 //     : [];
 
+  // Snapshot existing equipment lines before they are deleted/recreated, for audit trail.
+  const oldEquipmentRows = await prisma.package_user_equipment.findMany({
+    where: { package_user_id: id },
+    select: { equipment_id: true, quantity: true },
+  });
+  const oldEquipmentSnapshot = oldEquipmentRows.map((r) => ({
+    equipment_id: Number(r.equipment_id),
+    quantity: r.quantity != null ? Number(r.quantity) : null,
+  }));
+
+  let affectedEventIds = [];
+
   const updated = await prisma.$transaction(async (tx) => {
     const updatedPkg = await tx.package_users.update({
       where: { id },
@@ -269,6 +295,15 @@ const updatePackage = catchAsync(async (req, res) => {
       if (nameChanged) eventUpdateData.dj_package_name = finalPackageName;
       if (priceChanged) eventUpdateData.dj_cost_price_for_event = sp;
       if (Object.keys(eventUpdateData).length) {
+        const affectedEvents = await tx.event.findMany({
+          where: {
+            dj_id: existing.user_id,
+            dj_package_name: existing.package_name,
+          },
+          select: { id: true },
+        });
+        affectedEventIds = affectedEvents.map((e) => Number(e.id));
+
         await tx.event.updateMany({
           where: {
             dj_id: existing.user_id,
@@ -280,6 +315,26 @@ const updatePackage = catchAsync(async (req, res) => {
     }
 
     return updatedPkg;
+  });
+
+  await logActivity(prisma, {
+    log_name: "package updated",
+    description: `Package #${id} updated`,
+    subject_type: "PackageUser",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: {
+      old_cost_price: existing.cost_price != null ? Number(existing.cost_price) : null,
+      new_cost_price: cp != null ? Number(cp) : null,
+      old_sell_price: existing.sell_price != null ? Number(existing.sell_price) : null,
+      new_sell_price: sp != null ? Number(sp) : null,
+      old_equipment: oldEquipmentSnapshot,
+      new_equipment: equipmentLines.map((el) => ({
+        equipment_id: el.equipment_id,
+        quantity: el.quantity,
+      })),
+      affected_event_ids: affectedEventIds,
+    },
   });
 
   // Fetch updated package without including `package_user_equipment` and load
@@ -366,7 +421,20 @@ const getPackage = catchAsync(async (req, res) => {
 const deletePackage = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+
+  const existing = await packageUserSvc.model.findUnique({ where: { id } });
+
   await packageUserSvc.delete(id);
+
+  await logActivity(prisma, {
+    log_name: "package deleted",
+    description: `Package #${id} deleted`,
+    subject_type: "PackageUser",
+    subject_id: id,
+    causer_id: req.user?.id || null,
+    properties: { package_name: existing?.package_name ?? null },
+  });
+
   res.json({ ok: true });
 });
 
@@ -417,6 +485,16 @@ const deleteManyPackages = catchAsync(async (req, res) => {
     // package_users model doesn't have `deleted_at` in schema, so fallback to hard delete
     return tx.package_users.deleteMany({ where: { id: { in: ids } } });
   });
+
+  await logActivity(prisma, {
+    log_name: "packages bulk deleted",
+    description: `${ids.length} package(s) deleted`,
+    subject_type: "PackageUser",
+    subject_id: null,
+    causer_id: req.user?.id || null,
+    properties: { ids, count: ids.length },
+  });
+
   res.json({ ok: true });
 });
 const getPackageDropdown = catchAsync(async (req, res) => {

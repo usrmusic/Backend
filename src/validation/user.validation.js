@@ -89,6 +89,14 @@ const verifyEmail = {
   }),
 };
 
+const resetPasswordWithToken = {
+  body: Joi.object({
+    email: Joi.string().email().required(),
+    token: Joi.string().required(),
+    password: Joi.string().min(8).max(72).required(),
+  }),
+};
+
 export default {
   signIn,
   createUser,
@@ -97,6 +105,7 @@ export default {
   deleteUser,
   deleteManyUsers,
   forgotPassword,
+  resetPasswordWithToken,
   verifyEmail,
   listUsers,
 };

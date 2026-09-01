@@ -172,32 +172,19 @@ export async function signContractForEvent({
         company,
         logoUrl,
       });
+      // One email, admin genuinely CC'd (visible in the headers) rather than
+      // a second, separate email — the client asked for a real CC here.
       sendEmail({
         to: [user.email],
+        cc: ['info@usrmusic.co.uk'],
         subject,
         html,
         attachments: pdfBuffer
           ? [{ filename: `contract_${event.id}.pdf`, content: pdfBuffer }]
           : undefined,
-      }).catch(() => {});
-    }
-
-    try {
-      const admins = await prisma.user.findMany({
-        where: { role_id: BigInt(2), is_email_send: true },
-        select: { email: true },
+      }).catch((e) => {
+        console.error('[contractSign] send failed', e?.message || e);
       });
-      const adminEmails = admins.map((a) => a.email).filter(Boolean);
-      if (adminEmails.length && signedUrl) {
-        sendEmail({
-          to: adminEmails,
-          subject: `Contract signed — Event #${event.id}`,
-          html: `<p>${user?.name || 'A client'} just signed the contract for event #${event.id}.</p>
-                 <p><a href="${signedUrl}">View signed contract</a></p>`,
-        }).catch(() => {});
-      }
-    } catch (e) {
-      console.error('[contractSign] admin notify failed', e?.message || e);
     }
   }
 

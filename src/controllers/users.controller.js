@@ -7,6 +7,8 @@ import { serializeForJson } from "../utils/serialize.js";
 import { uploadFile } from "../utils/uploadHelper.js";
 import genPassword from "../utils/genPassword.js";
 import resendClient from "../utils/mail/resendClient.js";
+import crypto from "crypto";
+import { buildForgotPasswordEmail } from "../utils/mail/templates/forgotPasswordEmail.js";
 import * as authService from "../services/authService.js";
 import userService from "../services/userService.js";
 import service from "../services/index.js";
@@ -178,6 +180,12 @@ const requestVerifyEmail = catchAsync(async (req, res) => {
 const RESET_MIN_INTERVAL_MS = 10 * 60 * 1000;
 const lastResetAt = new Map();
 
+// Matches Laravel's ForgetPasswordController exactly: a token is generated
+// and stored in `password_resets` (keyed by email, same table Laravel uses),
+// and the user is emailed a link to pick their OWN new password — not an
+// auto-generated one mailed directly, which is what this used to do and is
+// a materially weaker flow (no user choice, and the password sits in transit
+// in the email itself).
 const forgotPassword = catchAsync(async (req, res) => {
   const { email } = req.body || {};
   // Single generic response for every outcome — unknown email, rate-limited,
@@ -185,7 +193,7 @@ const forgotPassword = catchAsync(async (req, res) => {
   // probe whether a reset landed. (Frontend already treats it as "secure mode".)
   const GENERIC = {
     ok: true,
-    message: "If an account exists for that email, a new password has been sent.",
+    message: "If an account exists for that email, a password reset link has been sent.",
   };
   const key = String(email || "").trim().toLowerCase();
   if (!key) return res.json(GENERIC);
@@ -205,18 +213,15 @@ const forgotPassword = catchAsync(async (req, res) => {
   }
 
   lastResetAt.set(key, Date.now());
-  const plainPassword = genPassword();
+  const token = crypto.randomBytes(32).toString("hex");
+
+  const resetBase = (process.env.PUBLIC_FRONTEND_URL || "https://www.usrmusic.com").replace(/\/$/, "");
+  const resetUrl = `${resetBase}/reset-password/${token}?email=${encodeURIComponent(user.email)}`;
+  const { subject, html } = buildForgotPasswordEmail({ name: user.name || "", resetUrl });
 
   try {
-    const sendResult = await resendClient({
-      to: user.email,
-      subject: `Your new password`,
-      html: `<p>Hello ${user.name || ""},</p><p>Your password has been reset. Your new temporary password is:</p><pre>${plainPassword}</pre><p>Please sign in and change your password.</p>`,
-    });
+    const sendResult = await resendClient({ to: user.email, subject, html });
     if (sendResult && (sendResult.fallback || sendResult.ok === false)) {
-      // Email could not be sent — do NOT change the password (otherwise the
-      // user is locked out with a password they never received), and don't
-      // leak the failure to the caller.
       console.error("forgotPassword email send failed:", sendResult);
       return res.json(GENERIC);
     }
@@ -225,16 +230,46 @@ const forgotPassword = catchAsync(async (req, res) => {
     return res.json(GENERIC);
   }
 
-  const hashed = await bcrypt.hash(plainPassword, 10);
-  // password_text is intentionally retained — the legacy CRM workflow relies on
-  // plaintext being available (see the plaintext fallback in authService). Only
-  // the enumeration + rate-limit behaviour above was changed here.
-  await userSvc.update(user.id, {
-    password: hashed,
-    password_text: plainPassword,
+  // Upsert on email (the table's primary key), same as Laravel's
+  // update-if-exists-else-insert logic.
+  await prisma.password_resets.upsert({
+    where: { email: user.email },
+    update: { token, created_at: new Date() },
+    create: { email: user.email, token, created_at: new Date() },
   });
 
   return res.json(GENERIC);
+});
+
+// Public — consumes the emailed token and lets the user set their own new
+// password. No auth required (the token itself is the credential), matching
+// Laravel's submitResetPasswordForm.
+const resetPasswordWithToken = catchAsync(async (req, res) => {
+  const { email, token, password } = req.body || {};
+  const GENERIC_ERROR = { ok: false, error: "invalid_or_expired_token" };
+
+  const record = await prisma.password_resets.findUnique({
+    where: { email: String(email || "").trim().toLowerCase() },
+  });
+  if (!record || record.token !== token) {
+    return res.status(400).json(GENERIC_ERROR);
+  }
+
+  const expirationMinutes = Number(process.env.JWT_RESET_PASSWORD_EXPIRATION_MINUTES) || 10;
+  const ageMs = Date.now() - new Date(record.created_at).getTime();
+  if (ageMs > expirationMinutes * 60 * 1000) {
+    await prisma.password_resets.delete({ where: { email: record.email } }).catch(() => {});
+    return res.status(400).json(GENERIC_ERROR);
+  }
+
+  const user = await userService.getUserByEmail(record.email);
+  if (!user) return res.status(400).json(GENERIC_ERROR);
+
+  const hashed = await bcrypt.hash(password, 10);
+  await userSvc.update(user.id, { password: hashed, password_text: password });
+  await prisma.password_resets.delete({ where: { email: record.email } }).catch(() => {});
+
+  return res.json({ ok: true });
 });
 
 const updateUser = catchAsync(async (req, res) => {
@@ -563,6 +598,7 @@ export default {
   verifyEmail,
   requestVerifyEmail,
   forgotPassword,
+  resetPasswordWithToken,
   resetPassword,
   updateUser,
   deleteUser,

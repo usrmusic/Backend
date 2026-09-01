@@ -84,6 +84,13 @@ router
   .route("/forgot")
   .post(forgotLimiter, validate(userValidation.forgotPassword), userController.forgotPassword);
 router
+  .route("/reset-password")
+  .post(
+    forgotLimiter,
+    validate(userValidation.resetPasswordWithToken),
+    userController.resetPasswordWithToken,
+  );
+router
   .route("/verify")
   .post(validate(userValidation.verifyEmail), userController.verifyEmail);
 router

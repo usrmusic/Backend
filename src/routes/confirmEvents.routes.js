@@ -46,6 +46,31 @@ router
   );
 
 router
+  .route("/quote")
+  .post(
+    // Same gate as Send Invoice above — Send Quote never appears on the
+    // Client's confirmed-events toolbar in the legacy Laravel CRM either.
+    verifyAccessToken,
+    checkPermission("confirm event"),
+    blockClient,
+    validate(confirmEventsValidation.sendQuote),
+    confirmEventsController.sendQuote,
+  );
+
+router
+  .route("/completed/thank-you")
+  .post(
+    // Lives on the Completed Events page, gated the same as viewing that
+    // list ("complete event"), and blocked for clients like the other
+    // staff-triggered send actions above.
+    verifyAccessToken,
+    checkPermission("complete event"),
+    blockClient,
+    validate(confirmEventsValidation.sendThankYou),
+    confirmEventsController.sendThankYouEmail,
+  );
+
+router
   .route("/download-invoice/:id")
   .post(
     verifyAccessToken,

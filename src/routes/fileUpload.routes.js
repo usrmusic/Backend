@@ -93,6 +93,15 @@ router
     validate(fileUploadValidation.downloadFile),
     fileUploadController.downloadMedia,
   )
+  .post(
+    verifyAccessToken,
+    checkPermissionAny(["downloads", "media manager"]),
+    mediaUpload.fields([
+      { name: "media", maxCount: 1 },
+      { name: "file", maxCount: 1 },
+    ]),
+    fileUploadController.updateMedia,
+  )
   .delete(
     verifyAccessToken,
     checkPermissionAny(["downloads", "media manager"]),

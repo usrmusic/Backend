@@ -368,9 +368,39 @@ const updateUser = catchAsync(async (req, res) => {
   res.json(serializeForJson(user));
 });
 
+// Matches Laravel's UserController::SoftDeleteUser guard: a user cannot be
+// soft-deleted while still assigned as DJ on an open/confirmed/cancelled
+// event (event_status_id in [1,2,4]) or while owning a DJ package
+// (package_users row). Returns a reason string when blocked, or null when
+// the user is safe to delete.
+async function getUserDeleteBlockReason(id) {
+  const [hasEvents, hasPackage] = await Promise.all([
+    prisma.event.findFirst({
+      where: { dj_id: id, event_status_id: { in: [1, 2, 4] } },
+      select: { id: true },
+    }),
+    prisma.package_users.findFirst({
+      where: { user_id: id },
+      select: { id: true },
+    }),
+  ]);
+
+  if (hasEvents) return "Cannot delete user. User has associated event.";
+  if (hasPackage) return "Cannot delete user. User has associated DJ package.";
+  return null;
+}
+
 const deleteUser = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   const existingUser = await userSvc.getById(id);
+
+  const blockReason = await getUserDeleteBlockReason(id);
+  if (blockReason) {
+    return res
+      .status(400)
+      .json({ error: "user_has_active_events", message: blockReason });
+  }
+
   const result = await userSvc.delete(id);
   // If no result was returned, the user was not found
   if (!result) return res.status(404).json({ error: "user_not_found" });
@@ -435,22 +465,87 @@ const deleteManyUsers = catchAsync(async (req, res) => {
     (req.body.force === true || req.body.force === "true" || req.body.force === "1")
   );
 
+  // Same guard as the single-delete path: check each id for active events
+  // (dj_id on an open/confirmed/cancelled event) or an owned DJ package, and
+  // skip those rather than failing the whole batch.
+  const blockReasons = await Promise.all(ids.map((id) => getUserDeleteBlockReason(id)));
+  const blocked = [];
+  const deletable = [];
+  ids.forEach((id, i) => {
+    if (blockReasons[i]) blocked.push({ id, reason: blockReasons[i] });
+    else deletable.push(id);
+  });
+
   // Delegate deletion to the CoreCrudService (userSvc)
-  const result = await userSvc.deleteMany(ids, { force });
+  const result = deletable.length
+    ? await userSvc.deleteMany(deletable, { force })
+    : { count: 0 };
 
   // Normalize response
   const count = result && typeof result.count === "number" ? result.count : undefined;
 
   await logActivity(prisma, {
     log_name: "users bulk deleted",
-    description: `${ids.length} users bulk deleted`,
+    description: `${deletable.length} users bulk deleted${blocked.length ? `, ${blocked.length} blocked` : ""}`,
     subject_type: "User",
     subject_id: null,
     causer_id: req.user?.id || null,
-    properties: { ids, count },
+    properties: { ids: deletable, blocked, count },
   });
 
-  res.json({ ok: true, count });
+  res.json({ ok: true, count, deleted: deletable, blocked });
+});
+
+// Matches Laravel's UserController::recoverUser: restores one or more
+// soft-deleted users (clears deleted_at). Accepts the same `ids` shapes as
+// deleteManyUsers/deleteMany (array, single number, JSON/CSV string).
+const restoreUsers = catchAsync(async (req, res) => {
+  let idsParam = req.body?.ids;
+  if (idsParam == null) return res.status(400).json({ error: "ids_required" });
+
+  let idsArray = [];
+  if (Array.isArray(idsParam)) {
+    idsArray = idsParam;
+  } else if (typeof idsParam === "string") {
+    const raw = idsParam.trim();
+    if (raw.startsWith("[") && raw.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) idsArray = parsed;
+        else idsArray = [parsed];
+      } catch (e) {
+        idsArray = raw.replace(/^\[|\]$/g, "").split(",");
+      }
+    } else {
+      idsArray = raw.length ? raw.split(",") : [];
+    }
+  } else if (typeof idsParam === "number") {
+    idsArray = [idsParam];
+  } else if (typeof idsParam === "object" && idsParam !== null) {
+    if (Array.isArray(idsParam.ids)) idsArray = idsParam.ids;
+    else idsArray = [idsParam];
+  }
+
+  const ids = idsArray.map((v) => Number(v)).filter((n) => Number.isFinite(n));
+  if (!ids.length) return res.status(400).json({ error: "ids_required" });
+
+  const result = await prisma.user.updateMany({
+    where: { id: { in: ids } },
+    data: { deleted_at: null },
+  });
+
+  const restoredUsers = await prisma.user.findMany({ where: { id: { in: ids } } });
+
+  await logActivity(prisma, {
+    log_name: "user restored",
+    description: `${ids.length} user(s) restored`,
+    subject_type: "User",
+    subject_id: ids.length === 1 ? ids[0] : null,
+    causer_id: req.user?.id || null,
+    properties: { ids, count: result?.count },
+  });
+
+  res.json({ ok: true, count: result?.count, data: serializeForJson(restoredUsers) });
 });
 
 const listUsers = catchAsync(async (req, res) => {
@@ -675,6 +770,7 @@ export default {
   updateUser,
   deleteUser,
   deleteManyUsers,
+  restoreUsers,
   listUsers,
   listRoles,
   getUser,

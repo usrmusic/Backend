@@ -1,3 +1,4 @@
+import prisma from "../utils/prismaClient.js";
 import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
@@ -63,6 +64,23 @@ export const createSupplier = catchAsync(async (req, res) => {
     created_by,
   } = req.body || {};
 
+  // Check uniqueness of company_name
+  if (company_name) {
+    const existingCompany = await supplierSvc.model.findFirst({
+      where: { company_name },
+    });
+    if (existingCompany)
+      return res.status(409).json({ error: "company_name_taken" });
+  }
+
+  // Check uniqueness of email (only when provided)
+  if (email) {
+    const existingEmail = await supplierSvc.model.findFirst({
+      where: { email },
+    });
+    if (existingEmail) return res.status(409).json({ error: "email_taken" });
+  }
+
   const data = {
     name: name || null,
     company_name: company_name || null,
@@ -101,6 +119,24 @@ export const updateSupplier = catchAsync(async (req, res) => {
   const existingSupplier = await supplierSvc.getById(id).catch(() => null);
   const data = req.body ? { ...req.body } : {};
   data.updated_at = new Date();
+
+  // Check uniqueness of company_name, excluding self
+  if (data.company_name) {
+    const existingCompany = await supplierSvc.model.findFirst({
+      where: { company_name: data.company_name, id: { not: id } },
+    });
+    if (existingCompany)
+      return res.status(409).json({ error: "company_name_taken" });
+  }
+
+  // Check uniqueness of email, excluding self (only when provided)
+  if (data.email) {
+    const existingEmail = await supplierSvc.model.findFirst({
+      where: { email: data.email, id: { not: id } },
+    });
+    if (existingEmail) return res.status(409).json({ error: "email_taken" });
+  }
+
   const updated = await supplierSvc.update(id, data);
 
   await logActivity(null, {
@@ -124,6 +160,17 @@ export const deleteSupplier = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
   const supplierBeforeDelete = await supplierSvc.getById(id).catch(() => null);
+
+  // Prevent deleting supplier if it has associated equipment (match Laravel
+  // behavior — Equipment->supplier_id has onDelete: Cascade in the schema,
+  // so without this guard deleting a supplier would silently wipe its equipment)
+  const hasEquipment = await prisma.equipment.findFirst({ where: { supplier_id: id } });
+  if (hasEquipment)
+    return res.status(400).json({
+      error: "supplier_has_equipment",
+      message: "This supplier cannot be deleted while equipment is linked to it.",
+    });
+
   await supplierSvc.delete(id);
 
   await logActivity(null, {
@@ -162,6 +209,20 @@ const deleteManySuppliers = catchAsync(async (req, res) => {
   let force = false;
   if (req.query && typeof req.query.force !== 'undefined') force = req.query.force === 'true' || req.query.force === true;
   else if (req.body && typeof req.body.force !== 'undefined') force = !!req.body.force;
+
+  // Prevent deleting any supplier that has associated equipment (match
+  // Laravel behavior / avoid cascading equipment deletion)
+  const blockedIds = [];
+  for (const _id of ids) {
+    const hasEquipment = await prisma.equipment.findFirst({ where: { supplier_id: _id } });
+    if (hasEquipment) blockedIds.push(_id);
+  }
+  if (blockedIds.length)
+    return res.status(400).json({
+      error: "supplier_has_equipment",
+      message: "One or more suppliers cannot be deleted while equipment is linked to them.",
+      blockedIds,
+    });
 
   await supplierSvc.deleteMany(ids, { force });
 

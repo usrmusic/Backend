@@ -7,15 +7,30 @@ const eventSvc = services.get('event');
 const getCalenderEvents = catchAsync(async (req, res) => {
     const { year } = req.query || req.params || {};
     const today = new Date();
+    // Compare only date portion, matching completeEventsJob.js's cutoff computation.
+    const cutoff = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
 
-    const filter = {};
+    const filter = { date: { gte: cutoff } };
     if (year) {
+        // Additional constraint alongside the "not in the past" filter, so past
+        // months within the selected year are excluded too (matches Laravel's
+        // `upcomingEvents`, which never shows past events).
         filter.date = {
-            gte: new Date(`${year}-01-01`),
+            gte: cutoff,
             lte: new Date(`${year}-12-31`),
         };
-    } else {
-        filter.date = { gte: today };
+    }
+
+    // Role-based scoping, matching Laravel's CalendarController::upcomingEvents():
+    // role_id 1/2 (Super Admin/Admin) see all confirmed events; role_id 3
+    // (Staff/DJ) see only events they are DJing; everyone else (role_id 4,
+    // Client) sees only their own events.
+    const roleId = Number(req.user?.role_id);
+    const userId = req.user?.sub;
+    if (roleId === 3) {
+        filter.dj_id = userId;
+    } else if (roleId !== 1 && roleId !== 2) {
+        filter.user_id = userId;
     }
 
     const events = await eventSvc.list({
@@ -40,7 +55,10 @@ const getCalenderEvents = catchAsync(async (req, res) => {
                 select: { id: true, name: true, color: true },
             },
         },
-        perPage: 1000,
+        // No pagination cap — matches Laravel's unbounded `->get()`. A single
+        // company's yearly (or forward-looking) confirmed-event count is not
+        // large enough to warrant an artificial limit.
+        perPage: null,
         sort: 'date:asc',
     });
 

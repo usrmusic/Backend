@@ -5,7 +5,7 @@ const createVenue = {
         venue: Joi.string().trim().min(1).max(100).required(),
         // legacy clients may send `address` or `venue_address`
         address: Joi.string().trim().max(200).allow('', null),
-        venue_address: Joi.string().trim().max(200).allow('', null),
+        venue_address: Joi.string().trim().min(1).max(200).required(),
         stage: Joi.string().trim().max(100).allow('', null),
         power: Joi.string().trim().max(100).allow('', null),
         access: Joi.string().trim().max(100).allow('', null),

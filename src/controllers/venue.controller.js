@@ -4,8 +4,41 @@ import { serializeForJson } from "../utils/serialize.js";
 import { uploadFile } from "../utils/uploadHelper.js";
 import services from "../services/index.js";
 import { logActivity } from "../utils/activityLogger.js";
+import { loadPermissionsForUserId } from "../middleware/authorize.js";
 
 const venueSvc = services.get("venue");
+
+// `force: true` on delete endpoints bypasses referential-integrity guards
+// (e.g. "venue has events") entirely. That is only safe in the hands of a
+// Super Admin / Admin (role_id 1 or 2) or someone holding the manage_all /
+// super_admin bypass permission — the same check used by requireAdmin in
+// middleware/authorize.js. Anyone else's `force` flag is silently ignored
+// (falls through to the normal guarded delete) rather than erroring.
+async function isForceDeleteAllowed(req) {
+  try {
+    if (!req.user) return false;
+    const sub = req.user.sub || req.user.id || req.user.email;
+    let userId = null;
+    if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+    if (!userId) {
+      const email = req.user.email;
+      if (!email) return false;
+      const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+      if (!u) return false;
+      userId = Number(u.id);
+    }
+
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { role_id: true } });
+    const roleId = u?.role_id != null ? Number(u.role_id) : null;
+    if (roleId === 1 || roleId === 2) return true;
+
+    const perms = await loadPermissionsForUserId(userId);
+    return perms.has("manage_all") || perms.has("super_admin");
+  } catch (err) {
+    console.error("isForceDeleteAllowed error", err);
+    return false;
+  }
+}
 
 const listVenues = catchAsync(async (req, res) => {
   // Build filter from query params (match client/users approach)
@@ -81,6 +114,12 @@ const createVenue = catchAsync(async (req, res) => {
     }
   }
 
+  // Check uniqueness of venue name
+  if (venue) {
+    const existing = await prisma.venue.findFirst({ where: { venue } });
+    if (existing) return res.status(409).json({ error: "venue_name_taken" });
+  }
+
   const data = {
     venue: venue || null,
     stage: stage || null,
@@ -144,6 +183,14 @@ const updateVenue = catchAsync(async (req, res) => {
   }
   data.updated_at = new Date();
 
+  // Check uniqueness of venue name, excluding self
+  if (data.venue) {
+    const existing = await prisma.venue.findFirst({
+      where: { venue: data.venue, id: { not: id } },
+    });
+    if (existing) return res.status(409).json({ error: "venue_name_taken" });
+  }
+
   // handle uploaded attachment if present
   if (req.file) {
     try {
@@ -186,7 +233,8 @@ const deleteVenue = catchAsync(async (req, res) => {
   if (!id) return res.status(400).json({ error: "invalid_id" });
 
   const forceVal = (req.params && req.params.force !== undefined ? req.params.force : req.query && req.query.force !== undefined ? req.query.force : req.body && req.body.force !== undefined ? req.body.force : undefined);
-  const force = (forceVal === true || forceVal === 'true' || forceVal === '1');
+  const forceRequested = (forceVal === true || forceVal === 'true' || forceVal === '1');
+  const force = forceRequested && (await isForceDeleteAllowed(req));
 
   const venueBeforeDelete = await prisma.venue
     .findUnique({ where: { id }, select: { venue: true } })
@@ -275,13 +323,14 @@ const deleteManyVenues = catchAsync(async (req, res) => {
   }
 
   // Support force delete via body.force or query.force (true/'true'/'1')
-  const force =
+  const forceRequested =
     (req.body &&
       (req.body.force === true ||
         req.body.force === "true" ||
         req.body.force === "1")) ||
     (req.query && (req.query.force === "true" || req.query.force === "1")) ||
     (req.params && (req.params.force === "true" || req.params.force === "1"));
+  const force = forceRequested && (await isForceDeleteAllowed(req));
 
   if (force) {
     const del = await venueSvc.forceDeleteMany(numericIds);

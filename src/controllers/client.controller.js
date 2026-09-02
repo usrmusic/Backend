@@ -8,6 +8,40 @@ import genPassword from "../utils/genPassword.js";
 import { toDbDate } from "../utils/dateUtils.js";
 import userService from "../services/userService.js";
 import { logActivity } from "../utils/activityLogger.js";
+import eventNoteService from "../services/eventNoteService.js";
+import { loadPermissionsForUserId } from "../middleware/authorize.js";
+
+// `force: true` on delete endpoints bypasses referential-integrity guards
+// (e.g. "client has events") entirely. That is only safe in the hands of a
+// Super Admin / Admin (role_id 1 or 2) or someone holding the manage_all /
+// super_admin bypass permission — the same check used by requireAdmin in
+// middleware/authorize.js. Anyone else's `force` flag is silently ignored
+// (falls through to the normal guarded delete) rather than erroring.
+async function isForceDeleteAllowed(req) {
+  try {
+    if (!req.user) return false;
+    const sub = req.user.sub || req.user.id || req.user.email;
+    let userId = null;
+    if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
+    if (!userId) {
+      const email = req.user.email;
+      if (!email) return false;
+      const u = await prisma.user.findUnique({ where: { email: String(email) }, select: { id: true } });
+      if (!u) return false;
+      userId = Number(u.id);
+    }
+
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { role_id: true } });
+    const roleId = u?.role_id != null ? Number(u.role_id) : null;
+    if (roleId === 1 || roleId === 2) return true;
+
+    const perms = await loadPermissionsForUserId(userId);
+    return perms.has("manage_all") || perms.has("super_admin");
+  } catch (err) {
+    console.error("isForceDeleteAllowed error", err);
+    return false;
+  }
+}
 
 const userSvc = services.get("user");
 const eventSvc = services.get("event");
@@ -92,6 +126,25 @@ export const createClient = catchAsync(async (req, res) => {
         },
       });
       createdEvents.push(ev);
+
+      // Notes added for enquiry create (matches Laravel ClientController@store)
+      try {
+        await eventNoteService.createNote(prisma, {
+          eventId: Number(ev.id),
+          notes: "Created as an enquiry",
+          created_by: req.user?.id || null,
+        });
+      } catch (e) {}
+
+      // Activity log for creating an open enquiry
+      await logActivity(prisma, {
+        log_name: "a open Enquiry",
+        description: `Enquiry created for event #${Number(ev.id)}`,
+        subject_type: "Event",
+        subject_id: Number(ev.id),
+        causer_id: req.user?.id || null,
+        properties: { attributes: serializeForJson(ev) },
+      });
     } catch (e) {
       console.error("createClient: failed to create event for date", d, e);
     }
@@ -277,39 +330,11 @@ export const updateClient = catchAsync(async (req, res) => {
     },
   });
 
-  // If event date(s) provided, create simple event records linked to this user.
-  const createdEvents = [];
-  const dates = [];
-  if (req.body.event_date) dates.push(req.body.event_date);
-  if (req.body.eventdates) {
-    if (Array.isArray(req.body.eventdates)) dates.push(...req.body.eventdates);
-    else dates.push(req.body.eventdates);
-  }
-  for (const d of dates) {
-    try {
-      const ev = await eventSvc.create({
-        data: {
-          date: toDbDate(String(d)),
-          event_status_id: 1,
-          user_id: Number(id),
-          created_by: req.user ? Number(req.user.id) : null,
-        },
-      });
-      createdEvents.push(ev);
-    } catch (e) {
-      console.error("updateClient: failed to create event for date", d, e);
-    }
-  }
-
+  // Note: updateClient must only ever update the client's own user-row
+  // fields, matching Laravel's ClientController@update exactly. No event
+  // creation happens here — that would risk spawning duplicate open
+  // enquiries whenever a client is re-saved with an event_date present.
   const out = serializeForJson(user);
-  if (createdEvents.length) {
-    out.event_dates = createdEvents.map((e) => e.date);
-    out.event_ids = createdEvents.map((e) => e.id);
-  } else if (req.body.event_date) out.event_dates = [req.body.event_date];
-  else if (req.body.eventdates)
-    out.event_dates = Array.isArray(req.body.eventdates)
-      ? req.body.eventdates
-      : [req.body.eventdates];
 
   res.json(out);
 });
@@ -324,7 +349,8 @@ export const deleteClient = catchAsync(async (req, res) => {
         : req.body && req.body.force !== undefined
           ? req.body.force
           : undefined;
-  const force = forceVal === true || forceVal === "true" || forceVal === "1";
+  const forceRequested = forceVal === true || forceVal === "true" || forceVal === "1";
+  const force = forceRequested && (await isForceDeleteAllowed(req));
 
   const existingClient = await userSvc.getById(id);
 
@@ -399,13 +425,14 @@ export const deleteManyClients = catchAsync(async (req, res) => {
   }
 
   // Support force delete via body.force or query.force (true/"true"/"1")
-  const force =
+  const forceRequested =
     (req.body &&
       (req.body.force === true ||
         req.body.force === "true" ||
         req.body.force === "1")) ||
     (req.query && (req.query.force === "true" || req.query.force === "1")) ||
     (req.params && (req.params.force === "true" || req.params.force === "1"));
+  const force = forceRequested && (await isForceDeleteAllowed(req));
 
   if (force) {
     const del = await prisma.user.deleteMany({

@@ -1718,8 +1718,13 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
   if (!company) return res.status(400).json({ error: "company_not_found" });
 
   // prepare email (prefer provided body.body, fallback to template id=2)
+  // `email_name` has no unique constraint in the schema — findUnique on it
+  // throws a Prisma validation error (silently swallowed by .catch below),
+  // so this template was NEVER actually loaded; every send fell through to
+  // the hardcoded "Update"/"Update for event #{id}" fallback regardless of
+  // what was saved in the admin's Email Content screen.
   const template = await prisma.emailContent
-    .findUnique({ where: { email_name: "EMAIL FOR UPDATE" } })
+    .findFirst({ where: { email_name: "EMAIL FOR UPDATE" } })
     .catch(() => null);
   const subject = body.subject || template?.subject || "Update";
   const raw = body.body || template?.body || `Update for event ${eventId}`;

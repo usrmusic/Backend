@@ -87,6 +87,10 @@ const cancel = Joi.object({
   body: Joi.object({ refund_amount: Joi.number().min(0).optional() }),
 });
 
+const reconfirm = Joi.object({
+  query: Joi.object({ id: Joi.number().integer().required() }),
+});
+
 const downloadInvoice = Joi.object({
   params: Joi.object({
     id: Joi.number().integer().required(),
@@ -182,4 +186,5 @@ export default {
   downloadInvoice,
   updateEvent,
   cancel,
+  reconfirm,
 };

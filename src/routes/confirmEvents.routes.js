@@ -104,6 +104,17 @@ router
   );
 
 router
+  .route("/reconfirm")
+  .post(
+    // Bring a Cancelled event back to Confirmed — same gate as Cancel above.
+    verifyAccessToken,
+    checkPermission("confirm event"),
+    blockClient,
+    validate(confirmEventsValidation.reconfirm),
+    confirmEventsController.reconfirmEvent,
+  );
+
+router
   .route("/payment")
   .post(
     // Add Payment is Admin/Super Admin only, matching the legacy Laravel CRM

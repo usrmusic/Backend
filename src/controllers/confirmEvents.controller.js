@@ -531,7 +531,26 @@ const listEventsDropdown = catchAsync(async (req, res) => {
   // Confirmed Events' own picker — only Confirmed events belong here, for
   // every role. Completed events have their own page/dropdown; including
   // status 3 here let Completed events leak into this picker for everyone.
-  let where = { event_status_id: 2 };
+  //
+  // Optional `?include_cancelled=true` also pulls in Cancelled events (so a
+  // cancelled event can be found and re-confirmed from this same picker).
+  // Every existing caller that omits the param keeps today's status-2-only
+  // behavior unchanged.
+  const includeCancelled = ["true", "1", "yes"].includes(
+    String(req.query?.include_cancelled || "").toLowerCase(),
+  );
+
+  let statusIds = [2];
+  if (includeCancelled) {
+    try {
+      const statusRow = await prisma.event_statuses.findFirst({ where: { status: "CANCELLED" } });
+      if (statusRow && statusRow.id) statusIds.push(Number(statusRow.id));
+    } catch (e) {
+      // ignore — falls back to confirmed-only
+    }
+  }
+
+  let where = { event_status_id: statusIds.length > 1 ? { in: statusIds } : statusIds[0] };
   where = await applyOwnershipScope(where, req);
 
   const events = await prisma.event.findMany({
@@ -1725,6 +1744,125 @@ const cancelEvent = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
+// Bring a Cancelled event back to Confirmed — mirrors Laravel's
+// CancelEventsController::ChangeConfirmEvents (PUT /change-confirmed-events/{event_id}),
+// which flips event_status_id back to CONFIRMED, logs an activity entry, and
+// dispatches EventBooked (which recreates the Outlook calendar entry via
+// CreateEventInOutlookCalendar). We deliberately skip EventBooked's other
+// listener, SendCredentialsToClient — that re-emails the client their login
+// password, which only makes sense on a genuinely new confirmation, not a
+// cancel/reconfirm toggle.
+const reconfirmEvent = catchAsync(async (req, res) => {
+  const params = req.query || {};
+  const body =
+    req.validated && req.validated.body ? req.validated.body : req.body || {};
+  const eventId = Number(params.id || body.event_id || 0);
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  // find CANCELLED status id (same lookup pattern as cancelEvent above)
+  let cancelledStatusId = null;
+  try {
+    const statusRow = await prisma.event_statuses.findFirst({
+      where: { status: "CANCELLED" },
+    });
+    if (statusRow && statusRow.id) cancelledStatusId = statusRow.id;
+  } catch (e) {
+    // ignore
+  }
+
+  if (cancelledStatusId != null && Number(event.event_status_id) !== Number(cancelledStatusId)) {
+    return res.status(400).json({ error: "event_not_cancelled" });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.event.update({ where: { id: eventId }, data: { event_status_id: 2 } });
+
+    await eventNoteService
+      .createNote(tx, {
+        eventId,
+        notes: "Event re-confirmed",
+        created_by: req.user?.id || null,
+      })
+      .catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "event reconfirmed",
+      description: `Event #${eventId} re-confirmed`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: { event_id: eventId },
+    });
+
+    return await tx.event.findUnique({ where: { id: eventId } });
+  });
+
+  // best-effort: recreate the Outlook calendar entry (cancelEvent deleted the
+  // old microsoft_events row and its Graph event, so there's nothing stale to
+  // reuse here — this mirrors confirmEvent's create-and-persist pattern above).
+  try {
+    const eventDetail = await prisma.event.findUnique({
+      where: { id: eventId },
+      include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
+    });
+    if (eventDetail) {
+      const startIso = eventDetail.start_time
+        ? new Date(eventDetail.start_time).toISOString()
+        : eventDetail.date
+          ? new Date(eventDetail.date).toISOString()
+          : null;
+      const endIso = eventDetail.end_time
+        ? new Date(eventDetail.end_time).toISOString()
+        : eventDetail.date
+          ? new Date(eventDetail.date).toISOString()
+          : null;
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: eventDetail.id, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
+        event: eventDetail,
+        eventPackages,
+      });
+
+      const created = await microsoftGraph
+        .createEvent({ subject, content, startIso, endIso, location })
+        .catch(() => null);
+      if (created && created.id) {
+        await prisma.microsoftEvent
+          .create({
+            data: {
+              event_id: BigInt(eventDetail.id),
+              microsoft_event_id: String(created.id),
+              created_at: new Date(),
+              updated_at: new Date(),
+            },
+          })
+          .catch((e) => {
+            console.error(
+              "[reconfirmEvent] failed to persist microsoft_events row",
+              e?.message || e,
+            );
+          });
+        await eventNoteService
+          .createNote(prisma, {
+            eventId: eventDetail.id,
+            notes: `CalendarEventId: ${created.id}`,
+            created_by: req.user?.id || null,
+          })
+          .catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error("[reconfirmEvent] microsoft graph create failed", e?.message || e);
+  }
+
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
 // const updateEvent = catchAsync(async (req, res) => {
 //   // Prefer validated payload from middleware; fall back to raw params/body
 //   const payload = req.validated || {
@@ -2157,4 +2295,5 @@ export default {
   updatePayment,
   deletePayment,
   cancelEvent,
+  reconfirmEvent,
 };

@@ -230,7 +230,7 @@ const forgotPassword = catchAsync(async (req, res) => {
 
   const resetBase = (process.env.PUBLIC_FRONTEND_URL || "https://www.usrmusic.com").replace(/\/$/, "");
   const resetUrl = `${resetBase}/reset-password/${token}?email=${encodeURIComponent(user.email)}`;
-  const { subject, html } = buildForgotPasswordEmail({ name: user.name || "", resetUrl });
+  const { subject, html } = await buildForgotPasswordEmail({ name: user.name || "", resetUrl });
 
   try {
     const sendResult = await resendClient({ to: user.email, subject, html });

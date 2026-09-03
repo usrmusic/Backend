@@ -6,6 +6,7 @@ import sendEmail from '../utils/mail/resendClient.js';
 import { signContractForEvent } from '../services/contractSign.service.js';
 import { randomUUID } from 'crypto';
 import { logActivity } from '../utils/activityLogger.js';
+import { buildUsrLetterEmail } from '../utils/mail/templates/usrLetterShell.js';
 
 // Public: load the event for signing using the contract_token UUID.
 // Mirrors Laravel SignatureController::showContractForm.
@@ -206,13 +207,22 @@ const sendContractLinkEmail = catchAsync(async (req, res) => {
     return res.status(500).json({ error: 'public_frontend_url_not_configured' });
   }
 
+  // Was a plain unbranded email — every other client-facing email uses the
+  // same company-branded letter shell, this one had been missed.
+  const company = event.names_id
+    ? await prisma.companyName.findUnique({ where: { id: BigInt(event.names_id) } }).catch(() => null)
+    : null;
+  const logoUrl = company?.company_logo
+    ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
+    : null;
+  const bodyHtml = `<p>Please review and sign your contract using the secure link below:</p>
+           <p><a href="${signing_url}">Sign your contract</a></p>
+           <p>If you have any questions, just reply to this email.</p>`;
+
   await sendEmail({
     to: [user.email],
     subject: `Please sign your contract — Event #${event.id}`,
-    html: `<p>Hi ${user.name || ''},</p>
-           <p>Please review and sign your contract using the secure link below:</p>
-           <p><a href="${signing_url}">Sign your contract</a></p>
-           <p>If you have any questions, just reply to this email.</p>`,
+    html: buildUsrLetterEmail({ name: user.name || 'there', bodyHtml, company, logoUrl }),
   }).catch((e) => {
     console.error('[contract.sendLink] sendEmail failed', e?.message || e);
   });

@@ -1,6 +1,7 @@
 import prisma from '../utils/prismaClient.js';
 import { uploadStreamToS3, getSignedGetUrl, getObjectBuffer } from '../utils/s3Client.js';
 import { generateContractPdf } from '../utils/pdfGenerator.js';
+import { brandAsset } from '../utils/brandAssets.js';
 import sendEmail from '../utils/mail/resendClient.js';
 import { buildContractSignedEmail } from '../utils/mail/templates/contractSignedEmail.js';
 
@@ -65,10 +66,22 @@ export async function signContractForEvent({
       .findUnique({ where: { id: BigInt(event.names_id) } })
       .catch(() => null);
   }
+  // Laravel always defaulted to some company's branding on the signed
+  // contract even when an event had no company linked (a hardcoded company
+  // id) — matching that so a contract never goes out completely unbranded,
+  // using the lowest-id company as the default rather than a fragile literal id.
+  if (!company) {
+    company = await prisma.companyName
+      .findFirst({ orderBy: { id: "asc" } })
+      .catch(() => null);
+  }
 
+  // Falls back to the shared USR signature when this company has none on
+  // file — matches the Quote PDF's fallback (Laravel always stamped a
+  // default signature on every contract; leaving this blank was a gap).
   const adminSignatureBuf = company?.admin_signature
     ? await fetchAsBuffer(company.admin_signature)
-    : null;
+    : await brandAsset('usr-admin-signature.jpg');
 
   // signatureDataUri arrives from the client's signing canvas as a base64
   // data URI; PDFKit needs the raw bytes.

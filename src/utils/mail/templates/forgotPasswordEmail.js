@@ -1,3 +1,5 @@
+import { brandAsset } from "../../brandAssets.js";
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
@@ -11,7 +13,14 @@ function escapeHtml(value) {
 // Mirrors the legacy Laravel CRM's forgot_password.blade.php exactly — same
 // card shell, same copy, same "Reset Password" pill button — just pointed at
 // the new frontend's reset-password page instead of Laravel's route.
-export function buildForgotPasswordEmail({ name, resetUrl }) {
+export async function buildForgotPasswordEmail({ name, resetUrl }) {
+  // Laravel's version showed a static USR logo above the greeting — inline
+  // as a data URI since this email has no per-company context to source a
+  // hosted logo URL from.
+  const logoBuf = await brandAsset("usr-logo-dark.png").catch(() => null);
+  const logoImg = logoBuf
+    ? `<img src="data:image/png;base64,${logoBuf.toString("base64")}" alt="USR Music" style="max-height:48px; margin-bottom:16px;" />`
+    : "";
   const html = `<!doctype html>
 <html lang="en-US">
 <head>
@@ -27,6 +36,7 @@ export function buildForgotPasswordEmail({ name, resetUrl }) {
           <tr><td style="height:40px;">&nbsp;</td></tr>
           <tr>
             <td style="padding:0 35px;">
+              ${logoImg}
               <h1 style="color:#1e1e2d; font-weight:500; margin:0; font-size:24px;">Hi ${escapeHtml(name)},</h1>
               <span style="display:inline-block; margin:20px 0 26px; border-bottom:1px solid #cecece; width:100px;"></span>
               <p style="color:#455056; font-size:15px; line-height:24px; margin:0;">

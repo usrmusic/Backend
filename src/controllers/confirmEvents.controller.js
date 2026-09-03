@@ -186,13 +186,18 @@ const confirmEvent = catchAsync(async (req, res) => {
               e?.message || e,
             );
           });
-        await eventNoteService
-          .createNote(prisma, {
-            eventId: event.id,
-            notes: `CalendarEventId: ${created.id}`,
-            created_by: req.user?.id || null,
-          })
-          .catch(() => {});
+        // Internal audit trail only — Laravel never surfaces this raw Graph
+        // id to staff/clients, and it was cluttering the user-facing Notes
+        // feed as an unreadable string. logActivity writes to the separate
+        // activity_log table instead of the event's own Notes list.
+        await logActivity(prisma, {
+          log_name: "calendar event synced",
+          description: `Outlook calendar event created for event #${event.id}`,
+          subject_type: "Event",
+          subject_id: Number(event.id),
+          causer_id: req.user?.id || null,
+          properties: { microsoft_event_id: String(created.id) },
+        }).catch(() => {});
       }
     }
   } catch (e) {
@@ -205,7 +210,7 @@ const confirmEvent = catchAsync(async (req, res) => {
   try {
     const event = await prisma.event.findUnique({
       where: { id: Number(result.event_id) },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, venues: true, event_payments: true },
     });
     const user = event?.users_events_user_idTousers || null;
 
@@ -383,7 +388,10 @@ const confirmEvent = catchAsync(async (req, res) => {
     });
     const adminEmails = admins.map((a) => a.email).filter(Boolean);
     if (adminEmails.length) {
-      const adminHtml = `
+      // Was a plain unbranded email — matches the rest of this function's
+      // client-facing emails now, using the same company/logo already
+      // resolved above.
+      const adminBodyHtml = `
         <p>Event #${event?.id} has been confirmed.</p>
         <p>Invoice: ${result.invoice_number || "N/A"}</p>
         <p>Amount Paid: ${result.amount || 0}</p>
@@ -391,7 +399,7 @@ const confirmEvent = catchAsync(async (req, res) => {
       await sendEmail({
         to: adminEmails,
         subject: `Event Confirmed - #${event?.id}`,
-        html: adminHtml,
+        html: buildUsrLetterEmail({ name: "Team", bodyHtml: adminBodyHtml, company: companyDetails, logoUrl }),
       }).catch(() => {});
     }
   } catch (e) {
@@ -436,7 +444,7 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
 
   const event = await prisma.event.findUnique({
     where: { id: event_id },
-    include: { users_events_user_idTousers: true, venues: true },
+    include: { users_events_user_idTousers: true, venues: true, event_payments: true },
   });
 
   if (!event) return res.status(404).json({ error: "event_not_found" });
@@ -912,7 +920,7 @@ const sendInvoice = catchAsync(async (req, res) => {
   const fullEvent = await prisma.event
     .findUnique({
       where: { id: eventId },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, venues: true, event_payments: true },
     })
     .catch(() => null);
   const first_name =
@@ -1274,7 +1282,7 @@ const downloadInvoice = catchAsync(async (req, res) => {
   const event = await prisma.event
     .findUnique({
       where: { id: eventId },
-      include: { users_events_user_idTousers: true, venues: true },
+      include: { users_events_user_idTousers: true, venues: true, event_payments: true },
     })
     .catch(() => null);
   if (!event) return res.status(404).json({ error: "event_not_found" });
@@ -2124,7 +2132,12 @@ const updateEvent = catchAsync(async (req, res) => {
       if (key === "no_of_guests") {
         eventUpdateData[key] = String(value);
       } else if (key === "deposit_amount" || key === "refund_amount") {
-        eventUpdateData[key] = parseFloat(value);
+        // Strip any currency symbol/thousands separators before parsing —
+        // an unguarded parseFloat("£1,000") silently returns NaN, which was
+        // then written straight to the database and shown as "£NaN" on the
+        // contract/invoice ever after.
+        const cleaned = parseFloat(String(value).replace(/[^0-9.-]/g, ""));
+        if (Number.isFinite(cleaned)) eventUpdateData[key] = cleaned;
       } else if (key === "venue_id") {
         eventUpdateData[key] = parseInt(value, 10);
       } else {

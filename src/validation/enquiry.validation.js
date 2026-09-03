@@ -37,7 +37,7 @@ const listOpenEnquiries = Joi.object({
       .valid(...allowedSortFields)
       .optional()
       .allow("", null),
-    sortOrder: Joi.string().valid("asc", "desc").optional().default("asc"),
+    sortOrder: Joi.string().valid("asc", "desc").optional().default("desc"),
     // Derived status (called/quoted) and the real dj_package_name value —
     // see listOpenEnquiries in the controller for how each becomes a where
     // clause.

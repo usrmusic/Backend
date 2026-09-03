@@ -65,6 +65,16 @@ router
     validate(userValidation.deleteManyUsers),
     userController.deleteManyUsers,
   );
+// Matches Laravel's POST /recover-user: restores one or more soft-deleted
+// users. Gated the same as delete-many since it's the same sensitivity level.
+router
+  .route("/restore")
+  .post(
+    verifyAccessToken,
+    checkPermission("user"),
+    validate(userValidation.restoreUsers),
+    userController.restoreUsers,
+  );
 // Laravel's equivalent (NewEnquiryService::getPackages()) gates this only by
 // enquiry-creation access, not user-management access — any Staff who can
 // open the enquiry form sees the full active DJ list to assign one

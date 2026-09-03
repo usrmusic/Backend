@@ -7,6 +7,9 @@ import { logActivity } from "../utils/activityLogger.js";
 const equipmentSvc = services.get("equipment");
 const supplierSvc = services.get("supplier");
 
+// Same status id used by completeEventsJob.js — the numeric id for "Confirmed".
+const CONFIRMED_STATUS_ID = Number(process.env.CONFIRMED_STATUS_ID || 2);
+
 
 
 const listEquipment = catchAsync(async (req, res) => {
@@ -74,7 +77,7 @@ const createEquipment = catchAsync(async (req, res) => {
   if (equipmentSvc && typeof equipmentSvc.create === "function") {
     // Create supplier only if supplier_name provided and supplier_id not provided
     if (!body.supplier_id && body.supplier_name && supplierSvc && typeof supplierSvc.create === 'function') {
-      const supplierPayload = { name: String(body.supplier_name) };
+      const supplierPayload = { company_name: String(body.supplier_name) };
       const supplier = await supplierSvc.create(supplierPayload).catch((e) => { throw e; });
       if (supplier && supplier.id) {
         body.supplier_id = supplier.id;
@@ -84,7 +87,7 @@ const createEquipment = catchAsync(async (req, res) => {
           subject_type: "Supplier",
           subject_id: Number(supplier.id),
           causer_id: req.user?.id || null,
-          properties: { name: supplier.name || null },
+          properties: { company_name: supplier.company_name || null },
         });
       }
       // remove supplier_name so Prisma won't try to write an unknown column
@@ -116,7 +119,7 @@ const updateEquipment = catchAsync(async (req, res) => {
   const body = req.body || {};
   // If supplier_name provided (and no supplier_id), create supplier and set supplier_id
   if (!body.supplier_id && body.supplier_name && supplierSvc && typeof supplierSvc.create === 'function') {
-    const supplierPayload = { name: String(body.supplier_name) };
+    const supplierPayload = { company_name: String(body.supplier_name) };
     const supplier = await supplierSvc.create(supplierPayload).catch((e) => { throw e; });
     if (supplier && supplier.id) {
       body.supplier_id = supplier.id;
@@ -126,7 +129,7 @@ const updateEquipment = catchAsync(async (req, res) => {
         subject_type: "Supplier",
         subject_id: Number(supplier.id),
         causer_id: req.user?.id || null,
-        properties: { name: supplier.name || null },
+        properties: { company_name: supplier.company_name || null },
       });
     }
     delete body.supplier_name;
@@ -135,6 +138,31 @@ const updateEquipment = catchAsync(async (req, res) => {
   if (equipmentSvc && typeof equipmentSvc.update === "function") {
     const existingEquipment = await equipmentSvc.getById(id).catch(() => null);
     const updated = await equipmentSvc.update(id, body).catch((e) => { throw e; });
+
+    // Laravel parity: when cost_price changes, cascade the new cost_price to
+    // event_package rows for every currently Confirmed event using this
+    // equipment, so supplier-report totals don't go stale.
+    const oldCostPrice =
+      existingEquipment?.cost_price != null ? Number(existingEquipment.cost_price) : null;
+    const newCostPrice = updated?.cost_price != null ? Number(updated.cost_price) : null;
+    if (newCostPrice != null && newCostPrice !== oldCostPrice) {
+      const affectedEvents = await prisma.event.findMany({
+        where: {
+          event_status_id: CONFIRMED_STATUS_ID,
+          event_package: { some: { equipment_id: id } },
+        },
+        select: { id: true },
+      });
+      if (affectedEvents.length) {
+        await prisma.event_package.updateMany({
+          where: {
+            equipment_id: id,
+            event_id: { in: affectedEvents.map((e) => Number(e.id)) },
+          },
+          data: { cost_price: newCostPrice },
+        });
+      }
+    }
 
     await logActivity(null, {
       log_name: "equipment updated",
@@ -165,6 +193,20 @@ const deleteEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
   if (equipmentSvc && typeof equipmentSvc.delete === "function") {
+    // Laravel parity: block deletion while this equipment is bundled into a
+    // DJ package (package_user_equipment) — those rows would otherwise be
+    // cascade-deleted along with the equipment.
+    const inUse = await prisma.package_user_equipment.findFirst({
+      where: { equipment_id: id },
+      select: { id: true },
+    });
+    if (inUse) {
+      return res.status(400).json({
+        error: "equipment_in_use",
+        message: "This equipment cannot be deleted while it is part of a DJ package.",
+      });
+    }
+
     const equipmentBeforeDelete = await equipmentSvc.getById(id).catch(() => null);
     await equipmentSvc.delete(id);
 
@@ -191,29 +233,52 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
     .filter((n) => !Number.isNaN(n));
   if (ids.length === 0) return res.status(400).json({ error: "invalid_ids" });
   if (equipmentSvc && typeof equipmentSvc.deleteMany === "function") {
-    // Perform a hard delete for delete-many requests
-    // CoreCrudService.deleteMany accepts an opts.force flag to force permanent deletion
-    try {
-      await equipmentSvc.deleteMany(ids, { force: true });
-    } catch (err) {
-      // Fallback to forceDeleteMany if available
-      if (equipmentSvc && typeof equipmentSvc.forceDeleteMany === 'function') {
-        await equipmentSvc.forceDeleteMany(ids);
-      } else {
-        throw err;
+    // Laravel parity: block deletion of any equipment still bundled into a
+    // DJ package (package_user_equipment) — those rows would otherwise be
+    // cascade-deleted along with the equipment.
+    const inUseRows = await prisma.package_user_equipment.findMany({
+      where: { equipment_id: { in: ids } },
+      select: { equipment_id: true },
+      distinct: ["equipment_id"],
+    });
+    const blockedIds = inUseRows.map((r) => Number(r.equipment_id));
+    const deletableIds = ids.filter((id) => !blockedIds.includes(id));
+
+    if (deletableIds.length) {
+      // Perform a hard delete for delete-many requests
+      // CoreCrudService.deleteMany accepts an opts.force flag to force permanent deletion
+      try {
+        await equipmentSvc.deleteMany(deletableIds, { force: true });
+      } catch (err) {
+        // Fallback to forceDeleteMany if available
+        if (equipmentSvc && typeof equipmentSvc.forceDeleteMany === 'function') {
+          await equipmentSvc.forceDeleteMany(deletableIds);
+        } else {
+          throw err;
+        }
       }
+
+      await logActivity(null, {
+        log_name: "equipment bulk deleted",
+        description: `${deletableIds.length} equipment item(s) deleted`,
+        subject_type: "Equipment",
+        subject_id: null,
+        causer_id: req.user?.id || null,
+        properties: { ids: deletableIds, count: deletableIds.length },
+      });
     }
 
-    await logActivity(null, {
-      log_name: "equipment bulk deleted",
-      description: `${ids.length} equipment item(s) deleted`,
-      subject_type: "Equipment",
-      subject_id: null,
-      causer_id: req.user?.id || null,
-      properties: { ids, count: ids.length },
-    });
+    if (blockedIds.length) {
+      return res.status(deletableIds.length ? 207 : 400).json({
+        ok: deletableIds.length > 0,
+        error: blockedIds.length ? "equipment_in_use" : undefined,
+        message: "Some equipment could not be deleted while it is part of a DJ package.",
+        deletedIds: deletableIds,
+        notDeletedIds: blockedIds,
+      });
+    }
 
-    return res.json({ ok: true });
+    return res.json({ ok: true, deletedIds: deletableIds, notDeletedIds: [] });
   }
   res.status(501).json({ error: "not_implemented" });
 });

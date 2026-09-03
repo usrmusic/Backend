@@ -21,6 +21,19 @@ import renderInvoicePdf from '../templates/pdf/invoicePdf.js';
 import renderQuotePdf from '../templates/pdf/quotePdf.js';
 import renderContractPdf from '../templates/pdf/contractPdf.js';
 import { resolveCompanyLogo, brandAsset } from './brandAssets.js';
+import { getObjectBuffer } from './s3Client.js';
+
+// Same pattern contractSign.service.js uses for the signed-contract PDF —
+// PDFKit needs raw bytes, and each company has (or may not have) its own
+// signature image rather than one shared across every company.
+async function resolveCompanySignature(companyDetails) {
+  if (!companyDetails?.admin_signature) return null;
+  try {
+    return await getObjectBuffer(String(companyDetails.admin_signature));
+  } catch {
+    return null;
+  }
+}
 
 function toBuffer(doc) {
   return new Promise((resolve, reject) => {
@@ -64,10 +77,13 @@ export async function generateQuotePdf({
   event, companyDetails = {}, enrichedDetails = [], clientName, quoteDate,
 }) {
   const { standardPackage, extraEquipment } = splitPackages(enrichedDetails);
-  const [logo, adminSignature] = await Promise.all([
+  const [logo, companySignature] = await Promise.all([
     resolveCompanyLogo(companyDetails),
-    brandAsset('usr-admin-signature.jpg'),
+    resolveCompanySignature(companyDetails),
   ]);
+  // Fall back to the shared USR signature only if this company has none of
+  // its own on file — every company should show its own signature once set.
+  const adminSignature = companySignature || await brandAsset('usr-admin-signature.jpg');
   const djName = event?.users_events_dj_idTousers?.name || event?.dj_package_name || '';
 
   const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true });

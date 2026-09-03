@@ -94,8 +94,9 @@ export default function renderQuotePdf(doc, {
       // Corrupt asset — leave the line blank rather than fail the render.
     }
   }
+  const companySignerLabel = companyDetails?.contact_name || companyDetails?.name || 'USR';
   doc.font(F).fontSize(8).fillColor(GREY)
-    .text('[ Gurpreet Sanghera (USR) ]', LEFT, sy + 44);
+    .text(`[ ${companySignerLabel} ]`, LEFT, sy + 44);
 
   const rightX = PAGE_W / 2 + 10;
   doc.font(F).fontSize(8).fillColor(GREY)

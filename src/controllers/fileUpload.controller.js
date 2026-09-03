@@ -579,6 +579,105 @@ const uploadMedia = catchAsync(async (req, res) => {
   });
 });
 
+// Replace an existing media row's underlying file (parity with Laravel's
+// MediaController::update()): deletes the old stored object, uploads the
+// new one, and updates the same row's display_name/extension/mime_type/size
+// so the row's id (and any references to it) are preserved.
+const updateMedia = catchAsync(async (req, res) => {
+  const id = Number(req.params.id || req.query.id);
+  if (!id) return res.status(400).json({ error: "invalid_id" });
+
+  const existing = await prisma.media.findUnique({ where: { id } });
+  if (!existing) return res.status(404).json({ error: "not_found" });
+
+  // multer may populate `req.file` (single) or `req.files` (fields) —
+  // mirrors uploadMedia's handling.
+  if (!req.file && req.files) {
+    if (req.files.media && req.files.media.length)
+      req.file = req.files.media[0];
+    else if (req.files.file && req.files.file.length)
+      req.file = req.files.file[0];
+  }
+  if (!req.file) return res.status(400).json({ error: "no_file" });
+
+  // Enforce max size ~200MB (Laravel uses max:204800 kilobytes)
+  const MAX_BYTES = 204800 * 1024; // 204800 KB
+  const fileSize =
+    req.file.size || (req.file.path ? fs.statSync(req.file.path).size : 0);
+  if (fileSize > MAX_BYTES)
+    return res.status(422).json({ error: "file_too_large" });
+
+  // Delete the old stored object (same logic as deleteMedia), best-effort so
+  // a missing/already-gone object never blocks the replacement.
+  const oldKey =
+    existing.stored_name && String(existing.stored_name).length
+      ? String(existing.stored_name)
+      : null;
+
+  if (
+    process.env.FILE_STORAGE &&
+    process.env.FILE_STORAGE.toLowerCase() === "s3"
+  ) {
+    if (oldKey) {
+      const s3Key = oldKey.includes("/") ? oldKey : `media/${oldKey}`;
+      try {
+        await deleteObjectFromS3(s3Key);
+      } catch (err) {
+        console.error("Failed to delete object from S3", err);
+        // continue regardless of storage deletion failure
+      }
+    }
+  } else {
+    if (oldKey) {
+      const uploadsDir = getUploadsDir();
+      const rel = oldKey.includes("/") ? oldKey : `media/${oldKey}`;
+      const p = path.join(uploadsDir, rel);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    }
+  }
+
+  // Upload the new file under `media/` (same helper as uploadMedia).
+  const uploadRes = await uploadFile(req.file, { folder: "media" });
+
+  const storedKey =
+    uploadRes && uploadRes.key
+      ? uploadRes.key
+      : (uploadRes && uploadRes.url) ||
+        req.file.filename ||
+        req.file.originalname;
+  const storedName = path.basename(storedKey);
+  const extension = path.extname(storedName).replace(/^\./, "") || null;
+
+  const updated = await prisma.media.update({
+    where: { id },
+    data: {
+      display_name: req.body.custom_name || req.file.originalname || storedName,
+      stored_name: storedName,
+      extension: extension,
+      mime_type: req.file.mimetype || null,
+      size: Number(fileSize) || null,
+    },
+  });
+
+  await logActivity(prisma, {
+    log_name: "media updated",
+    description: `Media #${Number(id)} updated`,
+    subject_type: "Media",
+    subject_id: Number(id),
+    causer_id: req.user?.id || null,
+    properties: {
+      old_display_name: existing.display_name,
+      new_display_name: updated.display_name,
+    },
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Media updated successfully!",
+    data: serializeForJson(updated),
+  });
+});
+
 const downloadMedia = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id);
   const f = await prisma.media.findUnique({ where: { id } });
@@ -621,6 +720,7 @@ export default {
   deleteFile,
   listMedia,
   uploadMedia,
+  updateMedia,
   downloadMedia,
   deleteMedia,
 };

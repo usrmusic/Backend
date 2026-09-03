@@ -33,8 +33,13 @@ export async function uploadFile(file, options = {}) {
   const storageMode = (process.env.FILE_STORAGE || '').toLowerCase();
   const targetFolder = folder && folder.length ? folder.replace(/^\/+|\/+$/g, '') : 'uploads';
   if (storageMode === 's3') {
-    const ext = path.extname(file.originalname || '') || '';
-    const shortName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+    // Prefix with a unique id (not embedded in the extension) so the original
+    // filename stays fully intact and readable — matches Laravel's
+    // `uniqid() . '_' . originalName` convention, just with our own
+    // collision-safe id. The frontend strips everything before the first
+    // underscore when displaying the name back to the user.
+    const safeOriginalName = (file.originalname || 'file').replace(/[/\\]/g, '_');
+    const shortName = `${Date.now()}${crypto.randomBytes(4).toString('hex')}_${safeOriginalName}`;
     const key = `${targetFolder}/${shortName}`;
     // file.path (disk) -> stream, file.buffer -> buffer
     if (file.path) {
@@ -79,8 +84,8 @@ export async function uploadFile(file, options = {}) {
 
   // If buffer provided (memory storage)
   if (file.buffer) {
-    const ext = path.extname(file.originalname || '') || '';
-    const name = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+    const safeOriginalName = (file.originalname || 'file').replace(/[/\\]/g, '_');
+    const name = `${Date.now()}${crypto.randomBytes(4).toString('hex')}_${safeOriginalName}`;
     const folderPath = folder && folder.length ? path.join(uploadsDir, folder) : uploadsDir;
     if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
     const outPath = path.join(folderPath, name);

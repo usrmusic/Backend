@@ -3,7 +3,7 @@ import Joi from "joi";
 const createSupplier = {
 	body: Joi.object({
 		name: Joi.string().trim().min(1).max(100).required(),
-		company_name: Joi.string().trim().max(200).allow('', null),
+		company_name: Joi.string().trim().min(1).max(200).required(),
 		email: Joi.string().email().lowercase().trim().allow('', null),
 		contact_number: Joi.string().trim().min(7).max(32).allow('', null),
 		industry: Joi.string().trim().max(100).allow('', null),

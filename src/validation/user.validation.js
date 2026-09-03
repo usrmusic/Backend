@@ -77,6 +77,12 @@ const deleteManyUsers = {
   }),
 };
 
+const restoreUsers = {
+  body: Joi.object({
+    ids: Joi.array().items(Joi.number().integer()).min(1).required(),
+  }),
+};
+
 const forgotPassword = {
   body: Joi.object({
     email: Joi.string().email().required(),
@@ -104,6 +110,7 @@ export default {
   getUser,
   deleteUser,
   deleteManyUsers,
+  restoreUsers,
   forgotPassword,
   resetPasswordWithToken,
   verifyEmail,

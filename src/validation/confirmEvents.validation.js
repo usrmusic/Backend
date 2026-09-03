@@ -19,6 +19,30 @@ const sendEmail = Joi.object({
   }),
 });
 
+// Manual "Send Quote" from Confirmed Events — id required, subject/body are
+// optional overrides of the SEND QUOTE-CONFIRMED template (staff can edit the
+// body before sending, per Laravel's modal; unlike sendEmail above these are
+// not required since the template supplies sensible defaults).
+const sendQuote = Joi.object({
+  body: Joi.object({
+    id: Joi.number().integer().required(),
+    subject: Joi.string().allow("", null).optional(),
+    body: Joi.string().allow("", null).optional(),
+    company_name_id: Joi.number().integer().optional(),
+  }),
+});
+
+// Manual "Send Email" (Thank You) from Completed Events — both subject and
+// body are staff-authored and required, matching Laravel's required-field
+// validation (the seeded THANKYOU EMAIL template body is blank).
+const sendThankYou = Joi.object({
+  body: Joi.object({
+    id: Joi.number().integer().required(),
+    subject: Joi.string().required(),
+    body: Joi.string().required(),
+  }),
+});
+
 const listConfirmEvents = Joi.object({
   query: Joi.object({
     search: Joi.string().trim().max(100).allow("", null),
@@ -61,6 +85,10 @@ const refund = Joi.object({
 const cancel = Joi.object({
   query: Joi.object({ id: Joi.number().integer().required() }),
   body: Joi.object({ refund_amount: Joi.number().min(0).optional() }),
+});
+
+const reconfirm = Joi.object({
+  query: Joi.object({ id: Joi.number().integer().required() }),
 });
 
 const downloadInvoice = Joi.object({
@@ -148,6 +176,8 @@ export default {
   confirmEvent,
   getConfirmEvent,
   sendEmail,
+  sendQuote,
+  sendThankYou,
   getEmail,
   refund,
   addPayment,
@@ -156,4 +186,5 @@ export default {
   downloadInvoice,
   updateEvent,
   cancel,
+  reconfirm,
 };

@@ -1,12 +1,22 @@
 import Joi from "joi";
 
+// Start of today (local server time), used to match Laravel's
+// `after_or_equal:today` date-only comparison (not a strict "now" cutoff).
+const startOfToday = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
 const createClient = Joi.object({
   body: Joi.object({
     name: Joi.string().trim().min(2).max(100).required(),
     email: Joi.string().email().lowercase().trim().required(),
     contact_number: Joi.string().trim().min(7).max(32).allow("", null),
     address: Joi.string().trim().max(500).allow("", null),
-    event_date: Joi.date().iso().allow(null),
+    // Laravel's StoreClientRequest requires event_date on client creation:
+    // 'required|date|after_or_equal:today'
+    event_date: Joi.date().iso().min(startOfToday()).required(),
     role_id: Joi.number().integer().required(),
   }),
 });
@@ -20,7 +30,6 @@ const updateClient = Joi.object({
     email: Joi.string().email().lowercase().trim(),
     contact_number: Joi.string().trim().min(7).max(32).allow("", null),
     address: Joi.string().trim().max(500).allow("", null),
-    event_date: Joi.date().iso().allow(null),
     role_id: Joi.number().integer(),
   }),
 });

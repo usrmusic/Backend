@@ -4,7 +4,7 @@ import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
 import eventNoteService from "../services/eventNoteService.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
-import { generateInvoicePdf } from "../utils/pdfGenerator.js";
+import { generateInvoicePdf, generateQuotePdf } from "../utils/pdfGenerator.js";
 import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
 import sendEmail from "../utils/mail/resendClient.js";
 import { buildUserCredentialEmail } from "../utils/mail/templates/userCredentialEmail.js";
@@ -278,6 +278,105 @@ const confirmEvent = catchAsync(async (req, res) => {
       );
     }
 
+    // SEND INVOICE-OPEN — a second, dedicated invoice email fired at this same
+    // deposit-confirmation moment, parity with Laravel's ADD DEPOSIT action
+    // (which sends the generic confirmation email above AND a separate
+    // invoice email using this template). This is additive to the
+    // SEND INVOICE-CONFIRMED email above, not a replacement for it — that one
+    // has no PDF attached and speaks generically about the confirmation,
+    // while this one carries the actual invoice PDF/link.
+    try {
+      const invoiceOpenTemplate = await prisma.emailContent
+        .findFirst({ where: { email_name: "SEND INVOICE-OPEN" } })
+        .catch(() => null);
+
+      if (invoiceOpenTemplate && user && user.email) {
+        const invoiceOpenSubject =
+          invoiceOpenTemplate.subject || `Invoice for event #${event?.id}`;
+        let invoiceOpenBodyRaw = invoiceOpenTemplate.body || "";
+        if (invoiceOpenBodyRaw && depositAmount) {
+          invoiceOpenBodyRaw = String(invoiceOpenBodyRaw).replace(
+            "{--amount--}",
+            String(depositAmount),
+          );
+        }
+
+        const enrichedInvoiceDetails = (eventPackages || []).map((p) => ({
+          ...p,
+          is_vat_available_for_the_event: event?.is_vat_available_for_the_event,
+          event_amount_without_vat: event?.event_amount_without_vat,
+          vat_value: event?.vat_value,
+          total_cost_for_equipment: event?.total_cost_for_equipment,
+        }));
+
+        let invoiceOpenPdfBuffer = null;
+        try {
+          invoiceOpenPdfBuffer = await generateInvoicePdf({
+            event,
+            companyDetails: companyDetails || {},
+            enrichedDetails: enrichedInvoiceDetails,
+          });
+        } catch (e) {
+          console.error(
+            "[confirmEvent] SEND INVOICE-OPEN pdf generation failed",
+            e?.message || e,
+          );
+        }
+
+        let invoiceOpenPdfUrl = null;
+        if (invoiceOpenPdfBuffer) {
+          const key = `invoices/open-${eventId}-${Date.now()}.pdf`;
+          try {
+            await uploadStreamToS3(invoiceOpenPdfBuffer, key, "application/pdf");
+            invoiceOpenPdfUrl = await getSignedGetUrl(key);
+          } catch (e) {
+            console.error(
+              "[confirmEvent] SEND INVOICE-OPEN pdf upload failed",
+              e?.message || e,
+            );
+          }
+        }
+
+        const invoiceOpenHtml = buildUsrLetterEmail({
+          name: firstName,
+          bodyHtml: String(invoiceOpenBodyRaw).replace(/\n/g, "<br/>"),
+          company: companyDetails,
+          logoUrl,
+        });
+        const invoiceOpenFinalHtml = invoiceOpenPdfUrl
+          ? `${invoiceOpenHtml}<p><a href="${invoiceOpenPdfUrl}">Download Invoice (PDF)</a></p>`
+          : invoiceOpenHtml;
+
+        await sendEmail({
+          to: [user.email],
+          subject: invoiceOpenSubject,
+          html: invoiceOpenFinalHtml,
+        }).catch(() => {});
+
+        await eventNoteService
+          .createNote(prisma, {
+            eventId,
+            notes: `Invoice Sent - ${companyDetails?.name || ""}`,
+            created_by: req.user?.id || null,
+          })
+          .catch(() => {});
+
+        await logActivity(prisma, {
+          log_name: "invoice sent (open enquiry confirm)",
+          description: `Invoice emailed for event #${eventId} (open enquiry confirm)`,
+          subject_type: "Event",
+          subject_id: eventId,
+          causer_id: req.user?.id || null,
+          properties: { to: user.email, invoice_number: invoiceNumber },
+        });
+      }
+    } catch (e) {
+      console.error(
+        "[confirmEvent] SEND INVOICE-OPEN flow failed",
+        e?.message || e,
+      );
+    }
+
     // notify admins (role_id = 2) who have email enabled
     const admins = await prisma.user.findMany({
       where: { role_id: BigInt(2), is_email_send: true },
@@ -432,7 +531,26 @@ const listEventsDropdown = catchAsync(async (req, res) => {
   // Confirmed Events' own picker — only Confirmed events belong here, for
   // every role. Completed events have their own page/dropdown; including
   // status 3 here let Completed events leak into this picker for everyone.
-  let where = { event_status_id: 2 };
+  //
+  // Optional `?include_cancelled=true` also pulls in Cancelled events (so a
+  // cancelled event can be found and re-confirmed from this same picker).
+  // Every existing caller that omits the param keeps today's status-2-only
+  // behavior unchanged.
+  const includeCancelled = ["true", "1", "yes"].includes(
+    String(req.query?.include_cancelled || "").toLowerCase(),
+  );
+
+  let statusIds = [2];
+  if (includeCancelled) {
+    try {
+      const statusRow = await prisma.event_statuses.findFirst({ where: { status: "CANCELLED" } });
+      if (statusRow && statusRow.id) statusIds.push(Number(statusRow.id));
+    } catch (e) {
+      // ignore — falls back to confirmed-only
+    }
+  }
+
+  let where = { event_status_id: statusIds.length > 1 ? { in: statusIds } : statusIds[0] };
   where = await applyOwnershipScope(where, req);
 
   const events = await prisma.event.findMany({
@@ -908,6 +1026,240 @@ const sendInvoice = catchAsync(async (req, res) => {
       message: "Invoice sent",
       event: result,
       pdfUrl: pdfUrl || null,
+    }),
+  );
+});
+
+// Manual "Send Quote" from the Confirmed Events page — parity with Laravel's
+// ConfirmedEventsController::sendQuoteMail. Unlike Laravel (which hardcodes
+// the actual sent subject to "USR : {today}" regardless of what the modal
+// shows), this sends the real SEND QUOTE-CONFIRMED template subject/body
+// (with optional staff overrides), reusing the same PDFKit quote renderer
+// already used for the enquiry-stage SEND QUOTE-OPEN flow (see
+// enquiry.controller.js's sendQuote / utils/pdfGenerator.js), sourced from
+// the confirmed event's real DB state instead of a client-supplied payload.
+const sendQuote = catchAsync(async (req, res) => {
+  const body = req.validated?.body || req.validated || req.body || {};
+  const eventId = Number(body.id || body.event_id);
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+
+  const event = await prisma.event
+    .findUnique({
+      where: { id: eventId },
+      include: {
+        users_events_user_idTousers: true,
+        users_events_dj_idTousers: true,
+        venues: true,
+      },
+    })
+    .catch(() => null);
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  const user = event.users_events_user_idTousers || null;
+  const to = user?.email || null;
+
+  const companyId =
+    Number(body.company_name_id || event.names_id || 0) || null;
+  const company = companyId
+    ? await prisma.companyName
+        .findUnique({ where: { id: BigInt(companyId) } })
+        .catch(() => null)
+    : null;
+  const companyName = company?.name || "";
+
+  const template = await prisma.emailContent
+    .findFirst({ where: { email_name: "SEND QUOTE-CONFIRMED" } })
+    .catch(() => null);
+
+  const depositAmount =
+    event.deposit_amount != null ? Number(event.deposit_amount) : null;
+  const subject = body.subject || template?.subject || "Quote";
+  let raw = body.body || template?.body || `Quote for event ${eventId}`;
+  if (raw && depositAmount != null) {
+    raw = String(raw).replace("{--amount--}", `£${depositAmount}`);
+  }
+
+  const companyDetails = {
+    company_logo:
+      company?.company_logo || company?.logo || company?.brochure || null,
+    name: company?.name || "",
+    vat: company?.vat ?? null,
+    vat_percentage: company?.vat_percentage ?? null,
+    contact_name: company?.contact_name || company?.contact || null,
+    address_name: company?.address_name || null,
+    street: company?.street || null,
+    city: company?.city || null,
+    postal_code: company?.postal_code || null,
+    telephone_number: company?.telephone_number || company?.telephone || null,
+    email: company?.email || null,
+    website: company?.website || null,
+    instagram: company?.instagram || null,
+    facebook: company?.facebook || null,
+    admin_signature: company?.admin_signature || null,
+  };
+
+  const firstName = user?.name || "Client";
+  const logoUrl = companyDetails.company_logo
+    ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
+    : null;
+  const emailHtml = buildUsrLetterEmail({
+    name: firstName,
+    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    company: companyDetails,
+    logoUrl,
+  });
+
+  // Same standard-package/extras split the confirmed invoice flows use —
+  // sourced from the event's real event_package rows, not enquiry-stage data.
+  const eventPackages = await prisma.eventPackage
+    .findMany({
+      where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+      include: { equipment: true, package_types: true },
+    })
+    .catch(() => []);
+  const enrichedDetails = eventPackages.map((p) => ({
+    equipment_id: p.equipment_id,
+    package_type_id: p.package_type_id,
+    quantity: p.quantity || 1,
+    sell_price: p.sell_price ?? p.total_price ?? null,
+    total_price: p.total_price ?? null,
+    notes: p.notes || null,
+    equipment: p.equipment
+      ? { id: p.equipment.id, name: p.equipment.name, sell_price: p.equipment.sell_price }
+      : null,
+    is_vat_available_for_the_event: event.is_vat_available_for_the_event,
+    event_amount_without_vat: event.event_amount_without_vat,
+    vat_value: event.vat_value,
+    total_cost_for_equipment: event.total_cost_for_equipment,
+  }));
+
+  let pdfBuffer = null;
+  try {
+    pdfBuffer = await generateQuotePdf({
+      event,
+      companyDetails,
+      enrichedDetails,
+      clientName: firstName,
+    });
+  } catch (e) {
+    console.error("[confirmEvents.sendQuote] PDF generation failed", e?.message || e);
+  }
+
+  let pdfUrl = null;
+  if (pdfBuffer) {
+    const key = `quotes/confirmed-${eventId}-${Date.now()}.pdf`;
+    try {
+      await uploadStreamToS3(pdfBuffer, key, "application/pdf");
+      pdfUrl = await getSignedGetUrl(key);
+    } catch (e) {
+      console.error("[confirmEvents.sendQuote] PDF upload failed", e?.message || e);
+      pdfBuffer = null;
+    }
+  }
+
+  const finalHtml = pdfUrl
+    ? `${emailHtml}<p><a href="${pdfUrl}">Download Quote (PDF)</a></p>`
+    : emailHtml;
+
+  if (to) {
+    await sendEmail({ to, subject, html: finalHtml }).catch(() => {});
+  }
+
+  const eventNote = await eventNoteService
+    .createNote(prisma, {
+      eventId,
+      notes: `Quote send - ${companyName}`,
+      created_by: req.user?.id || null,
+    })
+    .catch(() => null);
+
+  await logActivity(prisma, {
+    log_name: "quote sent",
+    description: `Quote emailed for event #${eventId}`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+    properties: { to: to || null, company_id: companyId },
+  });
+
+  res.json(
+    serializeForJson({
+      message: "Quote sent",
+      pdfUrl: pdfUrl || null,
+      eventNotes: eventNote || null,
+    }),
+  );
+});
+
+// Manual "Send Email" (labelled "Thank You" in the modal) from the Completed
+// Events page — parity with Laravel's CompletedEventsController::sendThankyouMail.
+// Subject and body are both staff-authored (the seeded THANKYOU EMAIL template
+// body is blank), a plain letter-shell email with no PDF/pricing data. The
+// client lookup deliberately does NOT filter on deleted_at — by the time an
+// event is completed the client row may already be soft-deleted (see
+// completeEventsJob.js), but they should still receive this email.
+const sendThankYouEmail = catchAsync(async (req, res) => {
+  const body = req.validated?.body || req.validated || req.body || {};
+  const eventId = Number(body.id || body.event_id);
+  const subject = body.subject;
+  const thankYouBody = body.body;
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+
+  const event = await prisma.event
+    .findUnique({ where: { id: eventId }, include: { venues: true } })
+    .catch(() => null);
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  const user = event.user_id
+    ? await prisma.user.findUnique({ where: { id: Number(event.user_id) } }).catch(() => null)
+    : null;
+  const to = user?.email || null;
+
+  let companyDetails = null;
+  if (event.names_id) {
+    companyDetails = await prisma.companyName
+      .findUnique({ where: { id: BigInt(event.names_id) } })
+      .catch(() => null);
+  }
+  const companyName = companyDetails?.name || "";
+
+  const firstName = user?.name || "Client";
+  const logoUrl = companyDetails?.company_logo
+    ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
+    : null;
+
+  const html = buildUsrLetterEmail({
+    name: firstName,
+    bodyHtml: String(thankYouBody).replace(/\n/g, "<br/>"),
+    company: companyDetails,
+    logoUrl,
+  });
+
+  if (to) {
+    await sendEmail({ to: [to], subject, html }).catch(() => {});
+  }
+
+  const eventNote = await eventNoteService
+    .createNote(prisma, {
+      eventId,
+      notes: `Thank You Email Sent - ${companyName}`,
+      created_by: req.user?.id || null,
+    })
+    .catch(() => null);
+
+  await logActivity(prisma, {
+    log_name: "thank you email sent",
+    description: `Thank you email sent for event #${eventId}`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+    properties: { to: to || null },
+  });
+
+  res.json(
+    serializeForJson({
+      message: "Thank you email sent",
+      eventNotes: eventNote || null,
     }),
   );
 });
@@ -1393,6 +1745,125 @@ const cancelEvent = catchAsync(async (req, res) => {
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
+// Bring a Cancelled event back to Confirmed — mirrors Laravel's
+// CancelEventsController::ChangeConfirmEvents (PUT /change-confirmed-events/{event_id}),
+// which flips event_status_id back to CONFIRMED, logs an activity entry, and
+// dispatches EventBooked (which recreates the Outlook calendar entry via
+// CreateEventInOutlookCalendar). We deliberately skip EventBooked's other
+// listener, SendCredentialsToClient — that re-emails the client their login
+// password, which only makes sense on a genuinely new confirmation, not a
+// cancel/reconfirm toggle.
+const reconfirmEvent = catchAsync(async (req, res) => {
+  const params = req.query || {};
+  const body =
+    req.validated && req.validated.body ? req.validated.body : req.body || {};
+  const eventId = Number(params.id || body.event_id || 0);
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return res.status(404).json({ error: "event_not_found" });
+
+  // find CANCELLED status id (same lookup pattern as cancelEvent above)
+  let cancelledStatusId = null;
+  try {
+    const statusRow = await prisma.event_statuses.findFirst({
+      where: { status: "CANCELLED" },
+    });
+    if (statusRow && statusRow.id) cancelledStatusId = statusRow.id;
+  } catch (e) {
+    // ignore
+  }
+
+  if (cancelledStatusId != null && Number(event.event_status_id) !== Number(cancelledStatusId)) {
+    return res.status(400).json({ error: "event_not_cancelled" });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.event.update({ where: { id: eventId }, data: { event_status_id: 2 } });
+
+    await eventNoteService
+      .createNote(tx, {
+        eventId,
+        notes: "Event re-confirmed",
+        created_by: req.user?.id || null,
+      })
+      .catch(() => {});
+
+    await logActivity(tx, {
+      log_name: "event reconfirmed",
+      description: `Event #${eventId} re-confirmed`,
+      subject_type: "Event",
+      subject_id: eventId,
+      causer_id: req.user?.id || null,
+      properties: { event_id: eventId },
+    });
+
+    return await tx.event.findUnique({ where: { id: eventId } });
+  });
+
+  // best-effort: recreate the Outlook calendar entry (cancelEvent deleted the
+  // old microsoft_events row and its Graph event, so there's nothing stale to
+  // reuse here — this mirrors confirmEvent's create-and-persist pattern above).
+  try {
+    const eventDetail = await prisma.event.findUnique({
+      where: { id: eventId },
+      include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
+    });
+    if (eventDetail) {
+      const startIso = eventDetail.start_time
+        ? new Date(eventDetail.start_time).toISOString()
+        : eventDetail.date
+          ? new Date(eventDetail.date).toISOString()
+          : null;
+      const endIso = eventDetail.end_time
+        ? new Date(eventDetail.end_time).toISOString()
+        : eventDetail.date
+          ? new Date(eventDetail.date).toISOString()
+          : null;
+      const eventPackages = await prisma.eventPackage.findMany({
+        where: { event_id: eventDetail.id, package_type_id: { in: [1, 2] } },
+        select: { quantity: true, notes: true, equipment: { select: { name: true } } },
+      }).catch(() => []);
+      const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
+        event: eventDetail,
+        eventPackages,
+      });
+
+      const created = await microsoftGraph
+        .createEvent({ subject, content, startIso, endIso, location })
+        .catch(() => null);
+      if (created && created.id) {
+        await prisma.microsoftEvent
+          .create({
+            data: {
+              event_id: BigInt(eventDetail.id),
+              microsoft_event_id: String(created.id),
+              created_at: new Date(),
+              updated_at: new Date(),
+            },
+          })
+          .catch((e) => {
+            console.error(
+              "[reconfirmEvent] failed to persist microsoft_events row",
+              e?.message || e,
+            );
+          });
+        await eventNoteService
+          .createNote(prisma, {
+            eventId: eventDetail.id,
+            notes: `CalendarEventId: ${created.id}`,
+            created_by: req.user?.id || null,
+          })
+          .catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error("[reconfirmEvent] microsoft graph create failed", e?.message || e);
+  }
+
+  res.json(serializeForJson({ success: true, data: updated }));
+});
+
 // const updateEvent = catchAsync(async (req, res) => {
 //   // Prefer validated payload from middleware; fall back to raw params/body
 //   const payload = req.validated || {
@@ -1816,6 +2287,8 @@ export default {
   getConfirmEvent,
   sendEventConfirmationEmail,
   sendInvoice,
+  sendQuote,
+  sendThankYouEmail,
   downloadInvoice,
   updateEvent,
   refund,
@@ -1823,4 +2296,5 @@ export default {
   updatePayment,
   deletePayment,
   cancelEvent,
+  reconfirmEvent,
 };

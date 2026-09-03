@@ -105,14 +105,20 @@ const createCompany = catchAsync(async (req, res) => {
       const up = await uploadFile(req.files.company_logo[0], { allowedMimeTypes: [
         'image/jpeg','image/png','image/gif','image/webp','image/svg+xml'
       ], folder: 'company/logo' });
-      if (up && (up.key || up.url)) data.company_logo = up.key || up.url;
+      if (!up || !(up.key || up.url)) {
+        return res.status(500).json({ error: 'logo_upload_failed', message: 'Failed to upload company logo.' });
+      }
+      data.company_logo = up.key || up.url;
     }
 
     if (req.files && req.files.brochure && req.files.brochure[0]) {
       const up = await uploadFile(req.files.brochure[0], { allowedMimeTypes: [
         'application/pdf','application/vnd.oasis.opendocument.text'
       ], folder: 'company/brochure' });
-      if (up && (up.key || up.url)) data.brochure = up.key || up.url;
+      if (!up || !(up.key || up.url)) {
+        return res.status(500).json({ error: 'brochure_upload_failed', message: 'Failed to upload brochure.' });
+      }
+      data.brochure = up.key || up.url;
     }
 
     // admin_signature may be a base64 data URL
@@ -122,10 +128,17 @@ const createCompany = catchAsync(async (req, res) => {
       const name = `signature-${Date.now()}.png`;
       // Use uploadFile to store signature (supports s3/local)
       const up = await uploadFile({ buffer: buf, originalname: name, mimetype: 'image/png' }, { folder: 'company/signature' });
-      if (up && (up.key || up.url)) data.admin_signature = up.key || up.url;
+      if (!up || !(up.key || up.url)) {
+        return res.status(500).json({ error: 'signature_upload_failed', message: 'Failed to upload admin signature.' });
+      }
+      data.admin_signature = up.key || up.url;
     }
   } catch (err) {
     console.error('file upload error', err);
+    if (err && err.name === 'InvalidFileType') {
+      return res.status(400).json({ error: 'invalid_file_type', message: err.message });
+    }
+    return res.status(500).json({ error: 'file_upload_failed', message: 'File upload failed.' });
   }
 
   const created = await companySvc.create(data);
@@ -151,22 +164,22 @@ const updateCompany = catchAsync(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
   const data = {
-    name: body.name || existing.name,
-    contact_name: body.contact_name || existing.contact_name,
-    telephone_number: body.telephone_number || existing.telephone_number,
-    email: body.email || existing.email,
-    website: body.website || existing.website,
-    instagram: body.instagram || existing.instagram,
-    facebook: body.facebook || existing.facebook,
-    address_name: body.address_name || existing.address_name,
-    street: body.street || existing.street,
-    city: body.city || existing.city,
-    postal_code: body.postal_code || existing.postal_code,
-    bank_name: body.bank_name || existing.bank_name,
-    sort_code: body.sort_code || existing.sort_code,
-    account_number: body.account_number || existing.account_number,
-    vat: body.vat || existing.vat,
-    vat_percentage: body.vat_percentage || existing.vat_percentage,
+    name: body.name !== undefined ? body.name : existing.name,
+    contact_name: body.contact_name !== undefined ? body.contact_name : existing.contact_name,
+    telephone_number: body.telephone_number !== undefined ? body.telephone_number : existing.telephone_number,
+    email: body.email !== undefined ? body.email : existing.email,
+    website: body.website !== undefined ? body.website : existing.website,
+    instagram: body.instagram !== undefined ? body.instagram : existing.instagram,
+    facebook: body.facebook !== undefined ? body.facebook : existing.facebook,
+    address_name: body.address_name !== undefined ? body.address_name : existing.address_name,
+    street: body.street !== undefined ? body.street : existing.street,
+    city: body.city !== undefined ? body.city : existing.city,
+    postal_code: body.postal_code !== undefined ? body.postal_code : existing.postal_code,
+    bank_name: body.bank_name !== undefined ? body.bank_name : existing.bank_name,
+    sort_code: body.sort_code !== undefined ? body.sort_code : existing.sort_code,
+    account_number: body.account_number !== undefined ? body.account_number : existing.account_number,
+    vat: body.vat !== undefined ? body.vat : existing.vat,
+    vat_percentage: body.vat_percentage !== undefined ? body.vat_percentage : existing.vat_percentage,
     updated_at: new Date(),
   };
 
@@ -174,26 +187,27 @@ const updateCompany = catchAsync(async (req, res) => {
     if (req.files && req.files.company_logo && req.files.company_logo[0]) {
       const up = await uploadFile(req.files.company_logo[0], { allowedMimeTypes: [
         'image/jpeg','image/png','image/gif','image/webp','image/svg+xml'
-      ] });
-      if (up && (up.key || up.url)) {
-        // delete old logo if not referenced elsewhere
-        if (existing.company_logo) {
-          const oldName = path.basename(existing.company_logo);
-          const cnt = await companySvc.model.count({ where: { company_logo: existing.company_logo } });
-          if (cnt <= 1) {
-            try {
-              if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
-                // existing.company_logo stores key for s3
-                await deleteObjectFromS3(existing.company_logo);
-              } else {
-                const p = path.join(getUploadsDir(), oldName);
-                try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
-              }
-            } catch (e) {}
-          }
-        }
-        data.company_logo = up.key || up.url;
+      ], folder: 'company/logo' });
+      if (!up || !(up.key || up.url)) {
+        return res.status(500).json({ error: 'logo_upload_failed', message: 'Failed to upload company logo.' });
       }
+      // delete old logo if not referenced elsewhere
+      if (existing.company_logo) {
+        const oldKey = existing.company_logo;
+        const cnt = await companySvc.model.count({ where: { company_logo: existing.company_logo } });
+        if (cnt <= 1) {
+          try {
+            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+              // existing.company_logo stores key for s3
+              await deleteObjectFromS3(existing.company_logo);
+            } else {
+              const p = path.join(getUploadsDir(), oldKey);
+              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            }
+          } catch (e) {}
+        }
+      }
+      data.company_logo = up.key || up.url;
     } else if (body.new_company_logo) {
       data.company_logo = body.new_company_logo || null;
     }
@@ -201,24 +215,25 @@ const updateCompany = catchAsync(async (req, res) => {
     if (req.files && req.files.brochure && req.files.brochure[0]) {
       const up = await uploadFile(req.files.brochure[0], { allowedMimeTypes: [
         'application/pdf','application/vnd.oasis.opendocument.text'
-      ] });
-      if (up && (up.key || up.url)) {
-        if (existing.brochure) {
-          const oldName = path.basename(existing.brochure);
-          const cnt = await companySvc.model.count({ where: { brochure: existing.brochure } });
-          if (cnt <= 1) {
-            try {
-              if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
-                await deleteObjectFromS3(existing.brochure);
-              } else {
-                const p = path.join(getUploadsDir(), oldName);
-                try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
-              }
-            } catch (e) {}
-          }
-        }
-        data.brochure = up.key || up.url;
+      ], folder: 'company/brochure' });
+      if (!up || !(up.key || up.url)) {
+        return res.status(500).json({ error: 'brochure_upload_failed', message: 'Failed to upload brochure.' });
       }
+      if (existing.brochure) {
+        const oldKey = existing.brochure;
+        const cnt = await companySvc.model.count({ where: { brochure: existing.brochure } });
+        if (cnt <= 1) {
+          try {
+            if ((process.env.FILE_STORAGE || '').toLowerCase() === 's3') {
+              await deleteObjectFromS3(existing.brochure);
+            } else {
+              const p = path.join(getUploadsDir(), oldKey);
+              try { if (fs.existsSync(p)) await fs.promises.unlink(p); } catch (e) {}
+            }
+          } catch (e) {}
+        }
+      }
+      data.brochure = up.key || up.url;
     }
 
     if (body.admin_signature && body.admin_signature.length > 20) {
@@ -226,10 +241,17 @@ const updateCompany = catchAsync(async (req, res) => {
       const buf = Buffer.from(base, 'base64');
       const name = `signature-${Date.now()}.png`;
       const up = await uploadFile({ buffer: buf, originalname: name, mimetype: 'image/png' }, { folder: 'company/signature' });
-      if (up && (up.key || up.url)) data.admin_signature = up.key || up.url;
+      if (!up || !(up.key || up.url)) {
+        return res.status(500).json({ error: 'signature_upload_failed', message: 'Failed to upload admin signature.' });
+      }
+      data.admin_signature = up.key || up.url;
     }
   } catch (err) {
     console.error('update file error', err);
+    if (err && err.name === 'InvalidFileType') {
+      return res.status(400).json({ error: 'invalid_file_type', message: err.message });
+    }
+    return res.status(500).json({ error: 'file_upload_failed', message: 'File upload failed.' });
   }
 
   const updated = await companySvc.update(BigInt(id), data);

@@ -7,6 +7,22 @@ import { logActivity } from '../utils/activityLogger.js';
 const rolesSvc = services.get('roles');
 const permsSvc = services.get('permissions');
 
+const PROTECTED_ROLE_NAME = 'super admin';
+const PROTECTED_PERMISSION_NAMES = new Set(['manage_all', 'super_admin']);
+
+function normalizePermName(name) {
+  return String(name || '').trim().toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ');
+}
+
+function isProtectedRoleName(name) {
+  return String(name || '').trim().toLowerCase() === PROTECTED_ROLE_NAME;
+}
+
+function isProtectedPermissionName(name) {
+  const normalized = normalizePermName(name).replace(/\s+/g, '_');
+  return PROTECTED_PERMISSION_NAMES.has(normalized);
+}
+
 async function index(req, res) {
   const [roles, permissions] = await Promise.all([
     rolesSvc.list({ perPage: 1000 }),
@@ -38,6 +54,9 @@ async function updateRole(req, res) {
   if (!roleId) return res.status(400).json({ error: 'invalid_role_id' });
   const { name } = req.body || {};
   const existing = await rolesSvc.getById ? await rolesSvc.getById(roleId).catch(() => null) : null;
+  if (existing && isProtectedRoleName(existing.name)) {
+    return res.status(403).json({ error: 'protected_role', message: 'The Super Admin role cannot be modified.' });
+  }
   const role = await rolesSvc.update(roleId, { name });
   await logActivity(prisma, {
     log_name: 'role updated',
@@ -54,6 +73,13 @@ async function destroyRole(req, res) {
   const roleId = Number(req.params.id);
   if (!roleId) return res.status(400).json({ error: 'invalid_role_id' });
   const existing = await rolesSvc.getById ? await rolesSvc.getById(roleId).catch(() => null) : null;
+  if (existing && isProtectedRoleName(existing.name)) {
+    return res.status(403).json({ error: 'protected_role', message: 'The Super Admin role cannot be modified.' });
+  }
+  const userWithRole = await prisma.user.findFirst({ where: { role_id: roleId } });
+  if (userWithRole) {
+    return res.status(400).json({ error: 'role_in_use', message: 'This role cannot be deleted while users are assigned to it. Reassign them first.' });
+  }
   await rolesSvc.delete(roleId);
   await logActivity(prisma, {
     log_name: 'role deleted',
@@ -70,6 +96,12 @@ async function storePermission(req, res) {
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name_required' });
   const guard_name = req.body.guard_name || 'web';
+  const normalizedNew = normalizePermName(name);
+  const allPerms = await permsSvc.model.findMany({ select: { id: true, name: true } });
+  const conflict = allPerms.find((p) => normalizePermName(p.name) === normalizedNew);
+  if (conflict) {
+    return res.status(409).json({ error: 'permission_name_conflict', message: 'A permission with an equivalent name already exists.' });
+  }
   const perm = await permsSvc.create({ name, guard_name });
   await logActivity(prisma, {
     log_name: 'permission created',
@@ -87,6 +119,17 @@ async function updatePermission(req, res) {
   if (!permissionId) return res.status(400).json({ error: 'invalid_permission_id' });
   const { name } = req.body || {};
   const existing = await permsSvc.getById ? await permsSvc.getById(permissionId).catch(() => null) : null;
+  if (existing && isProtectedPermissionName(existing.name)) {
+    return res.status(403).json({ error: 'protected_permission', message: 'This permission cannot be modified.' });
+  }
+  if (name !== undefined) {
+    const normalizedNew = normalizePermName(name);
+    const allPerms = await permsSvc.model.findMany({ select: { id: true, name: true } });
+    const conflict = allPerms.find((p) => Number(p.id) !== permissionId && normalizePermName(p.name) === normalizedNew);
+    if (conflict) {
+      return res.status(409).json({ error: 'permission_name_conflict', message: 'A permission with an equivalent name already exists.' });
+    }
+  }
   const perm = await permsSvc.update(permissionId, { name });
   await logActivity(prisma, {
     log_name: 'permission updated',
@@ -103,6 +146,13 @@ async function destroyPermission(req, res) {
   const permissionId = Number(req.params.id);
   if (!permissionId) return res.status(400).json({ error: 'invalid_permission_id' });
   const existing = await permsSvc.getById ? await permsSvc.getById(permissionId).catch(() => null) : null;
+  if (existing && isProtectedPermissionName(existing.name)) {
+    return res.status(403).json({ error: 'protected_permission', message: 'This permission cannot be modified.' });
+  }
+  const roleUsingPermission = await prisma.role_has_permissions.findFirst({ where: { permission_id: permissionId } });
+  if (roleUsingPermission) {
+    return res.status(400).json({ error: 'permission_in_use', message: 'This permission cannot be deleted while it is assigned to a role. Unassign it first.' });
+  }
   await permsSvc.delete(permissionId);
   await logActivity(prisma, {
     log_name: 'permission deleted',
@@ -121,6 +171,11 @@ async function assignPermissions(req, res) {
 
   const rid = Number(roleId);
   const pids = permissionIds.map((p) => Number(p)).filter(Boolean);
+
+  const targetRole = await rolesSvc.getById ? await rolesSvc.getById(rid).catch(() => null) : null;
+  if (targetRole && isProtectedRoleName(targetRole.name)) {
+    return res.status(403).json({ error: 'protected_role', message: 'The Super Admin role cannot be modified.' });
+  }
 
   // Replace assignments: remove existing and add provided list
   const relSvc = services.get('role_has_permissions');

@@ -22,7 +22,10 @@ export function createUploadMiddleware({ allowedMimeTypes = [], maxBytes, forceD
           cb(null, uploadsDir);
         },
         filename: function (req, file, cb) {
-          const name = `${Date.now()}-${file.originalname}`;
+          // Underscore separator (not dash) matches uploadHelper.js's naming —
+          // the frontend strips everything before the first underscore to
+          // show just the real filename, so both paths must agree on it.
+          const name = `${Date.now()}_${file.originalname}`;
           cb(null, name);
         },
       });

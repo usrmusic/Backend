@@ -1058,6 +1058,7 @@ const sendQuote = catchAsync(async (req, res) => {
         users_events_user_idTousers: true,
         users_events_dj_idTousers: true,
         venues: true,
+        event_payments: true,
       },
     })
     .catch(() => null);
@@ -1079,13 +1080,18 @@ const sendQuote = catchAsync(async (req, res) => {
     .findFirst({ where: { email_name: "SEND QUOTE-CONFIRMED" } })
     .catch(() => null);
 
-  const depositAmount =
-    event.deposit_amount != null ? Number(event.deposit_amount) : null;
+  // Actual payments received (minus refunds), not the events.deposit_amount
+  // column — that column only holds a value if a deposit was entered at
+  // confirm-time, so it's 0 whenever the deposit was recorded as a payment
+  // afterwards instead. Matches the frontend compose-box preview.
+  const paymentsSum = Array.isArray(event.event_payments)
+    ? event.event_payments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+    : 0;
+  const refundAmount = Number(event.refund_amount) || 0;
+  const depositAmount = Math.max(0, paymentsSum - refundAmount);
   const subject = body.subject || template?.subject || "Quote";
   let raw = body.body || template?.body || `Quote for event ${eventId}`;
-  if (raw && depositAmount != null) {
-    raw = String(raw).replace("{--amount--}", `£${depositAmount}`);
-  }
+  raw = String(raw).replace("{--amount--}", `£${depositAmount}`);
 
   const companyDetails = {
     company_logo:
@@ -1295,16 +1301,30 @@ const downloadInvoice = catchAsync(async (req, res) => {
       .catch(() => null);
   }
 
+  const eventPackages = await prisma.eventPackage
+    .findMany({
+      where: { event_id: eventId },
+      include: { equipment: true },
+    })
+    .catch(() => []);
+  const enrichedDetails = eventPackages.map((p) => ({
+    equipment_id: p.equipment_id,
+    package_type_id: p.package_type_id,
+    quantity: p.quantity || 1,
+    sell_price: p.sell_price ?? p.total_price ?? null,
+    total_price: p.total_price ?? null,
+    notes: p.notes || null,
+    equipment: p.equipment
+      ? { id: p.equipment.id, name: p.equipment.name, sell_price: p.equipment.sell_price }
+      : null,
+  }));
+
   let pdfBuffer = null;
   try {
-    // NOTE: enrichedDetails: [] here is pre-existing behaviour, not something
-    // this port changed — this endpoint has never loaded event_package rows,
-    // so a downloaded invoice has always rendered with no line items. Left
-    // as-is; worth a separate fix if that's not intended.
     pdfBuffer = await generateInvoicePdf({
       event,
       companyDetails: companyDetails || {},
-      enrichedDetails: [],
+      enrichedDetails,
     });
   } catch (e) {
     console.error(

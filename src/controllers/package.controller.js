@@ -456,8 +456,9 @@ const getPackage = catchAsync(async (req, res) => {
 const deletePackage = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  const idBig = BigInt(id);
 
-  const existing = await packageUserSvc.model.findUnique({ where: { id } });
+  const existing = await packageUserSvc.model.findUnique({ where: { id: idBig } });
   if (!existing) return res.status(404).json({ error: "package_not_found" });
 
   // Matches Laravel's PackageUserController::destroy guard: a package cannot
@@ -473,9 +474,9 @@ const deletePackage = catchAsync(async (req, res) => {
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.package_user_equipment.deleteMany({ where: { package_user_id: id } });
-    await tx.package_user_properties.deleteMany({ where: { package_users_id: id } });
-    await tx.package_users.delete({ where: { id } });
+    await tx.package_user_equipment.deleteMany({ where: { package_user_id: idBig } });
+    await tx.package_user_properties.deleteMany({ where: { package_users_id: idBig } });
+    await tx.package_users.delete({ where: { id: idBig } });
   });
 
   await logActivity(prisma, {
@@ -525,13 +526,14 @@ const deleteManyPackages = catchAsync(async (req, res) => {
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n));
   if (ids.length === 0) return res.status(400).json({ error: "invalid_ids" });
+  const idsBig = ids.map((n) => BigInt(n));
 
   // Matches Laravel's PackageUserController::destroy guard: a package cannot
   // be deleted while its DJ (user_id) has any event at all. Blocked ids are
   // skipped rather than failing the whole batch (same convention as
   // users.controller.js's bulk delete).
   const packages = await packageUserSvc.model.findMany({
-    where: { id: { in: ids } },
+    where: { id: { in: idsBig } },
     select: { id: true, user_id: true },
   });
 
@@ -571,10 +573,12 @@ const deleteManyPackages = catchAsync(async (req, res) => {
     subject_type: "PackageUser",
     subject_id: null,
     causer_id: req.user?.id || null,
-    properties: { ids: deletable, blocked, count: deletable.length },
+    properties: serializeForJson({ ids: deletable, blocked, count: deletable.length }),
   });
 
-  res.json({ ok: true, count: deletable.length, deleted: deletable, blocked });
+  res.json(
+    serializeForJson({ ok: true, count: deletable.length, deleted: deletable, blocked }),
+  );
 });
 const getPackageDropdown = catchAsync(async (req, res) => {
   const packages = await packageUserSvc.model.findMany({

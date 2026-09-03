@@ -561,7 +561,7 @@ const listUsers = catchAsync(async (req, res) => {
     (req.params.sort_by
       ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}`
       : undefined) ||
-    undefined;
+    "name:asc";
 
   // build base filter (only active users; exclude Client role — clients live
   // under /api/client. This matches Laravel's User::scopeStaffs which filters

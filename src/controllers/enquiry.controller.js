@@ -60,8 +60,9 @@ const createEnquiry = catchAsync(async (req, res) => {
       console.log("[createEnquiry] create venue failed", e?.message || e);
     }
   }
-  if (!data.venue_id && !venue)
-    return res.status(400).json({ error: "venue_required" });
+  // Venue is optional — staff may not know it yet at enquiry stage (matches
+  // Laravel, which never required it either). A missing venue just leaves
+  // event.venue_id null; the UI shows "TBC" wherever it displays venue.
 
   // Step 2: Resolve client by ID or create/find by email
   const isNewClientCreation = data.is_new_client === true || data.is_new_client === "true";
@@ -77,6 +78,14 @@ const createEnquiry = catchAsync(async (req, res) => {
     if (!isClientRole) {
       return res.status(400).json({ error: "This email is already attached with Dj" });
     }
+    // Matches Laravel's NewEnquiryController::store() — editing the client's
+    // details on the enquiry form updates their real client record, not just
+    // this enquiry, since it's the same person whose contact info changed.
+    client = await userSvc.update(client.id, {
+      name: data.name || client.name,
+      contact_number: data.contact_number || client.contact_number,
+      address: data.address || client.address,
+    });
   } else {
     // If is_new_client = true, email must NOT exist
     const existingByEmail = await userService.getUserByEmail(data.email);
@@ -109,9 +118,16 @@ const createEnquiry = catchAsync(async (req, res) => {
         
         // Restore deleted client or use existing active client
         if (existingByEmail.deleted_at) {
-          await userSvc.updateUser(existingByEmail.id, { deleted_at: null });
+          await userSvc.update(existingByEmail.id, { deleted_at: null });
         }
-        client = existingByEmail;
+        // Matches Laravel's NewEnquiryController::store() — editing the
+        // client's details on the enquiry form updates their real client
+        // record, not just this enquiry.
+        client = await userSvc.update(existingByEmail.id, {
+          name: data.name || existingByEmail.name,
+          contact_number: data.contact_number || existingByEmail.contact_number,
+          address: data.address || existingByEmail.address,
+        });
       } else {
         // Create new client if not found
         const plainPassword = req.body.password || genPassword();
@@ -375,32 +391,12 @@ const createEnquiry = catchAsync(async (req, res) => {
     },
   });
 
-  //use resend to send email to admin where role id == 2
-  const admins = await prisma.user.findMany({
-    where: { role_id: BigInt(2), is_email_send: true },
-  });
-  const adminEmails = admins.map((a) => a.email);
-  await sendEmail({
-    to: adminEmails,
-    subject: "New Enquiry Created",
-    html: `A new enquiry has been created with the following details:<br>
-    Name: ${client.name}<br>
-    Email: ${client.email}<br>
-    Contact Number: ${client.contact_number}<br>
-    Address: ${client.address}<br>
-    Event Date: ${data.event_date}<br>
-    Start Time: ${data.start_time}<br>
-    End Time: ${data.end_time}<br>
-    Deposit Amount: ${data.deposit_amount}<br>
-    Event Details: ${data.event_details}<br>
-    DJ Name: ${data.dj_name}<br>
-    DJ Package Name: ${data.dj_package_name}<br>
-    Total Cost: ${data.total_cost}<br>
-    DJ Cost: ${data.dj_cost}<br>
-    Venue: ${venue ? venue.venue : "N/A"}<br>
-    Client: ${client.name} (${client.email})<br>
-    `,
-  }).catch(() => {});
+  // No "new enquiry" admin notification here — this route requires staff
+  // login (verifyAccessToken + "new enquiry" permission), so every call
+  // here IS a staff-created enquiry. That notification only makes sense for
+  // enquiries submitted by the public via the website form, which is a
+  // separate, unauthenticated route/controller (publicEnquiry.controller.js)
+  // with its own admin-notification email.
   res.status(201).json(serializeForJson({ event, client, venue }));
 });
 
@@ -425,12 +421,15 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
 
   // Use validated query params (Joi middleware) for sorting; Joi enforces allowed values
   const q = req.query || {};
-  const sortField = q.sortBy || q.sort || "date";
+  // Default sort is by creation date (newest enquiry first) — not the event
+  // date, which pushed enquiries around the list every time their event date
+  // changed rather than reflecting when they actually came in.
+  const sortField = q.sortBy || q.sort || "created_at";
   const sortOrder =
-    String(q.sortOrder || q.order || q.sort_order || "asc").toLowerCase() ===
-    "desc"
-      ? "desc"
-      : "asc";
+    String(q.sortOrder || q.order || q.sort_order || "desc").toLowerCase() ===
+    "asc"
+      ? "asc"
+      : "desc";
   const search = String(q.search || "").trim();
   // base where (open enquiries)
   const where = { event_status_id: 1 };
@@ -1788,6 +1787,7 @@ const sendQuote = catchAsync(async (req, res) => {
 
   // fetch event VAT/amount fields
   const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return res.status(404).json({ error: "event_not_found" });
   // if details not provided, load event packages for the event and build details
   if (!details.length) {
     try {
@@ -1833,9 +1833,18 @@ const sendQuote = catchAsync(async (req, res) => {
   const user = userId
     ? await prisma.user.findUnique({ where: { id: userId } })
     : null;
-  const to = user?.email || body.email;
+  // The New/Open Enquiry form's Send Quote modal never sends an explicit
+  // id/userId/email — fall back to the event's own linked client so the
+  // quote actually has a recipient instead of silently going nowhere.
+  const eventOwner = event.user_id
+    ? await prisma.user.findUnique({ where: { id: event.user_id } }).catch(() => null)
+    : null;
+  const to = user?.email || body.email || eventOwner?.email;
+  // CompanyName.id is a BigInt column — passing a plain Number here throws a
+  // Prisma type-mismatch error, which is exactly what was surfacing to the
+  // client as "internal_server_error" whenever a company was selected.
   const company = companyId
-    ? await prisma.companyName.findUnique({ where: { id: companyId } })
+    ? await prisma.companyName.findUnique({ where: { id: BigInt(companyId) } }).catch(() => null)
     : null;
   const companyName = company?.name || body.companyName || "";
 
@@ -1845,8 +1854,10 @@ const sendQuote = catchAsync(async (req, res) => {
     .catch(() => null);
   const subject = body.subject || template?.subject || "Quote";
   let raw = body.body || template?.body || `Quote for event ${eventId}`;
-  if (raw && event.deposit_amount)
-    raw = String(raw).replace("{--amount--}", String(event.deposit_amount));
+  // Was a truthy check — a deposit of exactly 0 (falsy) skipped substitution
+  // and left the literal "{--amount--}" placeholder in the sent email.
+  if (raw && event.deposit_amount != null)
+    raw = String(raw).replace("{--amount--}", `£${event.deposit_amount}`);
 
   // fetch full event details for parity with Laravel email
   const fullEvent = await prisma.event
@@ -1879,6 +1890,7 @@ const sendQuote = catchAsync(async (req, res) => {
     website: company?.website || null,
     instagram: company?.instagram || null,
     facebook: company?.facebook || null,
+    admin_signature: company?.admin_signature || null,
   };
 
   // format event date for subject similar to Laravel

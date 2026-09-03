@@ -63,7 +63,8 @@ const listVenues = catchAsync(async (req, res) => {
     req.query.sort ||
     (req.query.sort_by
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
-      : undefined);
+      : undefined) ||
+    "venue:asc";
 
   const venues = await venueSvc.list({ filter, perPage, page, sort });
   const count = await venueSvc.model.count({ where: filter });

@@ -14,7 +14,8 @@ export const listSuppliers = catchAsync(async (req, res) => {
     req.query.sort ||
     (req.query.sort_by
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
-      : undefined);
+      : undefined) ||
+    "name:asc";
 
   let filter = {};
   if (req.query.filter) {

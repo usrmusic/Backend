@@ -217,7 +217,7 @@ export const listClients = catchAsync(async (req, res) => {
     (req.params.sort_by
       ? `${req.params.sort_by}:${req.params.sort_dir || "asc"}`
       : undefined) ||
-    undefined;
+    "name:asc";
 
   const users = await userSvc.list({ filter, perPage, page, sort });
   const count = await userSvc.model.count({ where: filter });

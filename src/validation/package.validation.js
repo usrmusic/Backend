@@ -49,7 +49,11 @@ const listPackages = {
     search: Joi.string().trim().max(200).allow('', null),
     page: Joi.number().integer().min(1).default(1),
     perPage: Joi.number().integer().min(1).max(100).default(10),
-    sortBy: Joi.string().valid('package_name', 'cost_price', 'sell_price', 'created_at').default('created_at'),
+    // 'users.name' is the DJ-name column's sort key (dot-notation relation
+    // sort — see coreCrudService._buildQueryOptions). Without it in this
+    // whitelist, clicking that column's sort arrow got rejected by Joi
+    // outright, and the frontend rendered that as an empty table.
+    sortBy: Joi.string().valid('package_name', 'cost_price', 'sell_price', 'created_at', 'users.name').default('package_name'),
     sortOrder: Joi.string().valid('asc', 'desc').default('asc'),
   }),
 };

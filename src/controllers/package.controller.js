@@ -20,7 +20,7 @@ const listPackages = catchAsync(async (req, res) => {
     : q.limit
     ? Math.min(100, Number(q.limit))
     : 10;
-  const sortBy = q.sortBy || "created_at";
+  const sortBy = q.sortBy || "package_name";
   const sortOrder = q.sortOrder === "desc" ? "desc" : "asc";
 
   const where = {};

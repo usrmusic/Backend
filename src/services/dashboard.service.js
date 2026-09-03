@@ -230,11 +230,25 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
 
         const stName = e.event_statuses?.status ? String(e.event_statuses.status) : String(e.event_status_id || 'unknown');
         statusCounts[stName] = (statusCounts[stName] || 0) + 1;
+    });
 
+    // "Top performing DJs" must reflect real gigs only (confirmed/completed) —
+    // counting open enquiries or cancelled events here would inflate a DJ's
+    // gig count with work that never actually happened.
+    confirmedCompletedEvents.forEach((e) => {
         const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
     });
-    const confirmedEventsCount = events.filter(e => e.event_statuses?.status?.toLowerCase().includes('confirm')).length;
+    // "Remaining" must be live: a Confirmed event whose date has already
+    // passed is no longer remaining, even before the nightly auto-complete
+    // job has had a chance to flip its status to Completed (up to a 24h lag).
+    const nowForRemaining = new Date();
+    const confirmedEventsCount = events.filter(
+        (e) =>
+            e.event_statuses?.status?.toLowerCase().includes('confirm') &&
+            e.date &&
+            new Date(e.date) >= nowForRemaining
+    ).length;
 
     // Open Enquiries count must match the real Open Enquiry list page exactly —
     // that page has NO year/date filter (an open enquiry usually has no event
@@ -393,8 +407,8 @@ async function getUpcomingEvents({ search = null, userId = null, scope = 'admin'
     const today = new Date();
     const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-    // upcoming events: include all statuses, filter by date only
-    const baseWhere = { date: { gte: startDate } };
+    // upcoming events: include all statuses except Cancelled, filter by date only
+    const baseWhere = { date: { gte: startDate }, NOT: { event_statuses: { status: { contains: 'cancel' } } } };
 
     // prepare scope clause for upcoming events
     let roleIdBig = undefined;

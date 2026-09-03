@@ -1095,6 +1095,7 @@ const sendQuote = catchAsync(async (req, res) => {
     website: company?.website || null,
     instagram: company?.instagram || null,
     facebook: company?.facebook || null,
+    admin_signature: company?.admin_signature || null,
   };
 
   const firstName = user?.name || "Client";

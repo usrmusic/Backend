@@ -117,6 +117,9 @@ const staffEquipment = Joi.object({
     staff: Joi.string().required(),
     package_name: Joi.string().required(),
     event_date: Joi.string().pattern(dateRegex).required(),
+    // Optional: the event being edited, so its own booking can be excluded
+    // from the "already booked elsewhere" count. Unset on a fresh enquiry.
+    event_id: Joi.alternatives(Joi.string(), Joi.number()).optional().allow(null, ''),
   }),
 });
 

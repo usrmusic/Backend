@@ -1290,6 +1290,15 @@ const staffEquipment = catchAsync(async (req, res) => {
     req.body.event_date ||
     req.params.event_date ||
     null;
+  // The event currently being edited, if any — its own already-saved
+  // booking must be excluded from the "already booked elsewhere" sum below,
+  // otherwise re-opening an enquiry double-counts it against itself.
+  const currentEventIdRaw =
+    req.query.event_id || req.body.event_id || req.params.event_id || null;
+  const currentEventId =
+    currentEventIdRaw != null && String(currentEventIdRaw).trim() !== ""
+      ? Number(currentEventIdRaw)
+      : null;
 
   let checkDjAvailability = false;
   try {
@@ -1483,7 +1492,11 @@ const staffEquipment = catchAsync(async (req, res) => {
               .findMany({
                 where: {
                   equipment_id: { in: [...checkedIds].map((id) => BigInt(id)) },
-                  events: { date: dateObj, event_status_id: { in: [1, 2] } },
+                  events: {
+                    date: dateObj,
+                    event_status_id: { in: [1, 2] },
+                    ...(currentEventId != null ? { id: { not: BigInt(currentEventId) } } : {}),
+                  },
                 },
                 select: { equipment_id: true, quantity: true },
               })

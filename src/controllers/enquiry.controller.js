@@ -16,6 +16,7 @@ import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
 import { toMoney, round2, isFullyPaid } from "../utils/money.js";
 import { logActivity } from "../utils/activityLogger.js";
+import { Prisma } from "@prisma/client";
 
 const userSvc = services.get("user");
 const venueSvc = services.get("venue");
@@ -2175,18 +2176,27 @@ const deleteEnquiry = catchAsync(async (req, res) => {
     const event = await tx.event.findUnique({ where: { id: eventId } });
     if (!event) return { success: false, error: "Event not found" };
 
-    // event_payments has no cascade delete (Restrict) — an event with any
-    // payment recorded would fail the delete at the DB level. That failure
-    // was previously swallowed by `.catch(() => {})` below while still
-    // returning success:true, silently leaving the event in place. Check
-    // up front instead, so the caller gets a real, actionable error.
-    const paymentCount = await tx.eventPayment.count({ where: { event_id: eventId } });
-    if (paymentCount > 0) {
-      return {
-        success: false,
-        error: "event_has_payments",
-        message: "This enquiry can't be deleted because it has payment(s) recorded against it.",
-      };
+    // event_payments.event_id has an ON DELETE SET NULL foreign key (see
+    // Laravel migration 2023_03_29_063725_create_event_payments_table and
+    // confirmed live on both Staging/Production) — deleting an event with
+    // payments recorded succeeds and simply orphans those payment rows,
+    // exactly like Laravel's deleteOpenEnquiry (force-deletes unconditionally).
+    // No payment guard needed here.
+
+    // Laravel's deleteOpenEnquiry deletes the activity_log rows for this
+    // event's notes (log_name 'a notes', written automatically by the
+    // EventNotes model's LogsActivity trait) before deleting the event —
+    // the event_notes rows themselves are left orphaned (no FK, no cascade;
+    // see event_notes migration). Node logs note creation under "event note
+    // added" (see addNote), so that's the log_name matched here.
+    const noteIds = (
+      await tx.eventNote.findMany({
+        where: { event_id: eventId },
+        select: { id: true },
+      })
+    ).map((n) => n.id);
+    if (noteIds.length) {
+      await tx.$executeRaw`DELETE FROM activity_log WHERE subject_id IN (${Prisma.join(noteIds)}) AND log_name = 'event note added'`;
     }
 
     const userId = Number(event.user_id) || null;
@@ -2282,29 +2292,24 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
     "true";
 
   const result = await prisma.$transaction(async (tx) => {
-    // event_payments has no cascade delete (Restrict) — deleting an event
-    // with payments recorded would fail at the DB level. That failure was
-    // previously swallowed by `.catch(() => {})` below while still
-    // returning success:true, silently leaving those events in place.
-    // Split up front instead, so the caller sees exactly what did and
-    // didn't get deleted (same convention as package bulk-delete).
-    const paymentRows = await tx.eventPayment.findMany({
-      where: { event_id: { in: ids } },
-      select: { event_id: true },
-    });
-    const blockedIds = [...new Set(paymentRows.map((p) => p.event_id))];
-    const deletableIds = ids.filter((id) => !blockedIds.includes(id));
+    // event_payments.event_id has an ON DELETE SET NULL foreign key (matches
+    // Laravel's migration and the live DB) — deleting events with payments
+    // recorded succeeds and just orphans those payment rows, same as
+    // Laravel's deleteOpenEnquiry (force-deletes unconditionally). No
+    // payment guard needed here.
 
-    if (!deletableIds.length) {
-      return {
-        success: false,
-        error: "all_events_have_payments",
-        message: "None of the selected enquiries can be deleted because they all have payment(s) recorded.",
-        blocked: blockedIds,
-      };
+    // Same activity_log cleanup as the single-delete path — see deleteEnquiry.
+    const noteIds = (
+      await tx.eventNote.findMany({
+        where: { event_id: { in: ids } },
+        select: { id: true },
+      })
+    ).map((n) => n.id);
+    if (noteIds.length) {
+      await tx.$executeRaw`DELETE FROM activity_log WHERE subject_id IN (${Prisma.join(noteIds)}) AND log_name = 'event note added'`;
     }
 
-    const events = await tx.event.findMany({ where: { id: { in: deletableIds } } });
+    const events = await tx.event.findMany({ where: { id: { in: ids } } });
     const primaryUserId = events.length
       ? Number(events[0].user_id) || null
       : null;
@@ -2315,7 +2320,10 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
       ? await tx.event.count({ where: { user_id: primaryUserId } })
       : 0;
 
-    if (user && userEventCount === deletableIds.length) {
+    // Matches Laravel's deleteOpenEnquiry exactly: the user is only deleted
+    // when this is their sole event ever (userEventCount === 1), not merely
+    // when it happens to equal how many ids this call is deleting.
+    if (user && userEventCount === 1) {
       if (useSoftDeleteForUsers) {
         try {
           await tx.user.update({
@@ -2330,30 +2338,65 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
       } else {
         await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
       }
-      await tx.event.deleteMany({ where: { id: { in: deletableIds } } });
+      await tx.event.deleteMany({ where: { id: { in: ids } } });
       await logActivity(tx, {
         log_name: "enquiries bulk deleted",
-        description: `${deletableIds.length} enquiries deleted`,
+        description: `${ids.length} enquiries deleted`,
         subject_type: "Event",
         subject_id: null,
         causer_id: req.user?.id || null,
-        properties: { ids: deletableIds, blocked: blockedIds, count: deletableIds.length },
+        properties: { ids, count: ids.length },
       });
-      return { success: true, id: primaryUserId, deleted: deletableIds, blocked: blockedIds };
+      return { success: true, id: primaryUserId, deleted: ids };
     } else {
-      await tx.event.deleteMany({ where: { id: { in: deletableIds } } });
+      await tx.event.deleteMany({ where: { id: { in: ids } } });
       await logActivity(tx, {
         log_name: "enquiries bulk deleted",
-        description: `${deletableIds.length} enquiries deleted`,
+        description: `${ids.length} enquiries deleted`,
         subject_type: "Event",
         subject_id: null,
         causer_id: req.user?.id || null,
-        properties: { ids: deletableIds, blocked: blockedIds, count: deletableIds.length },
+        properties: { ids, count: ids.length },
       });
-      return { success: true, ids: deletableIds, blocked: blockedIds };
+      return { success: true, ids };
     }
   });
   res.status(result.success ? 200 : 400).json(serializeForJson(result));
+});
+
+// Not a Laravel-parity feature — Laravel's cancel flow is one-way (see
+// ConfirmedEventsController@cancelledEvent, which just flips event_status_id
+// to CANCELLED and never reverses it). Added by request so a closed
+// enquiry can be moved back to Open (status 1) instead of only deleted.
+const reopenEnquiry = catchAsync(async (req, res) => {
+  const eventId = Number(req.params?.id);
+  if (!Number.isFinite(eventId))
+    return res.status(400).json({ error: "event_id_required" });
+
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) return res.status(404).json({ error: "not_found" });
+
+  if (Number(event.event_status_id) !== 4) {
+    return res.status(400).json({
+      error: "not_cancelled",
+      message: "Only a cancelled (closed) enquiry can be reopened.",
+    });
+  }
+
+  const updated = await prisma.event.update({
+    where: { id: eventId },
+    data: { event_status_id: 1 },
+  });
+
+  await logActivity(prisma, {
+    log_name: "enquiry reopened",
+    description: `Enquiry #${eventId} reopened`,
+    subject_type: "Event",
+    subject_id: eventId,
+    causer_id: req.user?.id || null,
+  });
+
+  res.status(200).json(serializeForJson({ success: true, data: updated }));
 });
 
 export default {
@@ -2365,6 +2408,7 @@ export default {
   sendInvoice,
   deleteEnquiry,
   deleteManyEnquiries,
+  reopenEnquiry,
   staffEquipment,
   checkEquipmentAvailability,
   addNote,

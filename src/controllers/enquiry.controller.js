@@ -1451,6 +1451,62 @@ const staffEquipment = catchAsync(async (req, res) => {
         equipments.user = equipments.users;
       }
     }
+    // Attach `booked_quantity` (sum already booked for OTHER open/confirmed
+    // events on this same date) onto every availability-checked equipment, for
+    // both Basics and Extras. This lets the enquiry form compute "how many
+    // more can I book" entirely on the frontend — no per-keystroke round trip
+    // to /check-equipment-availability, matching Laravel's stock math
+    // (EquipmentAvailabilityCheck/checkTheQuantity) but computed once here
+    // instead of once per digit typed.
+    if (eventDateRaw) {
+      const parts = String(eventDateRaw).split("-").map(Number);
+      if (parts.length === 3) {
+        const [d, m, y] = parts;
+        const dateObj = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+        if (!Number.isNaN(dateObj.getTime())) {
+          const checkedIds = new Set();
+          const basicRows = Array.isArray(equipments?.package_user_equipment)
+            ? equipments.package_user_equipment
+            : [];
+          for (const r of basicRows) {
+            if (r?.equipment?.is_availabilty_check && r.equipment.id != null) {
+              checkedIds.add(Number(r.equipment.id));
+            }
+          }
+          for (const ex of extras) {
+            if (ex?.is_availabilty_check && ex.id != null) {
+              checkedIds.add(Number(ex.id));
+            }
+          }
+          if (checkedIds.size) {
+            const bookedRows = await prisma.eventPackage
+              .findMany({
+                where: {
+                  equipment_id: { in: [...checkedIds].map((id) => BigInt(id)) },
+                  events: { date: dateObj, event_status_id: { in: [1, 2] } },
+                },
+                select: { equipment_id: true, quantity: true },
+              })
+              .catch(() => []);
+            const bookedByEquipment = new Map();
+            for (const row of bookedRows) {
+              const id = Number(row.equipment_id);
+              bookedByEquipment.set(id, (bookedByEquipment.get(id) || 0) + (Number(row.quantity) || 0));
+            }
+            for (const r of basicRows) {
+              if (r?.equipment?.id != null) {
+                r.equipment.booked_quantity = bookedByEquipment.get(Number(r.equipment.id)) || 0;
+              }
+            }
+            for (const ex of extras) {
+              if (ex?.id != null) {
+                ex.booked_quantity = bookedByEquipment.get(Number(ex.id)) || 0;
+              }
+            }
+          }
+        }
+      }
+    }
   } catch (e) {
     console.error(
       "[enquiryController] staffEquipment check failed",

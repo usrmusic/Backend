@@ -36,11 +36,18 @@ const allowedOrigins = [
 	'https://usrmusic.vercel.app'
 ];
 
+// Every Vercel preview/branch deployment for this project gets its own
+// unique subdomain (e.g. usrmusic-git-development-usrmusic.vercel.app,
+// usrmusic-4n3kbuvs0-usrmusic.vercel.app) — a hardcoded list can't keep up
+// with that, so match the whole family by pattern instead of adding a new
+// exact URL every time Staging redeploys.
+const vercelPreviewPattern = /^https:\/\/usrmusic-[a-z0-9-]+\.vercel\.app$/;
+
 app.use(
 	cors({
 		origin(origin, callback) {
 			// Allow requests with no origin (like mobile apps, curl), or from allowedOrigins
-			if (!origin || allowedOrigins.includes(origin)) {
+			if (!origin || allowedOrigins.includes(origin) || vercelPreviewPattern.test(origin)) {
 				callback(null, true);
 			} else {
 				callback(new Error('Not allowed by CORS'));

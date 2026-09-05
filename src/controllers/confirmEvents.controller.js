@@ -850,9 +850,12 @@ const sendInvoice = catchAsync(async (req, res) => {
         data: { names_id: companyId, contract_pdf_url: pdfKey || undefined },
       });
 
-    const finalHtml = pdfUrl
-      ? `${invoiceHtml}<p><a href="${pdfUrl}">Download Invoice (PDF)</a></p>`
-      : invoiceHtml;
+    // Matches Laravel's InvoiceMail, which attaches the generated PDF
+    // directly (->attachData) rather than linking to it. A link-only email
+    // meant a client got nothing at all if the presigned URL ever expired or
+    // failed to generate — the PDF is already sitting in memory as
+    // `pdfBuffer` right here, so there's no reason not to attach it.
+    const finalHtml = invoiceHtml;
     // format subject to match Laravel when company present
     const companyNameForSubject = company?.name || companyDetails?.name || "";
     const now = new Date();
@@ -860,9 +863,14 @@ const sendInvoice = catchAsync(async (req, res) => {
       ? `${companyNameForSubject} Invoice : ${String(now.getDate()).padStart(2, "0")}/${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`
       : body.subject || template?.subject || `Invoice for event #${eventId}`;
     if (to)
-      await sendEmail({ to, subject: subjectFormatted, html: finalHtml }).catch(
-        () => {},
-      );
+      await sendEmail({
+        to,
+        subject: subjectFormatted,
+        html: finalHtml,
+        attachments: pdfBuffer
+          ? [{ filename: `invoice_${eventId}.pdf`, content: pdfBuffer }]
+          : undefined,
+      }).catch(() => {});
 
     await eventNoteService.createNote(tx, {
       eventId,

@@ -238,9 +238,13 @@ const suppliersReport = catchAsync(async (req, res) => {
     `SELECT COUNT(*) AS count FROM events WHERE ${countFilter.sql}`,
     ...countFilter.params,
   );
+  // "Remaining" means still-upcoming Confirmed events, matching Dashboard's
+  // fixed definition — without the date >= today check this counted every
+  // Confirmed event all year (including ones whose date already passed),
+  // showing a different, stale number than Dashboard's live "Remaining".
   const remainingFilter = buildEventFilter("events");
   const [{ count: remainingCountRaw }] = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS count FROM events WHERE ${remainingFilter.sql} AND events.event_status_id = 2`,
+    `SELECT COUNT(*) AS count FROM events WHERE ${remainingFilter.sql} AND events.event_status_id = 2 AND events.date >= CURDATE()`,
     ...remainingFilter.params,
   );
 
@@ -321,8 +325,10 @@ const adminReport = catchAsync(async (req, res) => {
     }
   }
   const STATUS_MAP = {
+    open: 1,
     confirmed: 2,
     completed: 3,
+    cancelled: 4,
   };
 
   if (

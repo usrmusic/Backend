@@ -3,13 +3,12 @@ import Joi from "joi";
 
 const getDashboardStats = {
   query: Joi.object({
-    year: Joi.number()
-      .integer()
-      .min(2000)
-      // +1 so the header's year picker (which includes next year) doesn't
-      // 400 the moment someone selects it.
-      .max(new Date().getFullYear() + 1)
-      .required(),
+    // Static bound, matching calendar.validation.js / reports.validation.js —
+    // not tied to the server's clock at startup. The header's year picker
+    // allows up to current year + 5; a relative "+1" baked in once at import
+    // time went stale (or mismatched the picker's own range) and rejected
+    // any of those valid future-year selections with a 400.
+    year: Joi.number().integer().min(2000).max(2100).required(),
   }),
 };
 

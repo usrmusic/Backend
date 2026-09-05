@@ -208,69 +208,19 @@ const confirmEvent = catchAsync(async (req, res) => {
       e?.message || e,
     );
   }
-  // Send invoice/confirmation emails to client and admins (parity with Laravel)
+  // Client email on confirm — parity with Laravel's EventBooked ->
+  // SendCredentialsToClient listener, which is the ONLY email Laravel sends
+  // automatically at this point. Laravel's confirmation email and invoice
+  // email are separate, manually-triggered actions (staff clicking "Send"/
+  // "Send Invoice" on the confirmed event) — sending them automatically
+  // here was extra behavior beyond Laravel that this removes for parity.
   try {
     const event = await prisma.event.findUnique({
       where: { id: Number(result.event_id) },
-      include: { users_events_user_idTousers: true, venues: true, event_payments: true },
+      include: { users_events_user_idTousers: true },
     });
     const user = event?.users_events_user_idTousers || null;
 
-    // Load email template for confirmed invoice (fallback to generic)
-    const template = await prisma.emailContent
-      .findFirst({ where: { email_name: "SEND INVOICE-CONFIRMED" } })
-      .catch(() => null);
-
-    const subject = template?.subject || `Invoice for event #${event?.id}`;
-    const bodyText = template?.body || `Your event has been confirmed.`;
-
-    // company details
-    let companyDetails = null;
-    if (result.names_id) {
-      companyDetails =
-        (await prisma.companyName
-          .findUnique({
-            where: { id: BigInt(result.names_id) },
-          })
-          .catch(() => null)) || null;
-    }
-
-    // const makeCompanyHtml = (c) => {
-    //   if (!c) return "";
-    //   const logo = c.company_logo
-    //     ? `<img src="${process.env.APP_URL || ""}public/storage/images/${c.company_logo}" style="max-width:100px;" alt="Logo" />`
-    //     : "";
-    //   const addr = [c.address_name, c.street, c.city, c.postal_code]
-    //     .filter(Boolean)
-    //     .join("<br />");
-    //   const contact = [];
-    //   if (c.telephone_number) contact.push(`<strong>Telephone</strong> ${c.telephone_number}`);
-    //   if (c.email) contact.push(`<strong>Email</strong> <a href="mailto:${c.email}">${c.email}</a>`);
-    //   if (c.website) contact.push(`<strong>Website</strong> ${c.website}`);
-    //   return `<div>${logo}<div>${addr}</div><div>${contact.join("<br />")}</div></div>`;
-    // };
-
-    // Matches Laravel's confirmed_events_mail.blade.php shell exactly.
-    const firstName = user?.name || "Client";
-    const logoUrl = companyDetails?.company_logo
-      ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
-      : null;
-    const clientHtml = buildUsrLetterEmail({
-      name: firstName,
-      bodyHtml: String(bodyText).replace(/\n/g, "<br/>"),
-      company: companyDetails,
-      logoUrl,
-    });
-    if (user && user.email) {
-      await sendEmail({ to: [user.email], subject, html: clientHtml }).catch(
-        () => {},
-      );
-    }
-
-    // Login credentials email — parity with Laravel's EventBooked ->
-    // SendCredentialsToClient listener, which fires at this exact point
-    // (deposit accepted / enquiry confirmed into an event). Node had no
-    // equivalent, so a client never received their portal login details.
     if (user && user.email && user.password_text) {
       const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
         name: user.name || "Client",
@@ -284,109 +234,6 @@ const confirmEvent = catchAsync(async (req, res) => {
         },
       );
     }
-
-    // SEND INVOICE-OPEN — a second, dedicated invoice email fired at this same
-    // deposit-confirmation moment, parity with Laravel's ADD DEPOSIT action
-    // (which sends the generic confirmation email above AND a separate
-    // invoice email using this template). This is additive to the
-    // SEND INVOICE-CONFIRMED email above, not a replacement for it — that one
-    // has no PDF attached and speaks generically about the confirmation,
-    // while this one carries the actual invoice PDF/link.
-    try {
-      const invoiceOpenTemplate = await prisma.emailContent
-        .findFirst({ where: { email_name: "SEND INVOICE-OPEN" } })
-        .catch(() => null);
-
-      if (invoiceOpenTemplate && user && user.email) {
-        const invoiceOpenSubject =
-          invoiceOpenTemplate.subject || `Invoice for event #${event?.id}`;
-        let invoiceOpenBodyRaw = invoiceOpenTemplate.body || "";
-        if (invoiceOpenBodyRaw && depositAmount) {
-          invoiceOpenBodyRaw = String(invoiceOpenBodyRaw).replace(
-            "{--amount--}",
-            String(depositAmount),
-          );
-        }
-
-        const enrichedInvoiceDetails = (eventPackages || []).map((p) => ({
-          ...p,
-          is_vat_available_for_the_event: event?.is_vat_available_for_the_event,
-          event_amount_without_vat: event?.event_amount_without_vat,
-          vat_value: event?.vat_value,
-          total_cost_for_equipment: event?.total_cost_for_equipment,
-        }));
-
-        let invoiceOpenPdfBuffer = null;
-        try {
-          invoiceOpenPdfBuffer = await generateInvoicePdf({
-            event,
-            companyDetails: companyDetails || {},
-            enrichedDetails: enrichedInvoiceDetails,
-          });
-        } catch (e) {
-          console.error(
-            "[confirmEvent] SEND INVOICE-OPEN pdf generation failed",
-            e?.message || e,
-          );
-        }
-
-        let invoiceOpenPdfUrl = null;
-        if (invoiceOpenPdfBuffer) {
-          const key = `invoices/open-${eventId}-${Date.now()}.pdf`;
-          try {
-            await uploadStreamToS3(invoiceOpenPdfBuffer, key, "application/pdf");
-            invoiceOpenPdfUrl = await getSignedGetUrl(key);
-          } catch (e) {
-            console.error(
-              "[confirmEvent] SEND INVOICE-OPEN pdf upload failed",
-              e?.message || e,
-            );
-          }
-        }
-
-        const invoiceOpenHtml = buildUsrLetterEmail({
-          name: firstName,
-          bodyHtml: String(invoiceOpenBodyRaw).replace(/\n/g, "<br/>"),
-          company: companyDetails,
-          logoUrl,
-        });
-        const invoiceOpenFinalHtml = invoiceOpenPdfUrl
-          ? `${invoiceOpenHtml}<p><a href="${invoiceOpenPdfUrl}">Download Invoice (PDF)</a></p>`
-          : invoiceOpenHtml;
-
-        await sendEmail({
-          to: [user.email],
-          subject: invoiceOpenSubject,
-          html: invoiceOpenFinalHtml,
-        }).catch(() => {});
-
-        await eventNoteService
-          .createNote(prisma, {
-            eventId,
-            notes: `Invoice Sent - ${companyDetails?.name || ""}`,
-            created_by: req.user?.id || null,
-          })
-          .catch(() => {});
-
-        await logActivity(prisma, {
-          log_name: "invoice sent (open enquiry confirm)",
-          description: `Invoice emailed for event #${eventId} (open enquiry confirm)`,
-          subject_type: "Event",
-          subject_id: eventId,
-          causer_id: req.user?.id || null,
-          properties: { to: user.email, invoice_number: invoiceNumber },
-        });
-      }
-    } catch (e) {
-      console.error(
-        "[confirmEvent] SEND INVOICE-OPEN flow failed",
-        e?.message || e,
-      );
-    }
-
-    // No internal "Team" notification email here — Laravel never sends one
-    // on confirm (only the client gets emailed: credentials, invoice,
-    // quote), so this Node-only addition was removed for parity.
   } catch (e) {
     console.error(
       "[enquiryController] send confirm emails failed",
@@ -871,13 +718,17 @@ const sendInvoice = catchAsync(async (req, res) => {
   const eventId = Number(
     body.event_id || (details[0] && details[0].id) || body.eventId || 0,
   );
-  const companyId =
-    Number(body.company_name_id || body.companyNameId || 0) || null;
-
   if (!eventId) return res.status(400).json({ error: "event_id_required" });
 
   // fetch event VAT/amount fields
   const event = await prisma.event.findUnique({ where: { id: eventId } });
+
+  // Falls back to the event's own linked company, same as sendQuote — without
+  // this, an invoice sent without an explicit company_name_id in the request
+  // body lost its branding (blank name, no logo) even for events that do
+  // have a company assigned.
+  const companyId =
+    Number(body.company_name_id || body.companyNameId || event?.names_id || 0) || null;
 
   const enrichedDetails = details.map((d) => ({
     ...d,

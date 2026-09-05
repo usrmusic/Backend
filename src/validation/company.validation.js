@@ -8,7 +8,11 @@ const createCompany = {
         contact_name: Joi.string().trim().max(100).optional().allow(null, ""),
         telephone_number: Joi.string().trim().max(20).optional().allow(null, ""),
         email: Joi.string().email().trim().max(50).optional().allow(null, ""),
-        website: Joi.string().uri().trim().max(50).optional().allow(null, ""),
+        // Not .uri() — real data/typed input is bare domains like
+        // "www.usrmusic.co.uk" with no http(s):// scheme, which .uri()
+        // rejects outright, blocking every save that didn't touch this
+        // field at all (re-saving unchanged data still failed).
+        website: Joi.string().trim().max(50).optional().allow(null, ""),
         instagram: Joi.string().trim().max(50).optional().allow(null, ""),
         facebook: Joi.string().trim().max(50).optional().allow(null, ""),
         address_name: Joi.string().trim().max(50).optional().allow(null, ""),
@@ -36,7 +40,11 @@ const updateCompany = {
         contact_name: Joi.string().trim().max(100).optional().allow(null, ""),
         telephone_number: Joi.string().trim().max(20).optional().allow(null, ""),
         email: Joi.string().email().trim().max(50).optional().allow(null, ""),
-        website: Joi.string().uri().trim().max(50).optional().allow(null, ""),
+        // Not .uri() — real data/typed input is bare domains like
+        // "www.usrmusic.co.uk" with no http(s):// scheme, which .uri()
+        // rejects outright, blocking every save that didn't touch this
+        // field at all (re-saving unchanged data still failed).
+        website: Joi.string().trim().max(50).optional().allow(null, ""),
         instagram: Joi.string().trim().max(50).optional().allow(null, ""),
         facebook: Joi.string().trim().max(50).optional().allow(null, ""),
         address_name: Joi.string().trim().max(50).optional().allow(null, ""),

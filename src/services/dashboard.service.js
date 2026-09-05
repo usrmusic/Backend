@@ -239,15 +239,19 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
         const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
     });
-    // "Remaining" must be live: a Confirmed event whose date has already
-    // passed is no longer remaining, even before the nightly auto-complete
-    // job has had a chance to flip its status to Completed (up to a 24h lag).
-    const nowForRemaining = new Date();
+    // Deliberate departure from Laravel (Laravel's confirmEnquiryEvents has
+    // no date filter at all) — by request, "Remaining" here means Confirmed
+    // events that haven't happened yet. Compared at day granularity (not
+    // exact timestamp) so a same-day event still counts as remaining, and so
+    // this matches Suppliers Report's CURDATE()-based version exactly (see
+    // reports.controller.js's remainingCountRaw) — the two must use the same
+    // day-boundary rule or they disagree by exactly the events dated today.
+    const todayForRemaining = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const confirmedEventsCount = events.filter(
         (e) =>
-            e.event_statuses?.status?.toLowerCase().includes('confirm') &&
+            e.event_status_id === 2 &&
             e.date &&
-            new Date(e.date) >= nowForRemaining
+            new Date(e.date) >= todayForRemaining
     ).length;
 
     // Open Enquiries count must match the real Open Enquiry list page exactly —

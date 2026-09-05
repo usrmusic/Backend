@@ -1478,14 +1478,17 @@ const checkEquipmentAvailability = catchAsync(async (req, res) => {
   const items = Array.isArray(body.items) ? body.items : [];
   const dateRaw = body.date || body.event_date || null;
 
-  if (!dateRaw || !items.length) {
+  if (!items.length) {
     return res.json({ success: true, messages: [] });
   }
 
-  const date = new Date(dateRaw);
-  if (Number.isNaN(date.getTime())) {
-    return res.json({ success: true, messages: [] });
-  }
+  // The date is OPTIONAL. Laravel's checkTheQuantity does a plain
+  // `quantity > equipment.quantity` test that fires with no date involved, so
+  // asking for 27 of an item we own 1 of warns immediately — before the staff
+  // member has even picked the event date. Only the "already booked by other
+  // events" half of the check needs a date.
+  const date = dateRaw ? new Date(dateRaw) : null;
+  const hasValidDate = date != null && !Number.isNaN(date.getTime());
 
   const equipmentIds = [
     ...new Set(
@@ -1514,6 +1517,14 @@ const checkEquipmentAvailability = catchAsync(async (req, res) => {
 
     const requestedQty = Number(item.quantity) || 0;
     const stock = Number(equipment.quantity) || 0;
+
+    // Absolute check first — no date needed (Laravel's checkTheQuantity).
+    if (requestedQty > stock) {
+      messages.push(`The equipment ${equipment.name} is being overbooked.`);
+      continue; // already flagged; don't warn twice for the same item
+    }
+
+    if (!hasValidDate) continue;
 
     const bookedRows = await prisma.eventPackage
       .findMany({

@@ -53,11 +53,18 @@ const listClients = Joi.object({
     page: Joi.number().integer().min(1).default(1),
     perPage: Joi.number().integer().min(1).max(100).default(10),
     limit: Joi.number().integer().min(1).max(100).default(10),
-    sortBy: Joi.string()
-      .valid("first_name", "last_name", "email", "created_at")
+    // The controller reads `sort_by`/`sort_dir` (snake_case) — this used to
+    // validate the wrong key names entirely (`sortBy`/`sortOrder`, and
+    // `first_name`/`last_name` which don't exist on the User model; the
+    // real column is `name`), so clicking any column sort sent a real
+    // `sort_by` that Joi rejected as an unknown key, and the table went
+    // blank. `.unknown(true)` is a safety net for the same class of bug on
+    // any other param the frontend might send.
+    sort_by: Joi.string()
+      .valid("name", "email", "contact_number", "address", "created_at")
       .default("created_at"),
-    sortOrder: Joi.string().valid("asc", "desc").default("asc"),
-  }),
+    sort_dir: Joi.string().valid("asc", "desc").default("asc"),
+  }).unknown(true),
 });
 
 const deleteManyClients = Joi.object({

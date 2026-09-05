@@ -323,7 +323,8 @@ const updateUser = catchAsync(async (req, res) => {
   // rejected so a normal self-profile save that echoes back an unchanged
   // role_id still succeeds.
   if (body.role_id !== undefined && !req.authorizedViaOwnership) {
-    data.role_id = body.role_id;
+    // User.role_id is a BigInt column.
+    data.role_id = BigInt(body.role_id);
   }
   if (body.address !== undefined) data.address = body.address;
   // An empty string clears the colour back to the grey fallback; Prisma needs

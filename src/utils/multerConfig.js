@@ -33,7 +33,15 @@ export function createUploadMiddleware({ allowedMimeTypes = [], maxBytes, forceD
   function fileFilter(req, file, cb) {
     if (!allowedMimeTypes || allowedMimeTypes.length === 0) return cb(null, true);
     if (file && file.mimetype && allowedMimeTypes.includes(file.mimetype)) return cb(null, true);
-    cb(new Error('invalid_file_type'));
+    // A plain Error here fell through errorHandler.js's catch-all as a vague
+    // 500 "internal_server_error" — every file type not on the whitelist
+    // (HEIC/iPhone photos, .mov, .zip, .csv, PowerPoint, ...) looked like a
+    // mystery crash instead of a clear "this file type isn't supported".
+    const err = new Error(
+      `File type "${file?.mimetype || 'unknown'}" isn't supported for this upload.`,
+    );
+    err.code = 'INVALID_FILE_TYPE';
+    cb(err);
   }
 
   const limit = maxBytes || parseInt(process.env.MAX_UPLOAD_BYTES || String(10 * 1024 * 1024), 10);
@@ -91,12 +99,23 @@ export const fileUpload = createUploadMiddleware({
     'image/jpeg',
     'image/png',
     'image/jpg',
+    'image/webp',
+    // iPhone's default photo/video formats — a DJ business fields client
+    // and venue photos/videos from phones constantly; rejecting these was
+    // effectively rejecting most real-world uploads.
+    'image/heic',
+    'image/heif',
+    'video/quicktime', // .mov
     'application/pdf',
     'application/msword', // .doc
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
     'application/vnd.ms-excel', // .xls
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'application/vnd.ms-powerpoint', // .ppt
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
     'text/plain', // .txt
+    'text/csv',
+    'application/zip',
     'audio/mpeg',
     'video/mp4',
   ],

@@ -15,6 +15,7 @@ import AppError from "../utils/AppError.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
 import { signContractForEvent } from "../services/contractSign.service.js";
 import { logActivity } from "../utils/activityLogger.js";
+import dashboardService from "../services/dashboard.service.js";
 const eventSvc = services.get("event");
 
 
@@ -27,7 +28,8 @@ const confirmEvent = catchAsync(async (req, res) => {
   const depositAmount = Number(body.deposit_amount ?? body.amount ?? 0) || 0;
   const paymentData = {
     event_id: eventId,
-    payment_method_id: Number(body.payment_method_id),
+    // EventPayment.payment_method_id is a BigInt column.
+    payment_method_id: BigInt(body.payment_method_id),
     date: body.date ? new Date(body.date) : new Date(),
     amount: depositAmount,
     created_at: new Date(),
@@ -57,7 +59,7 @@ const confirmEvent = catchAsync(async (req, res) => {
   // --- Step 4: load packages + company VAT in parallel ---
   const [eventPackages, company] = await Promise.all([
     prisma.eventPackage.findMany({
-      where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+      where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
       select: {
         id: true, event_id: true, equipment_id: true, package_type_id: true,
         sell_price: true, total_price: true, price_added_to_bill: true,
@@ -155,7 +157,7 @@ const confirmEvent = catchAsync(async (req, res) => {
           ? new Date(event.date).toISOString()
           : null;
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: event.id, package_type_id: { in: [1, 2] } },
+        where: { event_id: event.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event, eventPackages });
@@ -382,26 +384,9 @@ const confirmEvent = catchAsync(async (req, res) => {
       );
     }
 
-    // notify admins (role_id = 2) who have email enabled
-    const admins = await prisma.user.findMany({
-      where: { role_id: BigInt(2), is_email_send: true },
-    });
-    const adminEmails = admins.map((a) => a.email).filter(Boolean);
-    if (adminEmails.length) {
-      // Was a plain unbranded email — matches the rest of this function's
-      // client-facing emails now, using the same company/logo already
-      // resolved above.
-      const adminBodyHtml = `
-        <p>Event #${event?.id} has been confirmed.</p>
-        <p>Invoice: ${result.invoice_number || "N/A"}</p>
-        <p>Amount Paid: ${result.amount || 0}</p>
-      `;
-      await sendEmail({
-        to: adminEmails,
-        subject: `Event Confirmed - #${event?.id}`,
-        html: buildUsrLetterEmail({ name: "Team", bodyHtml: adminBodyHtml, company: companyDetails, logoUrl }),
-      }).catch(() => {});
-    }
+    // No internal "Team" notification email here — Laravel never sends one
+    // on confirm (only the client gets emailed: credentials, invoice,
+    // quote), so this Node-only addition was removed for parity.
   } catch (e) {
     console.error(
       "[enquiryController] send confirm emails failed",
@@ -420,6 +405,13 @@ const confirmEvent = catchAsync(async (req, res) => {
       invoice_number: invoiceNumber,
       total_cost_for_equipment: finalCost,
     },
+  });
+
+  // Confirming sets total_cost_for_equipment and the event_package rows for
+  // the first time — without this, `profit` stays null on Dashboard/Admin
+  // Report until the next nightly recalculation cron.
+  dashboardService.recalculateProfits({ eventIds: [eventId] }).catch((e) => {
+    console.error("[confirmEvent] recalculateProfits failed", e?.message || e);
   });
 
   res.json(serializeForJson({ success: true, data: result }));
@@ -1127,13 +1119,13 @@ const sendQuote = catchAsync(async (req, res) => {
   // sourced from the event's real event_package rows, not enquiry-stage data.
   const eventPackages = await prisma.eventPackage
     .findMany({
-      where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+      where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
       include: { equipment: true, package_types: true },
     })
     .catch(() => []);
   const enrichedDetails = eventPackages.map((p) => ({
     equipment_id: p.equipment_id,
-    package_type_id: p.package_type_id,
+    package_type_id: p.package_type_id != null ? Number(p.package_type_id) : null,
     quantity: p.quantity || 1,
     sell_price: p.sell_price ?? p.total_price ?? null,
     total_price: p.total_price ?? null,
@@ -1309,7 +1301,7 @@ const downloadInvoice = catchAsync(async (req, res) => {
     .catch(() => []);
   const enrichedDetails = eventPackages.map((p) => ({
     equipment_id: p.equipment_id,
-    package_type_id: p.package_type_id,
+    package_type_id: p.package_type_id != null ? Number(p.package_type_id) : null,
     quantity: p.quantity || 1,
     sell_price: p.sell_price ?? p.total_price ?? null,
     total_price: p.total_price ?? null,
@@ -1447,7 +1439,8 @@ const addPayment = catchAsync(async (req, res) => {
     const payment = await tx.eventPayment.create({
       data: {
         event_id: eventId,
-        payment_method_id: Number(paymentMethodId),
+        // EventPayment.payment_method_id is a BigInt column.
+        payment_method_id: BigInt(paymentMethodId),
         date: dateVal instanceof Date ? dateVal : new Date(dateVal),
         amount: Number(amount),
         created_at: new Date(),
@@ -1527,8 +1520,10 @@ const updatePayment = catchAsync(async (req, res) => {
   const paymentId = Number(req.params.id || 0);
   const body = req.body || {};
   if (!paymentId) return res.status(400).json({ error: "payment_id_required" });
+  // EventPayment.id and .payment_method_id are BigInt columns.
+  const paymentIdBig = BigInt(paymentId);
 
-  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentId } });
+  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentIdBig } });
   if (!existing) return res.status(404).json({ error: "payment_not_found" });
 
   const data = {};
@@ -1547,11 +1542,11 @@ const updatePayment = catchAsync(async (req, res) => {
     data.date = dateVal instanceof Date ? dateVal : new Date(dateVal);
   }
   if (body.payment_method_id !== undefined) {
-    data.payment_method_id = Number(body.payment_method_id) || null;
+    data.payment_method_id = body.payment_method_id != null ? BigInt(body.payment_method_id) : null;
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const payment = await tx.eventPayment.update({ where: { id: paymentId }, data });
+    const payment = await tx.eventPayment.update({ where: { id: paymentIdBig }, data });
     const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
 
     const paymentWithMethod = await tx.eventPayment
@@ -1596,12 +1591,14 @@ const updatePayment = catchAsync(async (req, res) => {
 const deletePayment = catchAsync(async (req, res) => {
   const paymentId = Number(req.params.id || 0);
   if (!paymentId) return res.status(400).json({ error: "payment_id_required" });
+  // EventPayment.id is a BigInt column.
+  const paymentIdBig = BigInt(paymentId);
 
-  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentId } });
+  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentIdBig } });
   if (!existing) return res.status(404).json({ error: "payment_not_found" });
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.eventPayment.delete({ where: { id: paymentId } });
+    await tx.eventPayment.delete({ where: { id: paymentIdBig } });
     const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
 
     await logActivity(tx, {
@@ -1770,6 +1767,14 @@ const cancelEvent = catchAsync(async (req, res) => {
     }
   } catch (e) {}
 
+  // Cancelling switches the event's cost source from live equipment/DJ
+  // prices to a frozen snapshot (see recalculateProfits) — recalculate now
+  // instead of leaving Admin Report's per-row profit stale until the
+  // nightly cron.
+  dashboardService.recalculateProfits({ eventIds: [eventId] }).catch((e) => {
+    console.error("[cancelEvent] recalculateProfits failed", e?.message || e);
+  });
+
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
@@ -1849,7 +1854,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
           ? new Date(eventDetail.date).toISOString()
           : null;
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: eventDetail.id, package_type_id: { in: [1, 2] } },
+        where: { event_id: eventDetail.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
@@ -1876,18 +1881,26 @@ const reconfirmEvent = catchAsync(async (req, res) => {
               e?.message || e,
             );
           });
-        await eventNoteService
-          .createNote(prisma, {
-            eventId: eventDetail.id,
-            notes: `CalendarEventId: ${created.id}`,
-            created_by: req.user?.id || null,
-          })
-          .catch(() => {});
+        await logActivity(prisma, {
+          log_name: "calendar event created",
+          description: `Outlook calendar entry created for event #${eventDetail.id}`,
+          subject_type: "Event",
+          subject_id: eventDetail.id,
+          causer_id: req.user?.id || null,
+          properties: { calendar_event_id: created.id },
+        });
       }
     }
   } catch (e) {
     console.error("[reconfirmEvent] microsoft graph create failed", e?.message || e);
   }
+
+  // Reconfirming flips the cost source back to live equipment/DJ prices
+  // (see recalculateProfits) — recalculate now instead of leaving the
+  // profit figure stale until the nightly cron.
+  dashboardService.recalculateProfits({ eventIds: [eventId] }).catch((e) => {
+    console.error("[reconfirmEvent] recalculateProfits failed", e?.message || e);
+  });
 
   res.json(serializeForJson({ success: true, data: updated }));
 });
@@ -2240,7 +2253,7 @@ const updateEvent = catchAsync(async (req, res) => {
 
     if (ms?.microsoft_event_id && fresh) {
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+        where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event: fresh, eventPackages });

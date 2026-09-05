@@ -421,18 +421,22 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
 
   // Use validated query params (Joi middleware) for sorting; Joi enforces allowed values
   const q = req.query || {};
-  // Default sort is by creation date (newest enquiry first) — not the event
-  // date, which pushed enquiries around the list every time their event date
-  // changed rather than reflecting when they actually came in.
+  // Default sort is by creation date, oldest enquiry first (client's
+  // explicit request) — not the event date, which pushed enquiries around
+  // the list every time their event date changed rather than reflecting
+  // when they actually came in.
   const sortField = q.sortBy || q.sort || "created_at";
   const sortOrder =
-    String(q.sortOrder || q.order || q.sort_order || "desc").toLowerCase() ===
-    "asc"
-      ? "asc"
-      : "desc";
+    String(q.sortOrder || q.order || q.sort_order || "asc").toLowerCase() ===
+    "desc"
+      ? "desc"
+      : "asc";
   const search = String(q.search || "").trim();
-  // base where (open enquiries)
-  const where = { event_status_id: 1 };
+  // `view=closed` switches this same list to Cancelled enquiries (the
+  // "Closed" tab) — everything else about the endpoint (search, sort,
+  // pagination) behaves identically for both views.
+  const isClosedView = String(q.view || "").trim().toLowerCase() === "closed";
+  const where = { event_status_id: isClosedView ? 4 : 1 };
   if (search) {
     // search event usr_name, venue name, event details, and linked user
     // fields (name/email/contact_number) — the frontend's placeholder promises
@@ -623,16 +627,19 @@ const getStatusCounts = catchAsync(async (req, res) => {
     grouped.find((g) => Number(g.event_status_id) === id)?._count?._all ?? 0;
 
   const openEnquiry = countFor(1);
-  const confirmed = countFor(2);
-  const completed = countFor(3);
   const cancelled = countFor(4);
-  const total = openEnquiry + confirmed + completed + cancelled;
+  // "Closed" means a lead that went nowhere (Cancelled) — Confirmed/Completed
+  // enquiries graduated into real bookings and already have their own
+  // dedicated pages (Confirmed Events, Completed Events), so counting them
+  // here too would just duplicate those. Total is scoped to this page's own
+  // concept of an enquiry's lifecycle: still open, or dead.
+  const total = openEnquiry + cancelled;
 
   res.json(
     serializeForJson({
       total,
       open: openEnquiry,
-      closed: confirmed + completed + cancelled,
+      closed: cancelled,
     }),
   );
 });
@@ -1102,7 +1109,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
         include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
       }).catch(() => null);
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: id, package_type_id: { in: [1, 2] } },
+        where: { event_id: id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
@@ -1331,7 +1338,8 @@ const staffEquipment = catchAsync(async (req, res) => {
       try {
         const equipmentRows = await prisma.$queryRaw`
               SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
-                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes
+                     e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes,
+                     e.quantity AS equipment_stock_quantity, e.is_availabilty_check AS equipment_is_availabilty_check
               FROM package_user_equipment p
               LEFT JOIN equipment e ON e.id = p.equipment_id
               WHERE p.package_user_id = ${Number(equipments.id)}
@@ -1349,6 +1357,8 @@ const staffEquipment = catchAsync(async (req, res) => {
                 cost_price: r.equipment_cost_price,
                 sell_price: r.equipment_sell_price,
                 rig_notes: r.equipment_rig_notes ?? null,
+                quantity: r.equipment_stock_quantity ?? null,
+                is_availabilty_check: !!r.equipment_is_availabilty_check,
               }
             : null,
         }));
@@ -1400,7 +1410,8 @@ const staffEquipment = catchAsync(async (req, res) => {
         try {
           const equipmentRows = await prisma.$queryRaw`
             SELECT p.package_user_id, p.equipment_id, p.equipment_order_id, p.quantity,
-                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes
+                   e.id AS equipment_id, e.name AS equipment_name, e.cost_price AS equipment_cost_price, e.sell_price AS equipment_sell_price, e.rig_notes AS equipment_rig_notes,
+                   e.quantity AS equipment_stock_quantity, e.is_availabilty_check AS equipment_is_availabilty_check
             FROM package_user_equipment p
             LEFT JOIN equipment e ON e.id = p.equipment_id
             WHERE p.package_user_id = ${Number(equipments.id)}
@@ -1419,6 +1430,8 @@ const staffEquipment = catchAsync(async (req, res) => {
                     cost_price: r.equipment_cost_price,
                     sell_price: r.equipment_sell_price,
                     rig_notes: r.equipment_rig_notes ?? null,
+                    quantity: r.equipment_stock_quantity ?? null,
+                    is_availabilty_check: !!r.equipment_is_availabilty_check,
                   }
                 : null,
             }),
@@ -1451,6 +1464,74 @@ const staffEquipment = catchAsync(async (req, res) => {
       data: { equipments, extras, checkDjAvailability },
     }),
   );
+});
+
+// Port of Laravel's EquipmentAvailabilityCheck/checkTheQuantity
+// (NewEnquiryController.php) — advisory only, never blocks saving. For each
+// requested item, if the equipment has is_availabilty_check enabled, sums
+// how much of it is already booked by OTHER open/confirmed events (status 1
+// or 2) on the same date and compares against the equipment's total stock.
+// Matches Laravel exactly, including not excluding the event currently being
+// edited from that sum — a known Laravel quirk, not a Node bug.
+const checkEquipmentAvailability = catchAsync(async (req, res) => {
+  const body = req.body || {};
+  const items = Array.isArray(body.items) ? body.items : [];
+  const dateRaw = body.date || body.event_date || null;
+
+  if (!dateRaw || !items.length) {
+    return res.json({ success: true, messages: [] });
+  }
+
+  const date = new Date(dateRaw);
+  if (Number.isNaN(date.getTime())) {
+    return res.json({ success: true, messages: [] });
+  }
+
+  const equipmentIds = [
+    ...new Set(
+      items
+        .map((i) => Number(i.equipment_id))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+  if (!equipmentIds.length) {
+    return res.json({ success: true, messages: [] });
+  }
+
+  const equipmentRows = await prisma.equipment
+    .findMany({
+      where: { id: { in: equipmentIds.map((id) => BigInt(id)) }, is_availabilty_check: true },
+      select: { id: true, name: true, quantity: true },
+    })
+    .catch(() => []);
+  const equipmentById = new Map(equipmentRows.map((e) => [Number(e.id), e]));
+
+  const messages = [];
+  for (const item of items) {
+    const eqId = Number(item.equipment_id);
+    const equipment = equipmentById.get(eqId);
+    if (!equipment) continue; // availability check disabled for this item
+
+    const requestedQty = Number(item.quantity) || 0;
+    const stock = Number(equipment.quantity) || 0;
+
+    const bookedRows = await prisma.eventPackage
+      .findMany({
+        where: {
+          equipment_id: BigInt(eqId),
+          events: { date, event_status_id: { in: [1, 2] } },
+        },
+        select: { quantity: true },
+      })
+      .catch(() => []);
+    const bookedQty = bookedRows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+
+    if (bookedQty + requestedQty > stock) {
+      messages.push(`The equipment ${equipment.name} is being overbooked.`);
+    }
+  }
+
+  res.json({ success: messages.length === 0, messages });
 });
 
 const getEnquiryWithDetails = catchAsync(async (req, res) => {
@@ -1799,7 +1880,7 @@ const sendQuote = catchAsync(async (req, res) => {
         id: eventId,
         event_package_id: p.id,
         equipment_id: p.equipment_id,
-        package_type_id: p.package_type_id,
+        package_type_id: p.package_type_id != null ? Number(p.package_type_id) : null,
         quantity: p.quantity || 1,
         sell_price: p.sell_price ?? p.total_price ?? null,
         total_price: p.total_price ?? null,
@@ -2014,6 +2095,20 @@ const deleteEnquiry = catchAsync(async (req, res) => {
     const event = await tx.event.findUnique({ where: { id: eventId } });
     if (!event) return { success: false, error: "Event not found" };
 
+    // event_payments has no cascade delete (Restrict) — an event with any
+    // payment recorded would fail the delete at the DB level. That failure
+    // was previously swallowed by `.catch(() => {})` below while still
+    // returning success:true, silently leaving the event in place. Check
+    // up front instead, so the caller gets a real, actionable error.
+    const paymentCount = await tx.eventPayment.count({ where: { event_id: eventId } });
+    if (paymentCount > 0) {
+      return {
+        success: false,
+        error: "event_has_payments",
+        message: "This enquiry can't be deleted because it has payment(s) recorded against it.",
+      };
+    }
+
     const userId = Number(event.user_id) || null;
     const user = userId
       ? await tx.user.findUnique({ where: { id: userId } })
@@ -2065,7 +2160,7 @@ const deleteEnquiry = catchAsync(async (req, res) => {
     }
   });
 
-  res.json(serializeForJson(result));
+  res.status(result.success ? 200 : 400).json(serializeForJson(result));
 });
 const deleteManyEnquiries = catchAsync(async (req, res) => {
   const idsRaw = req.body.ids || req.query.ids || req.params.ids || null;
@@ -2107,7 +2202,29 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
     "true";
 
   const result = await prisma.$transaction(async (tx) => {
-    const events = await tx.event.findMany({ where: { id: { in: ids } } });
+    // event_payments has no cascade delete (Restrict) — deleting an event
+    // with payments recorded would fail at the DB level. That failure was
+    // previously swallowed by `.catch(() => {})` below while still
+    // returning success:true, silently leaving those events in place.
+    // Split up front instead, so the caller sees exactly what did and
+    // didn't get deleted (same convention as package bulk-delete).
+    const paymentRows = await tx.eventPayment.findMany({
+      where: { event_id: { in: ids } },
+      select: { event_id: true },
+    });
+    const blockedIds = [...new Set(paymentRows.map((p) => p.event_id))];
+    const deletableIds = ids.filter((id) => !blockedIds.includes(id));
+
+    if (!deletableIds.length) {
+      return {
+        success: false,
+        error: "all_events_have_payments",
+        message: "None of the selected enquiries can be deleted because they all have payment(s) recorded.",
+        blocked: blockedIds,
+      };
+    }
+
+    const events = await tx.event.findMany({ where: { id: { in: deletableIds } } });
     const primaryUserId = events.length
       ? Number(events[0].user_id) || null
       : null;
@@ -2118,7 +2235,7 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
       ? await tx.event.count({ where: { user_id: primaryUserId } })
       : 0;
 
-    if (user && userEventCount === ids.length) {
+    if (user && userEventCount === deletableIds.length) {
       if (useSoftDeleteForUsers) {
         try {
           await tx.user.update({
@@ -2133,30 +2250,30 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
       } else {
         await tx.user.delete({ where: { id: primaryUserId } }).catch(() => {});
       }
-      await tx.event.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+      await tx.event.deleteMany({ where: { id: { in: deletableIds } } });
       await logActivity(tx, {
         log_name: "enquiries bulk deleted",
-        description: `${ids.length} enquiries deleted`,
+        description: `${deletableIds.length} enquiries deleted`,
         subject_type: "Event",
         subject_id: null,
         causer_id: req.user?.id || null,
-        properties: { ids, count: ids.length },
+        properties: { ids: deletableIds, blocked: blockedIds, count: deletableIds.length },
       });
-      return { success: true, id: primaryUserId };
+      return { success: true, id: primaryUserId, deleted: deletableIds, blocked: blockedIds };
     } else {
-      await tx.event.deleteMany({ where: { id: { in: ids } } }).catch(() => {});
+      await tx.event.deleteMany({ where: { id: { in: deletableIds } } });
       await logActivity(tx, {
         log_name: "enquiries bulk deleted",
-        description: `${ids.length} enquiries deleted`,
+        description: `${deletableIds.length} enquiries deleted`,
         subject_type: "Event",
         subject_id: null,
         causer_id: req.user?.id || null,
-        properties: { ids, count: ids.length },
+        properties: { ids: deletableIds, blocked: blockedIds, count: deletableIds.length },
       });
-      return { success: true, ids };
+      return { success: true, ids: deletableIds, blocked: blockedIds };
     }
   });
-  res.json(serializeForJson(result));
+  res.status(result.success ? 200 : 400).json(serializeForJson(result));
 });
 
 export default {
@@ -2169,6 +2286,7 @@ export default {
   deleteEnquiry,
   deleteManyEnquiries,
   staffEquipment,
+  checkEquipmentAvailability,
   addNote,
   getEnquiryWithDetails,
   getEmail,

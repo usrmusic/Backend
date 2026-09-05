@@ -32,9 +32,12 @@ const listSuppliers = {
 		search: Joi.string().trim().max(200).allow('', null),
 		page: Joi.number().integer().min(1).default(1),
 		perPage: Joi.number().integer().min(1).max(200).default(25),
-		sort_by: Joi.string().valid('name', 'company_name', 'created_at').default('created_at'),
+		// Every sortable column on the Suppliers table, not just two of them —
+		// clicking sort on Contact Number/Email/Industry/Notes sent a
+		// `sort_by` this whitelist rejected, and the table went blank.
+		sort_by: Joi.string().valid('name', 'company_name', 'contact_number', 'email', 'industry', 'notes', 'created_at').default('created_at'),
 		sort_dir: Joi.string().valid('asc', 'desc').default('asc'),
-	}),
+	}).unknown(true),
 };
 
 const deleteSupplier = {

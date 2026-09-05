@@ -37,12 +37,15 @@ const listOpenEnquiries = Joi.object({
       .valid(...allowedSortFields)
       .optional()
       .allow("", null),
-    sortOrder: Joi.string().valid("asc", "desc").optional().default("desc"),
+    sortOrder: Joi.string().valid("asc", "desc").optional().default("asc"),
     // Derived status (called/quoted) and the real dj_package_name value —
     // see listOpenEnquiries in the controller for how each becomes a where
     // clause.
     status: Joi.string().valid("new", "open", "quoted").allow("", null),
     event_type: Joi.string().trim().max(150).allow("", null),
+    // "closed" switches the list from Open Enquiries (status 1) to Cancelled
+    // enquiries (status 4) — the Open Enquiry page's Closed tab.
+    view: Joi.string().valid("open", "closed").allow("", null),
   }).unknown(true),
 });
 
@@ -62,11 +65,14 @@ const createEnquiry = Joi.object({
     name: Joi.string().required(),
     email: Joi.string().email().required(),
     contact_number: Joi.string().required(),
-    address: Joi.string().required(),
+    address: Joi.string().allow("", null),
     dj_id: Joi.number().integer().allow(null),
     event_date: Joi.string().pattern(dateRegex).required(),
-    start_time: Joi.string().pattern(timeRegex).required(),
-    end_time: Joi.string().pattern(timeRegex).required(),
+    // Optional — a booking can be saved without a time, matching the
+    // client's ask that these fields never block saving. An empty value
+    // displays as "–" rather than a blank gap.
+    start_time: Joi.string().pattern(timeRegex).allow("", null),
+    end_time: Joi.string().pattern(timeRegex).allow("", null),
     deposit_amount: Joi.number().allow(null),
     venue_id: Joi.number().integer().optional(),
     new_venue_name: Joi.string().allow("", null).optional(),
@@ -156,8 +162,8 @@ const updateEnquiry = Joi.object({
     send_media: Joi.boolean(),
     quoted: Joi.boolean(),
     event_date: Joi.string().pattern(dateRegex),
-    start_time: Joi.string().pattern(timeRegex),
-    end_time: Joi.string().pattern(timeRegex),
+    start_time: Joi.string().pattern(timeRegex).allow("", null),
+    end_time: Joi.string().pattern(timeRegex).allow("", null),
     deposit_amount: Joi.number().allow(null),
     venue_id: Joi.number().integer(),
     new_venue_name: Joi.string().allow("", null),

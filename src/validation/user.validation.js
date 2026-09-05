@@ -57,11 +57,16 @@ const listUsers = {
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(10),
     perPage: Joi.number().integer().min(1).max(100).default(10),
-    sortBy: Joi.string()
-      .valid("name", "email", "created_at")
+    // The controller reads `sort_by`/`sort_dir` (snake_case) — this
+    // validated `sortBy`/`sortOrder` instead, so a real `sort_by` sent by
+    // any column click was rejected as an unknown key and the table went
+    // blank. `.unknown(true)` is a safety net for the same class of bug on
+    // any other param the frontend might send.
+    sort_by: Joi.string()
+      .valid("name", "email", "contact_number", "address", "created_at")
       .default("created_at"),
-    sortOrder: Joi.string().valid("asc", "desc").default("asc"),
-  }),
+    sort_dir: Joi.string().valid("asc", "desc").default("asc"),
+  }).unknown(true),
 };
 const deleteUser = {
   params: Joi.object({

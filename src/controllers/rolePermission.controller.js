@@ -52,12 +52,14 @@ async function storeRole(req, res) {
 async function updateRole(req, res) {
   const roleId = Number(req.params.id);
   if (!roleId) return res.status(400).json({ error: 'invalid_role_id' });
+  // roles.id is a BigInt column.
+  const roleIdBig = BigInt(roleId);
   const { name } = req.body || {};
-  const existing = await rolesSvc.getById ? await rolesSvc.getById(roleId).catch(() => null) : null;
+  const existing = await rolesSvc.getById ? await rolesSvc.getById(roleIdBig).catch(() => null) : null;
   if (existing && isProtectedRoleName(existing.name)) {
     return res.status(403).json({ error: 'protected_role', message: 'The Super Admin role cannot be modified.' });
   }
-  const role = await rolesSvc.update(roleId, { name });
+  const role = await rolesSvc.update(roleIdBig, { name });
   await logActivity(prisma, {
     log_name: 'role updated',
     description: `Role #${roleId} updated`,
@@ -72,15 +74,17 @@ async function updateRole(req, res) {
 async function destroyRole(req, res) {
   const roleId = Number(req.params.id);
   if (!roleId) return res.status(400).json({ error: 'invalid_role_id' });
-  const existing = await rolesSvc.getById ? await rolesSvc.getById(roleId).catch(() => null) : null;
+  // roles.id and User.role_id are BigInt columns.
+  const roleIdBig = BigInt(roleId);
+  const existing = await rolesSvc.getById ? await rolesSvc.getById(roleIdBig).catch(() => null) : null;
   if (existing && isProtectedRoleName(existing.name)) {
     return res.status(403).json({ error: 'protected_role', message: 'The Super Admin role cannot be modified.' });
   }
-  const userWithRole = await prisma.user.findFirst({ where: { role_id: roleId } });
+  const userWithRole = await prisma.user.findFirst({ where: { role_id: roleIdBig } });
   if (userWithRole) {
     return res.status(400).json({ error: 'role_in_use', message: 'This role cannot be deleted while users are assigned to it. Reassign them first.' });
   }
-  await rolesSvc.delete(roleId);
+  await rolesSvc.delete(roleIdBig);
   await logActivity(prisma, {
     log_name: 'role deleted',
     description: `Role #${roleId} deleted`,
@@ -117,8 +121,10 @@ async function storePermission(req, res) {
 async function updatePermission(req, res) {
   const permissionId = Number(req.params.id);
   if (!permissionId) return res.status(400).json({ error: 'invalid_permission_id' });
+  // permissions.id is a BigInt column.
+  const permissionIdBig = BigInt(permissionId);
   const { name } = req.body || {};
-  const existing = await permsSvc.getById ? await permsSvc.getById(permissionId).catch(() => null) : null;
+  const existing = await permsSvc.getById ? await permsSvc.getById(permissionIdBig).catch(() => null) : null;
   if (existing && isProtectedPermissionName(existing.name)) {
     return res.status(403).json({ error: 'protected_permission', message: 'This permission cannot be modified.' });
   }
@@ -130,7 +136,7 @@ async function updatePermission(req, res) {
       return res.status(409).json({ error: 'permission_name_conflict', message: 'A permission with an equivalent name already exists.' });
     }
   }
-  const perm = await permsSvc.update(permissionId, { name });
+  const perm = await permsSvc.update(permissionIdBig, { name });
   await logActivity(prisma, {
     log_name: 'permission updated',
     description: `Permission #${permissionId} updated`,
@@ -145,15 +151,17 @@ async function updatePermission(req, res) {
 async function destroyPermission(req, res) {
   const permissionId = Number(req.params.id);
   if (!permissionId) return res.status(400).json({ error: 'invalid_permission_id' });
-  const existing = await permsSvc.getById ? await permsSvc.getById(permissionId).catch(() => null) : null;
+  // permissions.id and role_has_permissions.permission_id are BigInt columns.
+  const permissionIdBig = BigInt(permissionId);
+  const existing = await permsSvc.getById ? await permsSvc.getById(permissionIdBig).catch(() => null) : null;
   if (existing && isProtectedPermissionName(existing.name)) {
     return res.status(403).json({ error: 'protected_permission', message: 'This permission cannot be modified.' });
   }
-  const roleUsingPermission = await prisma.role_has_permissions.findFirst({ where: { permission_id: permissionId } });
+  const roleUsingPermission = await prisma.role_has_permissions.findFirst({ where: { permission_id: permissionIdBig } });
   if (roleUsingPermission) {
     return res.status(400).json({ error: 'permission_in_use', message: 'This permission cannot be deleted while it is assigned to a role. Unassign it first.' });
   }
-  await permsSvc.delete(permissionId);
+  await permsSvc.delete(permissionIdBig);
   await logActivity(prisma, {
     log_name: 'permission deleted',
     description: `Permission #${permissionId} deleted`,
@@ -171,8 +179,11 @@ async function assignPermissions(req, res) {
 
   const rid = Number(roleId);
   const pids = permissionIds.map((p) => Number(p)).filter(Boolean);
+  // roles.id and role_has_permissions.role_id/permission_id are BigInt columns.
+  const ridBig = BigInt(rid);
+  const pidsBig = pids.map((p) => BigInt(p));
 
-  const targetRole = await rolesSvc.getById ? await rolesSvc.getById(rid).catch(() => null) : null;
+  const targetRole = await rolesSvc.getById ? await rolesSvc.getById(ridBig).catch(() => null) : null;
   if (targetRole && isProtectedRoleName(targetRole.name)) {
     return res.status(403).json({ error: 'protected_role', message: 'The Super Admin role cannot be modified.' });
   }
@@ -183,13 +194,13 @@ async function assignPermissions(req, res) {
 
   // Capture the previous permission set before it's replaced — once the
   // deleteMany below runs, the prior assignment is otherwise unrecoverable.
-  const existingRows = await relSvc.model.findMany({ where: { role_id: rid }, select: { permission_id: true } });
+  const existingRows = await relSvc.model.findMany({ where: { role_id: ridBig }, select: { permission_id: true } });
   const oldPermissionIds = existingRows.map((r) => Number(r.permission_id));
 
-  await relSvc.model.deleteMany({ where: { role_id: rid } });
+  await relSvc.model.deleteMany({ where: { role_id: ridBig } });
 
-  if (pids.length > 0) {
-    const createData = pids.map((pid) => ({ role_id: rid, permission_id: pid }));
+  if (pidsBig.length > 0) {
+    const createData = pidsBig.map((pid) => ({ role_id: ridBig, permission_id: pid }));
     // createMany with skipDuplicates if available
     await relSvc.model.createMany({ data: createData, skipDuplicates: true }).catch(async () => {
       // fallback to looped create
@@ -214,8 +225,8 @@ async function assignPermissions(req, res) {
 async function getRolePermissions(req, res) {
   const roleId = Number(req.params.id);
   if (!roleId) return res.status(400).json({ error: 'invalid_role_id' });
-
-  const rows = await prisma.role_has_permissions.findMany({ where: { role_id: roleId }, include: { permissions: true } });
+  // role_has_permissions.role_id is a BigInt column.
+  const rows = await prisma.role_has_permissions.findMany({ where: { role_id: BigInt(roleId) }, include: { permissions: true } });
   const permissions = rows.map((r) => r.permissions).filter(Boolean);
   res.json(serializeForJson(permissions));
 }

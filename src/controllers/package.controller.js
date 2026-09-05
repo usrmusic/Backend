@@ -5,7 +5,7 @@ import services from "../services/index.js";
 import { logActivity } from "../utils/activityLogger.js";
 
 const packageUserSvc = services.get("package_users");
-const packageTypeSvc = services.get("PackageType");
+const packageTypeSvc = services.get("packageType");
 
 const listPackages = catchAsync(async (req, res) => {
   const q = req.query || {};
@@ -70,7 +70,10 @@ const createPackage = catchAsync(async (req, res) => {
 
   let finalPackageName = package_name || null;
   if (package_type_id && !finalPackageName) {
-    const pt = await packageTypeSvc.findById(Number(package_type_id));
+    // CoreCrudService only defines getById, not findById — this threw
+    // "packageTypeSvc.findById is not a function" whenever a package was
+    // created from a package_type_id without an explicit name.
+    const pt = await packageTypeSvc.getById(BigInt(package_type_id));
     if (pt) finalPackageName = pt.type || String(pt.id);
   }
 
@@ -101,7 +104,8 @@ const createPackage = catchAsync(async (req, res) => {
       return res.status(400).json({ error: "invalid_equipment_item" });
     }
     equipmentLines.push({
-      equipment_id: Number(item.equipment_id),
+      // equipment_id is a BigInt column on package_user_equipment.
+      equipment_id: BigInt(item.equipment_id),
       quantity: item.quantity != null ? Number(item.quantity) : null,
       equipment_order_id:
         item.equipment_order_id != null
@@ -207,6 +211,11 @@ const createPackage = catchAsync(async (req, res) => {
 const updatePackage = catchAsync(async (req, res) => {
   const id = Number(req.params?.id || req.body?.id);
   if (!id) return res.status(400).json({ error: "id_required" });
+  // package_users.id (and every FK pointing at it — package_user_equipment,
+  // package_user_properties) is a BigInt column; querying/writing it with a
+  // plain Number throws a Prisma type-mismatch error, same bug class fixed
+  // on the delete endpoints.
+  const idBig = BigInt(id);
 
   const body = req.body || {};
   const {
@@ -216,7 +225,7 @@ const updatePackage = catchAsync(async (req, res) => {
     sell_price,
   } = body;
 
-  const existing = await packageUserSvc.model.findUnique({ where: { id } });
+  const existing = await packageUserSvc.model.findUnique({ where: { id: idBig } });
   if (!existing) return res.status(404).json({ error: "package_not_found" });
 
   const status =
@@ -234,7 +243,7 @@ const updatePackage = catchAsync(async (req, res) => {
       where: {
         user_id: targetUserId,
         package_name: finalPackageName,
-        id: { not: id },
+        id: { not: idBig },
       },
     });
     if (dup) {
@@ -255,7 +264,8 @@ const updatePackage = catchAsync(async (req, res) => {
     if (!item || item.equipment_id == null)
       return res.status(400).json({ error: "invalid_equipment_item" });
     equipmentLines.push({
-      equipment_id: Number(item.equipment_id),
+      // equipment_id is a BigInt column on package_user_equipment.
+      equipment_id: BigInt(item.equipment_id),
       quantity: item.quantity != null ? Number(item.quantity) : null,
       equipment_order_id:
         item.equipment_order_id != null
@@ -273,7 +283,7 @@ const updatePackage = catchAsync(async (req, res) => {
 
   // Snapshot existing equipment lines before they are deleted/recreated, for audit trail.
   const oldEquipmentRows = await prisma.package_user_equipment.findMany({
-    where: { package_user_id: id },
+    where: { package_user_id: idBig },
     select: { equipment_id: true, quantity: true },
   });
   const oldEquipmentSnapshot = oldEquipmentRows.map((r) => ({
@@ -285,7 +295,7 @@ const updatePackage = catchAsync(async (req, res) => {
 
   const updated = await prisma.$transaction(async (tx) => {
     const updatedPkg = await tx.package_users.update({
-      where: { id },
+      where: { id: idBig },
       data: {
         package_name: finalPackageName,
         cost_price: cp,
@@ -297,7 +307,7 @@ const updatePackage = catchAsync(async (req, res) => {
 
     // replace properties
     await tx.package_user_properties.deleteMany({
-      where: { package_users_id: id },
+      where: { package_users_id: idBig },
     });
     // if (propertyLines.length) {
     //   const props = propertyLines.map((pl) => ({
@@ -309,11 +319,11 @@ const updatePackage = catchAsync(async (req, res) => {
 
     // replace equipment lines
     await tx.package_user_equipment.deleteMany({
-      where: { package_user_id: id },
+      where: { package_user_id: idBig },
     });
     if (equipmentLines.length) {
       const pue = equipmentLines.map((el) => ({
-        package_user_id: id,
+        package_user_id: idBig,
         equipment_id: el.equipment_id,
         equipment_order_id: el.equipment_order_id ?? null,
         quantity: el.quantity ?? null,
@@ -364,8 +374,11 @@ const updatePackage = catchAsync(async (req, res) => {
       old_sell_price: existing.sell_price != null ? Number(existing.sell_price) : null,
       new_sell_price: sp != null ? Number(sp) : null,
       old_equipment: oldEquipmentSnapshot,
+      // equipment_id is BigInt for the actual DB write, but logActivity
+      // JSON.stringifies its properties — BigInt isn't serializable, so
+      // convert back to Number for this audit-trail snapshot only.
       new_equipment: equipmentLines.map((el) => ({
-        equipment_id: el.equipment_id,
+        equipment_id: Number(el.equipment_id),
         quantity: el.quantity,
       })),
       affected_event_ids: affectedEventIds,
@@ -416,7 +429,7 @@ const getPackage = catchAsync(async (req, res) => {
   if (!id) return res.status(400).json({ error: "invalid_id" });
 
   const base = await packageUserSvc.model.findUnique({
-    where: { id },
+    where: { id: BigInt(id) },
     include: {
       package_user_properties: true,
       users: { select: { id: true, name: true, email: true } },

@@ -495,17 +495,30 @@ async function getUpcomingEvents({ search = null, userId = null, scope = 'admin'
     }));
 }
 
-async function recalculateProfits({ force = false } = {}) {
+// `eventIds`, when given, scopes recalculation to just those events (and
+// implies `force`, since a caller asking to recalculate a specific event
+// just edited it and wants the fresh number immediately — not "only if it
+// was already null"). Used to keep `profit` live after an interactive edit
+// instead of waiting for the nightly cron, without paying for a full-table
+// scan every time.
+async function recalculateProfits({ force = false, eventIds: scopeEventIds = null } = {}) {
 	// Laravel's AdminReportService only ever recomputes profit for
 	// Confirmed/Completed/Cancelled events (event_status_id IN (2,3,4)) —
 	// Open Enquiries (1) have no cost/profit concept yet.
 	const statusFilter = { event_status_id: { in: [2, 3, 4] } };
-	// `event_cost` was never being written anywhere, so every event's
-	// `profit` was silently computed against a null cost (≈ full revenue).
-	// A plain `{ profit: null }` filter would never pick those already-wrong
-	// rows back up for correction, so also recompute whenever `event_cost`
-	// is still null — that's exactly the set poisoned by the old bug.
-	const where = force ? statusFilter : { AND: [statusFilter, { OR: [{ profit: null }, { event_cost: null }] }] };
+	let where;
+	if (Array.isArray(scopeEventIds) && scopeEventIds.length) {
+		where = { AND: [statusFilter, { id: { in: scopeEventIds } }] };
+	} else if (force) {
+		where = statusFilter;
+	} else {
+		// `event_cost` was never being written anywhere, so every event's
+		// `profit` was silently computed against a null cost (≈ full revenue).
+		// A plain `{ profit: null }` filter would never pick those already-wrong
+		// rows back up for correction, so also recompute whenever `event_cost`
+		// is still null — that's exactly the set poisoned by the old bug.
+		where = { AND: [statusFilter, { OR: [{ profit: null }, { event_cost: null }] }] };
+	}
 
 	const events = await prisma.event.findMany({
 		where,

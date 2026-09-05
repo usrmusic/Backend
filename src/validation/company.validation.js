@@ -61,7 +61,12 @@ const listCompanies = {
         page: Joi.number().integer().min(1).default(1),
         perPage: Joi.number().integer().min(1).max(100).default(25),
         sort: Joi.string().optional(),
-    }),
+        // The frontend sends `sort_by`/`sort_dir` (snake_case), not `sort` —
+        // this schema didn't declare them and had no `.unknown(true)`, so
+        // clicking the Company Name column sort was rejected outright.
+        sort_by: Joi.string().valid('name', 'created_at').default('created_at'),
+        sort_dir: Joi.string().valid('asc', 'desc').default('asc'),
+    }).unknown(true),
 };
 
 const deleteCompany = { params: Joi.object({ id: Joi.number().integer().required(), force: Joi.boolean().default(false) }) };

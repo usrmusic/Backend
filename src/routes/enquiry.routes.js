@@ -85,6 +85,16 @@ router
   .route("/status-counts")
   .get(verifyAccessToken, checkPermission("open enquiry"), enquiryController.getStatusCounts);
 
+// Must stay above /:id for the same reason. Advisory-only overbooking check —
+// see checkEquipmentAvailability for parity notes with Laravel.
+router
+  .route("/check-equipment-availability")
+  .post(
+    verifyAccessToken,
+    checkPermission("new enquiry"),
+    enquiryController.checkEquipmentAvailability,
+  );
+
 router
   .route("/:id")
   .get(

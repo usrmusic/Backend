@@ -202,6 +202,12 @@ const deleteEnquiry = Joi.object({
   }),
 });
 
+const reopenEnquiry = Joi.object({
+  params: Joi.object({
+    id: Joi.number().integer().required(),
+  }),
+});
+
 const deleteManyEnquiries = Joi.object({
   params: Joi.object({
     // Accept either an array of numbers or a comma-separated string like "1,2,3"
@@ -231,4 +237,5 @@ export default {
   getEnquiry,
   deleteEnquiry,
   deleteManyEnquiries,
+  reopenEnquiry,
 };

@@ -123,4 +123,11 @@ router.route("/delete-many/:ids").delete(
   enquiryController.deleteManyEnquiries,
 );
 
+router.route("/:id/reopen").post(
+  verifyAccessToken,
+  checkPermission("open enquiry"),
+  validate(enquiryValidation.reopenEnquiry),
+  enquiryController.reopenEnquiry,
+);
+
 export default router;

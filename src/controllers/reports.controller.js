@@ -325,8 +325,10 @@ const adminReport = catchAsync(async (req, res) => {
     }
   }
   const STATUS_MAP = {
+    open: 1,
     confirmed: 2,
     completed: 3,
+    cancelled: 4,
   };
 
   if (

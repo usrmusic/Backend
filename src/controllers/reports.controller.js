@@ -653,8 +653,9 @@ const updateAdminReportRow = catchAsync(async (req, res) => {
 const updateSupplierPaymentEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   const { payment_send, payment_date } = req.body || {};
+  // EventPackage.id is a BigInt column.
   const updated = await prisma.eventPackage.update({
-    where: { id },
+    where: { id: BigInt(id) },
     data: {
       payment_send: payment_send ?? null,
       payment_date: payment_date ? new Date(payment_date) : null,

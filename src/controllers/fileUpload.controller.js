@@ -391,7 +391,9 @@ const deleteFile = catchAsync(async (req, res) => {
 
 const deleteMedia = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id);
-  const f = await prisma.media.findUnique({ where: { id } });
+  // Media.id is a BigInt column.
+  const idBig = BigInt(id);
+  const f = await prisma.media.findUnique({ where: { id: idBig } });
   if (!f) return res.status(404).json({ error: "not_found" });
 
   // Determine the storage key for this media record. `stored_name` may be
@@ -425,7 +427,7 @@ const deleteMedia = catchAsync(async (req, res) => {
   }
 
   // delete DB record
-  await prisma.media.delete({ where: { id } });
+  await prisma.media.delete({ where: { id: idBig } });
 
   await logActivity(prisma, {
     log_name: "media deleted",
@@ -558,7 +560,8 @@ const uploadMedia = catchAsync(async (req, res) => {
     stored_name: storedName,
     extension: extension,
     mime_type: req.file.mimetype || null,
-    size: Number(fileSize) || null,
+    // Media.size is a BigInt column.
+    size: fileSize ? BigInt(fileSize) : null,
   };
 
   const created = await mediaSvc.create(data);
@@ -586,8 +589,10 @@ const uploadMedia = catchAsync(async (req, res) => {
 const updateMedia = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  // Media.id and Media.size are BigInt columns.
+  const idBig = BigInt(id);
 
-  const existing = await prisma.media.findUnique({ where: { id } });
+  const existing = await prisma.media.findUnique({ where: { id: idBig } });
   if (!existing) return res.status(404).json({ error: "not_found" });
 
   // multer may populate `req.file` (single) or `req.files` (fields) —
@@ -649,13 +654,13 @@ const updateMedia = catchAsync(async (req, res) => {
   const extension = path.extname(storedName).replace(/^\./, "") || null;
 
   const updated = await prisma.media.update({
-    where: { id },
+    where: { id: idBig },
     data: {
       display_name: req.body.custom_name || req.file.originalname || storedName,
       stored_name: storedName,
       extension: extension,
       mime_type: req.file.mimetype || null,
-      size: Number(fileSize) || null,
+      size: fileSize ? BigInt(fileSize) : null,
     },
   });
 
@@ -680,7 +685,8 @@ const updateMedia = catchAsync(async (req, res) => {
 
 const downloadMedia = catchAsync(async (req, res) => {
   const id = Number(req.params.id || req.query.id);
-  const f = await prisma.media.findUnique({ where: { id } });
+  // Media.id is a BigInt column.
+  const f = await prisma.media.findUnique({ where: { id: BigInt(id) } });
   if (!f) return res.status(404).json({ error: "not_found" });
 
   if ((process.env.FILE_STORAGE || "").toLowerCase() === "s3") {

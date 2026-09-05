@@ -64,8 +64,10 @@ const listEquipment = catchAsync(async (req, res) => {
 const getEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  // Equipment.id is a BigInt column — querying with a plain Number throws a
+  // Prisma type-mismatch error.
   if (equipmentSvc && typeof equipmentSvc.getById === "function") {
-    const item = await equipmentSvc.getById(id).catch(() => null);
+    const item = await equipmentSvc.getById(BigInt(id)).catch(() => null);
     if (!item) return res.status(404).json({ error: "not_found" });
     return res.json(serializeForJson(item));
   }
@@ -116,6 +118,8 @@ const createEquipment = catchAsync(async (req, res) => {
 const updateEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  // Equipment.id (and EventPackage.equipment_id below) are BigInt columns.
+  const idBig = BigInt(id);
   const body = req.body || {};
   // If supplier_name provided (and no supplier_id), create supplier and set supplier_id
   if (!body.supplier_id && body.supplier_name && supplierSvc && typeof supplierSvc.create === 'function') {
@@ -136,8 +140,8 @@ const updateEquipment = catchAsync(async (req, res) => {
   }
 
   if (equipmentSvc && typeof equipmentSvc.update === "function") {
-    const existingEquipment = await equipmentSvc.getById(id).catch(() => null);
-    const updated = await equipmentSvc.update(id, body).catch((e) => { throw e; });
+    const existingEquipment = await equipmentSvc.getById(idBig).catch(() => null);
+    const updated = await equipmentSvc.update(idBig, body).catch((e) => { throw e; });
 
     // Laravel parity: when cost_price changes, cascade the new cost_price to
     // event_package rows for every currently Confirmed event using this
@@ -149,14 +153,14 @@ const updateEquipment = catchAsync(async (req, res) => {
       const affectedEvents = await prisma.event.findMany({
         where: {
           event_status_id: CONFIRMED_STATUS_ID,
-          event_package: { some: { equipment_id: id } },
+          event_package: { some: { equipment_id: idBig } },
         },
         select: { id: true },
       });
       if (affectedEvents.length) {
         await prisma.event_package.updateMany({
           where: {
-            equipment_id: id,
+            equipment_id: idBig,
             event_id: { in: affectedEvents.map((e) => Number(e.id)) },
           },
           data: { cost_price: newCostPrice },
@@ -192,12 +196,14 @@ const updateEquipment = catchAsync(async (req, res) => {
 const deleteEquipment = catchAsync(async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "invalid_id" });
+  // Equipment.id and package_user_equipment.equipment_id are BigInt columns.
+  const idBig = BigInt(id);
   if (equipmentSvc && typeof equipmentSvc.delete === "function") {
     // Laravel parity: block deletion while this equipment is bundled into a
     // DJ package (package_user_equipment) — those rows would otherwise be
     // cascade-deleted along with the equipment.
     const inUse = await prisma.package_user_equipment.findFirst({
-      where: { equipment_id: id },
+      where: { equipment_id: idBig },
       select: { id: true },
     });
     if (inUse) {
@@ -207,8 +213,8 @@ const deleteEquipment = catchAsync(async (req, res) => {
       });
     }
 
-    const equipmentBeforeDelete = await equipmentSvc.getById(id).catch(() => null);
-    await equipmentSvc.delete(id);
+    const equipmentBeforeDelete = await equipmentSvc.getById(idBig).catch(() => null);
+    await equipmentSvc.delete(idBig);
 
     await logActivity(null, {
       log_name: "equipment deleted",
@@ -232,27 +238,30 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
     .map((s) => Number(s.trim()))
     .filter((n) => !Number.isNaN(n));
   if (ids.length === 0) return res.status(400).json({ error: "invalid_ids" });
+  // Equipment.id and package_user_equipment.equipment_id are BigInt columns.
+  const idsBig = ids.map((n) => BigInt(n));
   if (equipmentSvc && typeof equipmentSvc.deleteMany === "function") {
     // Laravel parity: block deletion of any equipment still bundled into a
     // DJ package (package_user_equipment) — those rows would otherwise be
     // cascade-deleted along with the equipment.
     const inUseRows = await prisma.package_user_equipment.findMany({
-      where: { equipment_id: { in: ids } },
+      where: { equipment_id: { in: idsBig } },
       select: { equipment_id: true },
       distinct: ["equipment_id"],
     });
     const blockedIds = inUseRows.map((r) => Number(r.equipment_id));
     const deletableIds = ids.filter((id) => !blockedIds.includes(id));
+    const deletableIdsBig = deletableIds.map((n) => BigInt(n));
 
     if (deletableIds.length) {
       // Perform a hard delete for delete-many requests
       // CoreCrudService.deleteMany accepts an opts.force flag to force permanent deletion
       try {
-        await equipmentSvc.deleteMany(deletableIds, { force: true });
+        await equipmentSvc.deleteMany(deletableIdsBig, { force: true });
       } catch (err) {
         // Fallback to forceDeleteMany if available
         if (equipmentSvc && typeof equipmentSvc.forceDeleteMany === 'function') {
-          await equipmentSvc.forceDeleteMany(deletableIds);
+          await equipmentSvc.forceDeleteMany(deletableIdsBig);
         } else {
           throw err;
         }
@@ -293,10 +302,11 @@ const reorderEquipment = catchAsync(async (req, res) => {
   if (ids.length !== idsInput.length)
     return res.status(400).json({ error: "invalid_ids" });
 
+  // Equipment.id is a BigInt column.
   await prisma.$transaction(
     ids.map((id, index) =>
       equipmentSvc.model.update({
-        where: { id },
+        where: { id: BigInt(id) },
         data: { sort_order: index },
       }),
     ),

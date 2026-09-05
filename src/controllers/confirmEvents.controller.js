@@ -15,6 +15,7 @@ import AppError from "../utils/AppError.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
 import { signContractForEvent } from "../services/contractSign.service.js";
 import { logActivity } from "../utils/activityLogger.js";
+import dashboardService from "../services/dashboard.service.js";
 const eventSvc = services.get("event");
 
 
@@ -27,7 +28,8 @@ const confirmEvent = catchAsync(async (req, res) => {
   const depositAmount = Number(body.deposit_amount ?? body.amount ?? 0) || 0;
   const paymentData = {
     event_id: eventId,
-    payment_method_id: Number(body.payment_method_id),
+    // EventPayment.payment_method_id is a BigInt column.
+    payment_method_id: BigInt(body.payment_method_id),
     date: body.date ? new Date(body.date) : new Date(),
     amount: depositAmount,
     created_at: new Date(),
@@ -57,7 +59,7 @@ const confirmEvent = catchAsync(async (req, res) => {
   // --- Step 4: load packages + company VAT in parallel ---
   const [eventPackages, company] = await Promise.all([
     prisma.eventPackage.findMany({
-      where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+      where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
       select: {
         id: true, event_id: true, equipment_id: true, package_type_id: true,
         sell_price: true, total_price: true, price_added_to_bill: true,
@@ -155,7 +157,7 @@ const confirmEvent = catchAsync(async (req, res) => {
           ? new Date(event.date).toISOString()
           : null;
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: event.id, package_type_id: { in: [1, 2] } },
+        where: { event_id: event.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event, eventPackages });
@@ -206,69 +208,19 @@ const confirmEvent = catchAsync(async (req, res) => {
       e?.message || e,
     );
   }
-  // Send invoice/confirmation emails to client and admins (parity with Laravel)
+  // Client email on confirm — parity with Laravel's EventBooked ->
+  // SendCredentialsToClient listener, which is the ONLY email Laravel sends
+  // automatically at this point. Laravel's confirmation email and invoice
+  // email are separate, manually-triggered actions (staff clicking "Send"/
+  // "Send Invoice" on the confirmed event) — sending them automatically
+  // here was extra behavior beyond Laravel that this removes for parity.
   try {
     const event = await prisma.event.findUnique({
       where: { id: Number(result.event_id) },
-      include: { users_events_user_idTousers: true, venues: true, event_payments: true },
+      include: { users_events_user_idTousers: true },
     });
     const user = event?.users_events_user_idTousers || null;
 
-    // Load email template for confirmed invoice (fallback to generic)
-    const template = await prisma.emailContent
-      .findFirst({ where: { email_name: "SEND INVOICE-CONFIRMED" } })
-      .catch(() => null);
-
-    const subject = template?.subject || `Invoice for event #${event?.id}`;
-    const bodyText = template?.body || `Your event has been confirmed.`;
-
-    // company details
-    let companyDetails = null;
-    if (result.names_id) {
-      companyDetails =
-        (await prisma.companyName
-          .findUnique({
-            where: { id: BigInt(result.names_id) },
-          })
-          .catch(() => null)) || null;
-    }
-
-    // const makeCompanyHtml = (c) => {
-    //   if (!c) return "";
-    //   const logo = c.company_logo
-    //     ? `<img src="${process.env.APP_URL || ""}public/storage/images/${c.company_logo}" style="max-width:100px;" alt="Logo" />`
-    //     : "";
-    //   const addr = [c.address_name, c.street, c.city, c.postal_code]
-    //     .filter(Boolean)
-    //     .join("<br />");
-    //   const contact = [];
-    //   if (c.telephone_number) contact.push(`<strong>Telephone</strong> ${c.telephone_number}`);
-    //   if (c.email) contact.push(`<strong>Email</strong> <a href="mailto:${c.email}">${c.email}</a>`);
-    //   if (c.website) contact.push(`<strong>Website</strong> ${c.website}`);
-    //   return `<div>${logo}<div>${addr}</div><div>${contact.join("<br />")}</div></div>`;
-    // };
-
-    // Matches Laravel's confirmed_events_mail.blade.php shell exactly.
-    const firstName = user?.name || "Client";
-    const logoUrl = companyDetails?.company_logo
-      ? await getSignedGetUrl(String(companyDetails.company_logo)).catch(() => null)
-      : null;
-    const clientHtml = buildUsrLetterEmail({
-      name: firstName,
-      bodyHtml: String(bodyText).replace(/\n/g, "<br/>"),
-      company: companyDetails,
-      logoUrl,
-    });
-    if (user && user.email) {
-      await sendEmail({ to: [user.email], subject, html: clientHtml }).catch(
-        () => {},
-      );
-    }
-
-    // Login credentials email — parity with Laravel's EventBooked ->
-    // SendCredentialsToClient listener, which fires at this exact point
-    // (deposit accepted / enquiry confirmed into an event). Node had no
-    // equivalent, so a client never received their portal login details.
     if (user && user.email && user.password_text) {
       const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
         name: user.name || "Client",
@@ -281,126 +233,6 @@ const confirmEvent = catchAsync(async (req, res) => {
           console.error("[confirmEventsController] send credentials email failed", e?.message || e);
         },
       );
-    }
-
-    // SEND INVOICE-OPEN — a second, dedicated invoice email fired at this same
-    // deposit-confirmation moment, parity with Laravel's ADD DEPOSIT action
-    // (which sends the generic confirmation email above AND a separate
-    // invoice email using this template). This is additive to the
-    // SEND INVOICE-CONFIRMED email above, not a replacement for it — that one
-    // has no PDF attached and speaks generically about the confirmation,
-    // while this one carries the actual invoice PDF/link.
-    try {
-      const invoiceOpenTemplate = await prisma.emailContent
-        .findFirst({ where: { email_name: "SEND INVOICE-OPEN" } })
-        .catch(() => null);
-
-      if (invoiceOpenTemplate && user && user.email) {
-        const invoiceOpenSubject =
-          invoiceOpenTemplate.subject || `Invoice for event #${event?.id}`;
-        let invoiceOpenBodyRaw = invoiceOpenTemplate.body || "";
-        if (invoiceOpenBodyRaw && depositAmount) {
-          invoiceOpenBodyRaw = String(invoiceOpenBodyRaw).replace(
-            "{--amount--}",
-            String(depositAmount),
-          );
-        }
-
-        const enrichedInvoiceDetails = (eventPackages || []).map((p) => ({
-          ...p,
-          is_vat_available_for_the_event: event?.is_vat_available_for_the_event,
-          event_amount_without_vat: event?.event_amount_without_vat,
-          vat_value: event?.vat_value,
-          total_cost_for_equipment: event?.total_cost_for_equipment,
-        }));
-
-        let invoiceOpenPdfBuffer = null;
-        try {
-          invoiceOpenPdfBuffer = await generateInvoicePdf({
-            event,
-            companyDetails: companyDetails || {},
-            enrichedDetails: enrichedInvoiceDetails,
-          });
-        } catch (e) {
-          console.error(
-            "[confirmEvent] SEND INVOICE-OPEN pdf generation failed",
-            e?.message || e,
-          );
-        }
-
-        let invoiceOpenPdfUrl = null;
-        if (invoiceOpenPdfBuffer) {
-          const key = `invoices/open-${eventId}-${Date.now()}.pdf`;
-          try {
-            await uploadStreamToS3(invoiceOpenPdfBuffer, key, "application/pdf");
-            invoiceOpenPdfUrl = await getSignedGetUrl(key);
-          } catch (e) {
-            console.error(
-              "[confirmEvent] SEND INVOICE-OPEN pdf upload failed",
-              e?.message || e,
-            );
-          }
-        }
-
-        const invoiceOpenHtml = buildUsrLetterEmail({
-          name: firstName,
-          bodyHtml: String(invoiceOpenBodyRaw).replace(/\n/g, "<br/>"),
-          company: companyDetails,
-          logoUrl,
-        });
-        const invoiceOpenFinalHtml = invoiceOpenPdfUrl
-          ? `${invoiceOpenHtml}<p><a href="${invoiceOpenPdfUrl}">Download Invoice (PDF)</a></p>`
-          : invoiceOpenHtml;
-
-        await sendEmail({
-          to: [user.email],
-          subject: invoiceOpenSubject,
-          html: invoiceOpenFinalHtml,
-        }).catch(() => {});
-
-        await eventNoteService
-          .createNote(prisma, {
-            eventId,
-            notes: `Invoice Sent - ${companyDetails?.name || ""}`,
-            created_by: req.user?.id || null,
-          })
-          .catch(() => {});
-
-        await logActivity(prisma, {
-          log_name: "invoice sent (open enquiry confirm)",
-          description: `Invoice emailed for event #${eventId} (open enquiry confirm)`,
-          subject_type: "Event",
-          subject_id: eventId,
-          causer_id: req.user?.id || null,
-          properties: { to: user.email, invoice_number: invoiceNumber },
-        });
-      }
-    } catch (e) {
-      console.error(
-        "[confirmEvent] SEND INVOICE-OPEN flow failed",
-        e?.message || e,
-      );
-    }
-
-    // notify admins (role_id = 2) who have email enabled
-    const admins = await prisma.user.findMany({
-      where: { role_id: BigInt(2), is_email_send: true },
-    });
-    const adminEmails = admins.map((a) => a.email).filter(Boolean);
-    if (adminEmails.length) {
-      // Was a plain unbranded email — matches the rest of this function's
-      // client-facing emails now, using the same company/logo already
-      // resolved above.
-      const adminBodyHtml = `
-        <p>Event #${event?.id} has been confirmed.</p>
-        <p>Invoice: ${result.invoice_number || "N/A"}</p>
-        <p>Amount Paid: ${result.amount || 0}</p>
-      `;
-      await sendEmail({
-        to: adminEmails,
-        subject: `Event Confirmed - #${event?.id}`,
-        html: buildUsrLetterEmail({ name: "Team", bodyHtml: adminBodyHtml, company: companyDetails, logoUrl }),
-      }).catch(() => {});
     }
   } catch (e) {
     console.error(
@@ -420,6 +252,13 @@ const confirmEvent = catchAsync(async (req, res) => {
       invoice_number: invoiceNumber,
       total_cost_for_equipment: finalCost,
     },
+  });
+
+  // Confirming sets total_cost_for_equipment and the event_package rows for
+  // the first time — without this, `profit` stays null on Dashboard/Admin
+  // Report until the next nightly recalculation cron.
+  dashboardService.recalculateProfits({ eventIds: [eventId] }).catch((e) => {
+    console.error("[confirmEvent] recalculateProfits failed", e?.message || e);
   });
 
   res.json(serializeForJson({ success: true, data: result }));
@@ -879,13 +718,17 @@ const sendInvoice = catchAsync(async (req, res) => {
   const eventId = Number(
     body.event_id || (details[0] && details[0].id) || body.eventId || 0,
   );
-  const companyId =
-    Number(body.company_name_id || body.companyNameId || 0) || null;
-
   if (!eventId) return res.status(400).json({ error: "event_id_required" });
 
   // fetch event VAT/amount fields
   const event = await prisma.event.findUnique({ where: { id: eventId } });
+
+  // Falls back to the event's own linked company, same as sendQuote — without
+  // this, an invoice sent without an explicit company_name_id in the request
+  // body lost its branding (blank name, no logo) even for events that do
+  // have a company assigned.
+  const companyId =
+    Number(body.company_name_id || body.companyNameId || event?.names_id || 0) || null;
 
   const enrichedDetails = details.map((d) => ({
     ...d,
@@ -1127,13 +970,13 @@ const sendQuote = catchAsync(async (req, res) => {
   // sourced from the event's real event_package rows, not enquiry-stage data.
   const eventPackages = await prisma.eventPackage
     .findMany({
-      where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+      where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
       include: { equipment: true, package_types: true },
     })
     .catch(() => []);
   const enrichedDetails = eventPackages.map((p) => ({
     equipment_id: p.equipment_id,
-    package_type_id: p.package_type_id,
+    package_type_id: p.package_type_id != null ? Number(p.package_type_id) : null,
     quantity: p.quantity || 1,
     sell_price: p.sell_price ?? p.total_price ?? null,
     total_price: p.total_price ?? null,
@@ -1309,7 +1152,7 @@ const downloadInvoice = catchAsync(async (req, res) => {
     .catch(() => []);
   const enrichedDetails = eventPackages.map((p) => ({
     equipment_id: p.equipment_id,
-    package_type_id: p.package_type_id,
+    package_type_id: p.package_type_id != null ? Number(p.package_type_id) : null,
     quantity: p.quantity || 1,
     sell_price: p.sell_price ?? p.total_price ?? null,
     total_price: p.total_price ?? null,
@@ -1447,7 +1290,8 @@ const addPayment = catchAsync(async (req, res) => {
     const payment = await tx.eventPayment.create({
       data: {
         event_id: eventId,
-        payment_method_id: Number(paymentMethodId),
+        // EventPayment.payment_method_id is a BigInt column.
+        payment_method_id: BigInt(paymentMethodId),
         date: dateVal instanceof Date ? dateVal : new Date(dateVal),
         amount: Number(amount),
         created_at: new Date(),
@@ -1527,8 +1371,10 @@ const updatePayment = catchAsync(async (req, res) => {
   const paymentId = Number(req.params.id || 0);
   const body = req.body || {};
   if (!paymentId) return res.status(400).json({ error: "payment_id_required" });
+  // EventPayment.id and .payment_method_id are BigInt columns.
+  const paymentIdBig = BigInt(paymentId);
 
-  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentId } });
+  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentIdBig } });
   if (!existing) return res.status(404).json({ error: "payment_not_found" });
 
   const data = {};
@@ -1547,11 +1393,11 @@ const updatePayment = catchAsync(async (req, res) => {
     data.date = dateVal instanceof Date ? dateVal : new Date(dateVal);
   }
   if (body.payment_method_id !== undefined) {
-    data.payment_method_id = Number(body.payment_method_id) || null;
+    data.payment_method_id = body.payment_method_id != null ? BigInt(body.payment_method_id) : null;
   }
 
   const result = await prisma.$transaction(async (tx) => {
-    const payment = await tx.eventPayment.update({ where: { id: paymentId }, data });
+    const payment = await tx.eventPayment.update({ where: { id: paymentIdBig }, data });
     const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
 
     const paymentWithMethod = await tx.eventPayment
@@ -1596,12 +1442,14 @@ const updatePayment = catchAsync(async (req, res) => {
 const deletePayment = catchAsync(async (req, res) => {
   const paymentId = Number(req.params.id || 0);
   if (!paymentId) return res.status(400).json({ error: "payment_id_required" });
+  // EventPayment.id is a BigInt column.
+  const paymentIdBig = BigInt(paymentId);
 
-  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentId } });
+  const existing = await prisma.eventPayment.findUnique({ where: { id: paymentIdBig } });
   if (!existing) return res.status(404).json({ error: "payment_not_found" });
 
   const result = await prisma.$transaction(async (tx) => {
-    await tx.eventPayment.delete({ where: { id: paymentId } });
+    await tx.eventPayment.delete({ where: { id: paymentIdBig } });
     const { totalPayment, paymentSent } = await recalcEventPaymentStatus(tx, existing.event_id);
 
     await logActivity(tx, {
@@ -1770,6 +1618,14 @@ const cancelEvent = catchAsync(async (req, res) => {
     }
   } catch (e) {}
 
+  // Cancelling switches the event's cost source from live equipment/DJ
+  // prices to a frozen snapshot (see recalculateProfits) — recalculate now
+  // instead of leaving Admin Report's per-row profit stale until the
+  // nightly cron.
+  dashboardService.recalculateProfits({ eventIds: [eventId] }).catch((e) => {
+    console.error("[cancelEvent] recalculateProfits failed", e?.message || e);
+  });
+
   res.json(serializeForJson({ success: true, data: updated }));
 });
 
@@ -1849,7 +1705,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
           ? new Date(eventDetail.date).toISOString()
           : null;
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: eventDetail.id, package_type_id: { in: [1, 2] } },
+        where: { event_id: eventDetail.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({
@@ -1876,18 +1732,26 @@ const reconfirmEvent = catchAsync(async (req, res) => {
               e?.message || e,
             );
           });
-        await eventNoteService
-          .createNote(prisma, {
-            eventId: eventDetail.id,
-            notes: `CalendarEventId: ${created.id}`,
-            created_by: req.user?.id || null,
-          })
-          .catch(() => {});
+        await logActivity(prisma, {
+          log_name: "calendar event created",
+          description: `Outlook calendar entry created for event #${eventDetail.id}`,
+          subject_type: "Event",
+          subject_id: eventDetail.id,
+          causer_id: req.user?.id || null,
+          properties: { calendar_event_id: created.id },
+        });
       }
     }
   } catch (e) {
     console.error("[reconfirmEvent] microsoft graph create failed", e?.message || e);
   }
+
+  // Reconfirming flips the cost source back to live equipment/DJ prices
+  // (see recalculateProfits) — recalculate now instead of leaving the
+  // profit figure stale until the nightly cron.
+  dashboardService.recalculateProfits({ eventIds: [eventId] }).catch((e) => {
+    console.error("[reconfirmEvent] recalculateProfits failed", e?.message || e);
+  });
 
   res.json(serializeForJson({ success: true, data: updated }));
 });
@@ -2240,7 +2104,7 @@ const updateEvent = catchAsync(async (req, res) => {
 
     if (ms?.microsoft_event_id && fresh) {
       const eventPackages = await prisma.eventPackage.findMany({
-        where: { event_id: eventId, package_type_id: { in: [1, 2] } },
+        where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event: fresh, eventPackages });

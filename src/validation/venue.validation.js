@@ -49,9 +49,12 @@ const listVenues = {
         page: Joi.number().integer().min(1).default(1),
         perPage: Joi.number().integer().min(1).max(200).default(25),
         limit: Joi.number().integer().min(1).max(200).default(25),
-        sort_by: Joi.string().valid('venue', 'stage', 'created_at', 'updated_at').default('created_at'),
+        // Every sortable column on the Venues table, not just two of them —
+        // clicking sort on Power/Access/Notes sent a `sort_by` this
+        // whitelist rejected, and the table went blank.
+        sort_by: Joi.string().valid('venue', 'stage', 'power', 'access', 'notes', 'created_at', 'updated_at').default('created_at'),
         sort_dir: Joi.string().valid('asc', 'desc').default('asc'),
-    }),
+    }).unknown(true),
 };
 
 const deleteManyVenues = {

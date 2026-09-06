@@ -188,4 +188,51 @@ async function deleteEvent(graphEventId) {
   }
 }
 
-export default { createEvent, updateEvent, deleteEvent, buildEventCalendarContent, formatUkTimeLabel };
+function normalizeRecipients(value) {
+  if (!value) return [];
+  const list = Array.isArray(value) ? value : [value];
+  return list
+    .filter(Boolean)
+    .map((address) => ({ emailAddress: { address: String(address) } }));
+}
+
+function normalizeAttachments(attachments) {
+  if (!Array.isArray(attachments) || !attachments.length) return undefined;
+  return attachments.map((a) => {
+    const contentBytes = Buffer.isBuffer(a.content)
+      ? a.content.toString('base64')
+      : Buffer.from(a.content || '', 'utf8').toString('base64');
+    return {
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: a.filename || 'attachment',
+      contentType: a.contentType || 'application/octet-stream',
+      contentBytes,
+    };
+  });
+}
+
+// Mail.Send replacement for Resend — same mailbox used for calendar sync
+// (AZURE_CALENDAR_USER_ID), matching Laravel's MAIL_MAILER=graph (both send
+// as and sync the calendar of the same info@usrmusic.co.uk mailbox).
+// Signature matches resendClient.js's sendEmail() exactly so callers don't
+// need to change: { to, cc, subject, html, attachments }.
+async function sendMail({ to, cc, subject, html, attachments }) {
+  if (!to) throw new Error('missing_to');
+  const token = await getAccessToken();
+  const user = ensureCalendarUser();
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(user)}/sendMail`;
+  const message = {
+    subject: subject || '',
+    body: { contentType: 'HTML', content: html || '' },
+    toRecipients: normalizeRecipients(to),
+  };
+  const ccRecipients = normalizeRecipients(cc);
+  if (ccRecipients.length) message.ccRecipients = ccRecipients;
+  const fileAttachments = normalizeAttachments(attachments);
+  if (fileAttachments) message.attachments = fileAttachments;
+
+  await axios.post(url, { message, saveToSentItems: true }, { headers: { Authorization: `Bearer ${token}` } });
+  return { ok: true };
+}
+
+export default { createEvent, updateEvent, deleteEvent, sendMail, buildEventCalendarContent, formatUkTimeLabel };

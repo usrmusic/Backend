@@ -6,7 +6,7 @@ import bcrypt from "bcrypt";
 import { serializeForJson } from "../utils/serialize.js";
 import { uploadFile, resolveProfilePhotoUrl } from "../utils/uploadHelper.js";
 import genPassword from "../utils/genPassword.js";
-import resendClient from "../utils/mail/resendClient.js";
+import resendClient from "../utils/mail/graphMailClient.js";
 import crypto from "crypto";
 import { buildForgotPasswordEmail } from "../utils/mail/templates/forgotPasswordEmail.js";
 import * as authService from "../services/authService.js";

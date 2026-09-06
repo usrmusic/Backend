@@ -3,7 +3,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import { v4 as uuidv4 } from "uuid";
 import { toDbDate } from "../utils/dateUtils.js";
-import sendEmail from "../utils/mail/resendClient.js";
+import sendEmail from "../utils/mail/graphMailClient.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import { generateQuotePdf } from "../utils/pdfGenerator.js";
 import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";

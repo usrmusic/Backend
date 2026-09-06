@@ -6,7 +6,7 @@ import eventNoteService from "../services/eventNoteService.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import { generateInvoicePdf, generateQuotePdf } from "../utils/pdfGenerator.js";
 import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
-import sendEmail from "../utils/mail/resendClient.js";
+import sendEmail from "../utils/mail/graphMailClient.js";
 import { buildUserCredentialEmail } from "../utils/mail/templates/userCredentialEmail.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";

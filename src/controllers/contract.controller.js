@@ -2,7 +2,7 @@ import prisma from '../utils/prismaClient.js';
 import catchAsync from '../utils/catchAsync.js';
 import { serializeForJson } from '../utils/serialize.js';
 import { getSignedGetUrl, deleteObjectFromS3 } from '../utils/s3Client.js';
-import sendEmail from '../utils/mail/resendClient.js';
+import sendEmail from '../utils/mail/graphMailClient.js';
 import { signContractForEvent } from '../services/contractSign.service.js';
 import { randomUUID } from 'crypto';
 import { logActivity } from '../utils/activityLogger.js';

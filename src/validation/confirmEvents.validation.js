@@ -116,8 +116,8 @@ const updateEvent = Joi.object({
     // Event Details
     couple_name: Joi.string().allow('', null).optional(),
     date: Joi.string().pattern(dateRegex).optional(),
-    start_time: Joi.string().pattern(timeRegex).optional(),
-    end_time: Joi.string().pattern(timeRegex).optional(),
+    start_time: Joi.string().pattern(timeRegex).allow('', null).optional(),
+    end_time: Joi.string().pattern(timeRegex).allow('', null).optional(),
     venue: Joi.string().allow('', null).optional(),
     venue_id: Joi.number().integer().allow(null).optional(),
     access_time: Joi.string().allow('', null).optional(),

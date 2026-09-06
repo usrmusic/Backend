@@ -104,6 +104,17 @@ router
   );
 
 router
+  .route("/send-cancel-email")
+  .post(
+    // Matches Laravel's separate "Send Cancel Email" button — same gate as
+    // Cancel above.
+    verifyAccessToken,
+    checkPermission("confirm event"),
+    blockClient,
+    confirmEventsController.sendCancelEventEmail,
+  );
+
+router
   .route("/reconfirm")
   .post(
     // Bring a Cancelled event back to Confirmed — same gate as Cancel above.

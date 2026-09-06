@@ -146,16 +146,8 @@ const confirmEvent = catchAsync(async (req, res) => {
       include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
     if (event) {
-      const startIso = event.start_time
-        ? new Date(event.start_time).toISOString()
-        : event.date
-          ? new Date(event.date).toISOString()
-          : null;
-      const endIso = event.end_time
-        ? new Date(event.end_time).toISOString()
-        : event.date
-          ? new Date(event.date).toISOString()
-          : null;
+      const startIso = microsoftGraph.combineDateWithTimeOfDay(event.date, event.start_time);
+      const endIso = microsoftGraph.combineDateWithTimeOfDay(event.date, event.end_time);
       const eventPackages = await prisma.eventPackage.findMany({
         where: { event_id: event.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
@@ -1702,16 +1694,8 @@ const reconfirmEvent = catchAsync(async (req, res) => {
       include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
     if (eventDetail) {
-      const startIso = eventDetail.start_time
-        ? new Date(eventDetail.start_time).toISOString()
-        : eventDetail.date
-          ? new Date(eventDetail.date).toISOString()
-          : null;
-      const endIso = eventDetail.end_time
-        ? new Date(eventDetail.end_time).toISOString()
-        : eventDetail.date
-          ? new Date(eventDetail.date).toISOString()
-          : null;
+      const startIso = microsoftGraph.combineDateWithTimeOfDay(eventDetail.date, eventDetail.start_time);
+      const endIso = microsoftGraph.combineDateWithTimeOfDay(eventDetail.date, eventDetail.end_time);
       const eventPackages = await prisma.eventPackage.findMany({
         where: { event_id: eventDetail.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
@@ -2119,8 +2103,8 @@ const updateEvent = catchAsync(async (req, res) => {
       await microsoftGraph.updateEvent(ms.microsoft_event_id, {
         subject,
         content,
-        startIso: fresh.start_time?.toISOString() || fresh.date?.toISOString(),
-        endIso: fresh.end_time?.toISOString() || fresh.date?.toISOString(),
+        startIso: microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.start_time),
+        endIso: microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.end_time),
         location,
       }).catch(err => console.error("MS Graph Sync Failed:", err));
     }

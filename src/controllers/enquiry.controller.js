@@ -1094,14 +1094,8 @@ const updateEnquiry = catchAsync(async (req, res) => {
       .findFirst({ where: { event_id: BigInt(id) } })
       .catch(() => null);
     if (me && me.microsoft_event_id) {
-      const startIso = result?.start_time
-        ? new Date(result.start_time).toISOString()
-        : result?.date
-          ? new Date(result.date).toISOString()
-          : null;
-      const endIso = result?.end_time
-        ? new Date(result.end_time).toISOString()
-        : null;
+      const startIso = microsoftGraph.combineDateWithTimeOfDay(result?.date, result?.start_time);
+      const endIso = microsoftGraph.combineDateWithTimeOfDay(result?.date, result?.end_time);
       // `result` (from the transaction's plain findUnique) doesn't carry the
       // client/DJ/venue relations the calendar entry needs — re-fetch with
       // them, same as the other two Graph sync call sites.

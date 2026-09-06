@@ -4,7 +4,7 @@ import services from "../services/index.js";
 import catchAsync from "../utils/catchAsync.js";
 import bcrypt from "bcrypt";
 import { serializeForJson } from "../utils/serialize.js";
-import { uploadFile } from "../utils/uploadHelper.js";
+import { uploadFile, resolveProfilePhotoUrl } from "../utils/uploadHelper.js";
 import genPassword from "../utils/genPassword.js";
 import resendClient from "../utils/mail/resendClient.js";
 import crypto from "crypto";
@@ -603,10 +603,12 @@ const listUsers = catchAsync(async (req, res) => {
   const total = await prisma.user.count({ where: filter }).catch(() => 0);
 
   // Flatten the role relation so the frontend can render `record.role` directly.
-  const shaped = (users || []).map((u) => {
-    const role = u?.roles?.name || null;
-    return { ...u, role };
-  });
+  const shaped = await Promise.all(
+    (users || []).map(async (u) => {
+      const role = u?.roles?.name || null;
+      return { ...u, role, profile_photo: await resolveProfilePhotoUrl(u.profile_photo) };
+    }),
+  );
 
   return res.json({
     data: serializeForJson(shaped),
@@ -624,6 +626,7 @@ const getUser = catchAsync(async (req, res) => {
   const user = await userSvc.getById(id);
   if (!user || user.deleted_at)
     return res.status(404).json({ error: "user_not_found" });
+  user.profile_photo = await resolveProfilePhotoUrl(user.profile_photo);
   res.json(serializeForJson(user));
 });
 
@@ -718,19 +721,19 @@ const listDjColors = catchAsync(async (req, res) => {
     orderBy: { name: "asc" },
   });
 
-  res.json(
-    serializeForJson({
-      data: djs.map((d) => ({
-        id: d.id,
-        name: d.name,
-        email: d.email,
-        profile_photo: d.profile_photo,
-        color: d.color,
-        role_id: d.role_id,
-        event_count: d._count?.events_events_dj_idTousers ?? 0,
-      })),
-    }),
+  const data = await Promise.all(
+    djs.map(async (d) => ({
+      id: d.id,
+      name: d.name,
+      email: d.email,
+      profile_photo: await resolveProfilePhotoUrl(d.profile_photo),
+      color: d.color,
+      role_id: d.role_id,
+      event_count: d._count?.events_events_dj_idTousers ?? 0,
+    })),
   );
+
+  res.json(serializeForJson({ data }));
 });
 
 const currentUser = catchAsync(async (req, res) => {
@@ -754,7 +757,7 @@ const currentUser = catchAsync(async (req, res) => {
     id: user.id,
     name: user.name,
     email: user.email,
-    profile_photo: user.profile_photo || null,
+    profile_photo: await resolveProfilePhotoUrl(user.profile_photo),
     role_id: user.role_id ? String(user.role_id) : undefined,
     permissions: Array.from(perms || []),
   };

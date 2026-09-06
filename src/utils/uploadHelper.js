@@ -114,6 +114,24 @@ export async function getDownloadUrl(fileKey, opts = {}) {
   return `${base}/uploads/${fileKey}`;
 }
 
+// users.profile_photo is stored as a bare storage key (e.g.
+// "migrated/profile_photo/x.jpg"), same convention as every other upload —
+// but unlike contracts/company logos/etc, nothing ever converted that key
+// into an actual viewable link before handing it to the frontend, so every
+// profile photo in the app was silently broken (frontend just falls back to
+// initials). Resolves a stored value into something an <img> tag can use;
+// already-absolute values (a legacy local /uploads path, or a full URL) pass
+// through untouched.
+export async function resolveProfilePhotoUrl(value) {
+  if (!value) return null;
+  if (/^(https?:\/\/|\/\/|data:|\/uploads\/)/i.test(value)) return value;
+  try {
+    return await getDownloadUrl(value);
+  } catch (e) {
+    return null;
+  }
+}
+
 // Remove expired files whose `delete_after` is past. This deletes the object from storage and removes the fileUpload row.
 // Matches Laravel's DeleteExpiredFiles command: only files attached to a
 // Completed (3) or Cancelled (4) event are eligible. Laravel's whereHas()

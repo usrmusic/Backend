@@ -28,6 +28,31 @@ let tokenExpiry = 0;
 // already carry the correct UK wall-clock digits — they're just wrongly labelled
 // `Z`/UTC. `toNaiveLocalDateTime()` strips that label and `timeZone: 'Europe/London'`
 // (below) lets Graph apply BST/GMT correctly instead of treating the digits as UTC.
+// events.date is a DATE column (the real calendar day, stored at UTC
+// midnight); events.start_time/end_time are TIME(0) columns, which Prisma
+// always anchors to 1970-01-01 — only the H:M:S digits are meaningful (see
+// the timezone note above). Every calendar-sync call site used to build
+// startIso/endIso by calling .toISOString() directly on start_time/end_time
+// alone, which serialized that epoch anchor as-is and silently synced every
+// event onto Jan 1 1970 — present in Graph, invisible on any real calendar
+// view. This combines the real date with the time-of-day correctly.
+function combineDateWithTimeOfDay(dateVal, timeVal) {
+  if (!dateVal) return null;
+  const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+  if (Number.isNaN(d.getTime())) return null;
+  const t = timeVal instanceof Date ? timeVal : (timeVal ? new Date(timeVal) : null);
+  const hasTime = t && !Number.isNaN(t.getTime());
+  const combined = new Date(Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate(),
+    hasTime ? t.getUTCHours() : 0,
+    hasTime ? t.getUTCMinutes() : 0,
+    hasTime ? t.getUTCSeconds() : 0,
+  ));
+  return combined.toISOString();
+}
+
 function toNaiveLocalDateTime(isoString) {
   if (!isoString) return isoString;
   // "2026-09-06T19:00:00.000Z" -> "2026-09-06T19:00:00" (drop ms + trailing Z)
@@ -235,4 +260,4 @@ async function sendMail({ to, cc, subject, html, attachments }) {
   return { ok: true };
 }
 
-export default { createEvent, updateEvent, deleteEvent, sendMail, buildEventCalendarContent, formatUkTimeLabel };
+export default { createEvent, updateEvent, deleteEvent, sendMail, buildEventCalendarContent, formatUkTimeLabel, combineDateWithTimeOfDay };

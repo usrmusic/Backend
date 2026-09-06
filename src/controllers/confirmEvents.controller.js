@@ -213,7 +213,10 @@ const confirmEvent = catchAsync(async (req, res) => {
     });
     const user = event?.users_events_user_idTousers || null;
 
-    if (user && user.email && user.password_text) {
+    // Matches Laravel's SendCredentialsToClient exactly: sends unconditionally
+    // on every confirmation, not just the client's first ever event — Laravel
+    // never checks whether a password was already sent before.
+    if (user && user.email) {
       const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
         name: user.name || "Client",
         email: user.email,
@@ -1568,55 +1571,11 @@ const cancelEvent = catchAsync(async (req, res) => {
     }
   } catch (e) {}
 
-  // send cancellation emails to client and admins (best-effort)
-  try {
-    const eventRow = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: { users_events_user_idTousers: true },
-    });
-    const user = eventRow?.users_events_user_idTousers || null;
-    // Was looking up "EVENT CANCELLED", which doesn't exist — the real row
-    // is named "Cancel Event Email" (see email_contents id 9), so this
-    // always silently fell back to generic hardcoded text instead of the
-    // actual admin-edited cancellation copy.
-    const template = await prisma.emailContent
-      .findFirst({ where: { email_name: "Cancel Event Email" } })
-      .catch(() => null);
-    const subject = template?.subject || `Event Cancelled - #${eventId}`;
-    const raw =
-      template?.body ||
-      `Your event #${eventId} has been cancelled.${refundAmount ? ` Refund: ${refundAmount}` : ""}`;
-    const company = eventRow?.names_id
-      ? await prisma.companyName.findUnique({ where: { id: BigInt(eventRow.names_id) } }).catch(() => null)
-      : null;
-    const cancelLogoUrl = company?.company_logo
-      ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
-      : null;
-    const bodyHtml = buildUsrLetterEmail({
-      name: user?.name || "Client",
-      bodyHtml: String(raw).replace(/\n/g, "<br/>"),
-      company,
-      logoUrl: cancelLogoUrl,
-    });
-    if (user && user.email) {
-      await sendEmail({ to: [user.email], subject, html: bodyHtml }).catch(
-        () => {},
-      );
-    }
-
-    const admins = await prisma.user.findMany({
-      where: { role_id: BigInt(2), is_email_send: true },
-    });
-    const adminEmails = admins.map((a) => a.email).filter(Boolean);
-    if (adminEmails.length) {
-      const adminHtml = `<p>Event #${eventId} was cancelled.</p><p>Refund: ${refundAmount}</p>`;
-      await sendEmail({
-        to: adminEmails,
-        subject: `Event Cancelled - #${eventId}`,
-        html: adminHtml,
-      }).catch(() => {});
-    }
-  } catch (e) {}
+  // Matches Laravel exactly: cancelling only deletes the calendar entry
+  // (EventCancelled -> CancelEventInOutlookCalendar). Notifying the client is
+  // a deliberate separate manual action there (CancelEventsController::
+  // sendCancelEventMail, its own button) — not bundled into cancellation
+  // itself. See sendCancelEventEmail below for that same action here.
 
   // Cancelling switches the event's cost source from live equipment/DJ
   // prices to a frozen snapshot (see recalculateProfits) — recalculate now
@@ -1627,6 +1586,57 @@ const cancelEvent = catchAsync(async (req, res) => {
   });
 
   res.json(serializeForJson({ success: true, data: updated }));
+});
+
+// Manual "notify client of cancellation" action — mirrors Laravel's
+// CancelEventsController::sendCancelEventMail exactly: a deliberate separate
+// step from cancelling itself (see cancelEvent above), so an admin can
+// cancel without necessarily emailing the client.
+const sendCancelEventEmail = catchAsync(async (req, res) => {
+  const eventId = Number(req.params?.id || req.body?.event_id || 0);
+  if (!eventId) return res.status(400).json({ error: "event_id_required" });
+
+  const eventRow = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: { users_events_user_idTousers: true },
+  });
+  if (!eventRow) return res.status(404).json({ error: "event_not_found" });
+
+  const user = eventRow.users_events_user_idTousers || null;
+  const template = await prisma.emailContent
+    .findFirst({ where: { email_name: "Cancel Event Email" } })
+    .catch(() => null);
+  const subject = template?.subject || `Event Cancelled - #${eventId}`;
+  const raw =
+    template?.body ||
+    `Your event #${eventId} has been cancelled.${eventRow.refund_amount ? ` Refund: ${eventRow.refund_amount}` : ""}`;
+  const company = eventRow.names_id
+    ? await prisma.companyName.findUnique({ where: { id: BigInt(eventRow.names_id) } }).catch(() => null)
+    : null;
+  const cancelLogoUrl = company?.company_logo
+    ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
+    : null;
+  const bodyHtml = buildUsrLetterEmail({
+    name: user?.name || "Client",
+    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    company,
+    logoUrl: cancelLogoUrl,
+  });
+
+  if (user && user.email) {
+    await sendEmail({ to: [user.email], subject, html: bodyHtml }).catch(() => {});
+  }
+
+  const admins = await prisma.user.findMany({
+    where: { role_id: BigInt(2), is_email_send: true },
+  });
+  const adminEmails = admins.map((a) => a.email).filter(Boolean);
+  if (adminEmails.length) {
+    const adminHtml = `<p>Event #${eventId} was cancelled.</p><p>Refund: ${eventRow.refund_amount ?? 0}</p>`;
+    await sendEmail({ to: adminEmails, subject: `Event Cancelled - #${eventId}`, html: adminHtml }).catch(() => {});
+  }
+
+  res.json(serializeForJson({ success: true }));
 });
 
 // Bring a Cancelled event back to Confirmed — mirrors Laravel's
@@ -2185,5 +2195,6 @@ export default {
   updatePayment,
   deletePayment,
   cancelEvent,
+  sendCancelEventEmail,
   reconfirmEvent,
 };

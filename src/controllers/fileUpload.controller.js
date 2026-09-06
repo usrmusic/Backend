@@ -124,12 +124,48 @@ export const listFiles = catchAsync(async (req, res) => {
       ? `${req.query.sort_by}:${req.query.sort_dir || "asc"}`
       : undefined);
 
-  const files = await fileSvc.list({ filter: scopedFilter, perPage, page, sort });
+  // The list previously returned bare file_uploads rows with no event data at
+  // all, so the frontend's "Event" column (reading row.event) was always
+  // blank. Laravel's getFileUploadData() eager-loads event + event.user for
+  // exactly this column (see file_upload_formatter.js's eventFormatter:
+  // "DD-MM-YYYY (ClientName)", or "Global" when there's no event) — include
+  // the same data here so the frontend can format it the same way.
+  const listInclude = {
+    events: {
+      select: {
+        date: true,
+        users_events_user_idTousers: { select: { name: true } },
+      },
+    },
+  };
+
+  const files = await fileSvc.list({
+    filter: scopedFilter,
+    perPage,
+    page,
+    sort,
+    include: listInclude,
+  });
   const count = await fileSvc.model.count({ where: scopedFilter });
   const totalPages = perPage > 0 ? Math.ceil(count / perPage) : 1;
 
+  // Matches Laravel's file_upload_formatter.js eventFormatter exactly:
+  // "DD-MM-YYYY (ClientName)" when there's an event, "Global" otherwise.
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const filesWithEvent = files.map((f) => {
+    const ev = f.events;
+    let event = "Global";
+    if (ev?.date) {
+      const d = new Date(ev.date);
+      const dateStr = `${pad2(d.getUTCDate())}-${pad2(d.getUTCMonth() + 1)}-${d.getUTCFullYear()}`;
+      const clientName = ev.users_events_user_idTousers?.name || "";
+      event = `${dateStr} (${clientName})`;
+    }
+    return { ...f, event };
+  });
+
   res.json({
-    data: serializeForJson(files),
+    data: serializeForJson(filesWithEvent),
     meta: { total: count, perPage, page, totalPages },
   });
 });

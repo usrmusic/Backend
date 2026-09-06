@@ -6,7 +6,7 @@ import services from "../services/index.js";
 import { logActivity } from "../utils/activityLogger.js";
 import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
 import { buildTodoAssignedEmailBody, TODO_ASSIGNED_EMAIL_SUBJECT } from "../utils/mail/templates/todoAssignedEmail.js";
-import sendEmail from "../utils/mail/resendClient.js";
+import sendEmail from "../utils/mail/graphMailClient.js";
 
 const todoSvc = services.get("todos");
 

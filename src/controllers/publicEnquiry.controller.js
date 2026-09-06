@@ -3,7 +3,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import { v4 as uuidv4 } from "uuid";
 import { toDbDate } from "../utils/dateUtils.js";
-import sendEmail from "../utils/mail/resendClient.js";
+import sendEmail from "../utils/mail/graphMailClient.js";
 import { buildPublicEnquiryAdminEmail } from "../utils/mail/templates/publicEnquiryAdminEmail.js";
 import eventNoteService from "../services/eventNoteService.js";
 import services from "../services/index.js";

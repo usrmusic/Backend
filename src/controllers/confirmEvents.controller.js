@@ -674,6 +674,17 @@ const getConfirmEvent = catchAsync(async (req, res) => {
   event.event_notes = notes || [];
   event.todos = todos || [];
 
+  // Resolve created_by to a display name — events.created_by has no Prisma
+  // relation (plain Int column), so the frontend was rendering the raw user
+  // id ("4") verbatim instead of a name. Same class of bug as the venue/DJ/
+  // client dropdowns: a bare id with no way for the client to label it.
+  if (event.created_by) {
+    const creator = await prisma.user
+      .findUnique({ where: { id: Number(event.created_by) }, select: { id: true, name: true } })
+      .catch(() => null);
+    event.created_by_name = creator?.name || null;
+  }
+
   // normalize relation name for frontend: provide `event_packages` array (plural)
   try {
     event.event_packages = Array.isArray(event.event_package) ? event.event_package : [];

@@ -1,6 +1,6 @@
 import express from "express";
 import { verifyAccessToken } from "../middleware/auth0.js";
-import { checkPermission } from "../middleware/authorize.js";
+import { checkPermission, checkPermissionAny } from "../middleware/authorize.js";
 import {clientController} from "../controllers/index.js";
 import { clientValidation } from "../validation/index.js";
 import validate from "../middleware/validate.js";
@@ -10,12 +10,20 @@ import { imageUpload as upload } from "../utils/multerConfig.js";
 const router = express.Router();
 
 // router.use(verifyAccessToken);
-// Laravel's Clients route technically accepts "confirm event" permission too,
-// but "Clients" only exists as a tab inside /contacts, and the only nav link
-// into /contacts is gated by "user" — so Staff never had a real path here in
-// Laravel either. No point leaving the API open on the broader permission
-// with no matching UI; "user" only, same as the rest of this file's routes.
+// Full client management (list-all, create, update, delete) stays "user"
+// only, same as the rest of this file's routes.
 const protectAdmin = [verifyAccessToken, checkPermission("user")];
+// Read-only single-client lookup — the Enquiry form (Staff can open this with
+// "new enquiry") and Confirmed Events (with "confirm event") both need to
+// resolve an already-selected client's id to their name/address/email/phone
+// to populate the form, exactly the same class of bug already fixed for the
+// venue and DJ dropdowns: gating a read-only "show me this record" lookup
+// behind full user-management access blocked Staff from ever seeing a
+// client's details on a form they're otherwise allowed to edit.
+const protectClientRead = [
+  verifyAccessToken,
+  checkPermissionAny(["user", "new enquiry", "open enquiry", "confirm event"]),
+];
 
 router
   .route("/")
@@ -34,13 +42,13 @@ router
 router
   .route("/get-dropdown")
   .get(
-    protectAdmin,
+    protectClientRead,
     validate(clientValidation.getClient),
     clientController.listclientdropdown,
   );
 router
   .route("/:id")
-  .get(protectAdmin, clientController.getClient)
+  .get(protectClientRead, clientController.getClient)
   .put(
     protectAdmin,
     upload.single('profile_photo'),

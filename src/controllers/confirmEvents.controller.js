@@ -115,7 +115,7 @@ const confirmEvent = catchAsync(async (req, res) => {
     eventNoteService.createNote(prisma, {
       eventId,
       notes: "Confirmed as an event",
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     }),
     prisma.eventPayment.aggregate({ where: { event_id: eventId }, _sum: { amount: true } }),
     prisma.eventPayment.findUnique({ where: { id: payment.id }, include: { payment_methods: true } }),
@@ -189,7 +189,7 @@ const confirmEvent = catchAsync(async (req, res) => {
           description: `Outlook calendar event created for event #${event.id}`,
           subject_type: "Event",
           subject_id: Number(event.id),
-          causer_id: req.user?.id || null,
+          causer_id: req.user?.sub || null,
           properties: { microsoft_event_id: String(created.id) },
         }).catch(() => {});
       }
@@ -217,11 +217,15 @@ const confirmEvent = catchAsync(async (req, res) => {
     // on every confirmation, not just the client's first ever event — Laravel
     // never checks whether a password was already sent before.
     if (user && user.email) {
+      // Static USR wordmark — Laravel's version of this email always showed
+      // this same logo regardless of company, this one had none at all.
+      const credLogoUrl = await getSignedGetUrl("brand/usr-logo-dark.png").catch(() => null);
       const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
         name: user.name || "Client",
         email: user.email,
         password: user.password_text,
         loginUrl: process.env.FRONTEND_URL || "https://www.usrmusic.com/login",
+        logoUrl: credLogoUrl,
       });
       await sendEmail({ to: [user.email], subject: credSubject, html: credHtml }).catch(
         (e) => {
@@ -241,7 +245,7 @@ const confirmEvent = catchAsync(async (req, res) => {
     description: `Event #${eventId} confirmed`,
     subject_type: "Event",
     subject_id: eventId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       deposit_amount: depositAmount,
       invoice_number: invoiceNumber,
@@ -319,7 +323,7 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
     .createNote(prisma, {
       eventId: event_id,
       notes: `Email Sent - ${companyDetails?.name || ""}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     })
     .catch(() => {});
 
@@ -345,7 +349,7 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
 // "confirm event"/"complete event" permission in the live roles UI — the route
 // permission alone would otherwise return every client's data to them.
 async function applyOwnershipScope(where, req) {
-  const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+  const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
   let requesterId = null;
   if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
   if (!requesterId && req.user && req.user.email) {
@@ -378,8 +382,17 @@ const listEventsDropdown = catchAsync(async (req, res) => {
   // cancelled event can be found and re-confirmed from this same picker).
   // Every existing caller that omits the param keeps today's status-2-only
   // behavior unchanged.
+  //
+  // `?include_completed=true` — the Confirmed Events detail page is reused
+  // to VIEW a Completed event too (navigated here as ?from=completed from
+  // the Completed Events list), but this dropdown was always status-2-only,
+  // so a completed event's id never matched any option and the Select fell
+  // back to showing the bare numeric id instead of a name/venue/date label.
   const includeCancelled = ["true", "1", "yes"].includes(
     String(req.query?.include_cancelled || "").toLowerCase(),
+  );
+  const includeCompleted = ["true", "1", "yes"].includes(
+    String(req.query?.include_completed || "").toLowerCase(),
   );
 
   let statusIds = [2];
@@ -391,6 +404,7 @@ const listEventsDropdown = catchAsync(async (req, res) => {
       // ignore — falls back to confirmed-only
     }
   }
+  if (includeCompleted) statusIds.push(3);
 
   let where = { event_status_id: statusIds.length > 1 ? { in: statusIds } : statusIds[0] };
   where = await applyOwnershipScope(where, req);
@@ -544,7 +558,7 @@ const getConfirmEvent = catchAsync(async (req, res) => {
   let isAdmin = false;
   try {
     // determine requesting user id
-    const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+    const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
     let requesterId = null;
     if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
     if (!requesterId && req.user && req.user.email) {
@@ -881,7 +895,7 @@ const sendInvoice = catchAsync(async (req, res) => {
     await eventNoteService.createNote(tx, {
       eventId,
       notes: `Invoice Sent - ${companyName}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
@@ -1040,7 +1054,7 @@ const sendQuote = catchAsync(async (req, res) => {
     .createNote(prisma, {
       eventId,
       notes: `Quote send - ${companyName}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     })
     .catch(() => null);
 
@@ -1049,7 +1063,7 @@ const sendQuote = catchAsync(async (req, res) => {
     description: `Quote emailed for event #${eventId}`,
     subject_type: "Event",
     subject_id: eventId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { to: to || null, company_id: companyId },
   });
 
@@ -1114,7 +1128,7 @@ const sendThankYouEmail = catchAsync(async (req, res) => {
     .createNote(prisma, {
       eventId,
       notes: `Thank You Email Sent - ${companyName}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     })
     .catch(() => null);
 
@@ -1123,7 +1137,7 @@ const sendThankYouEmail = catchAsync(async (req, res) => {
     description: `Thank you email sent for event #${eventId}`,
     subject_type: "Event",
     subject_id: eventId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { to: to || null },
   });
 
@@ -1255,7 +1269,7 @@ const refund = catchAsync(async (req, res) => {
       .createNote(tx, {
         eventId,
         notes: `Refund processed - ${refundAmount}`,
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       })
       .catch(() => {});
 
@@ -1264,7 +1278,7 @@ const refund = catchAsync(async (req, res) => {
       description: `Event #${eventId} refund updated`,
       subject_type: "Event",
       subject_id: eventId,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         event_id: eventId,
         old_refund_amount: previous,
@@ -1333,7 +1347,7 @@ const addPayment = catchAsync(async (req, res) => {
     await eventNoteService.createNote(tx, {
       eventId,
       notes: `Payment received - ${amount}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     }).catch(() => {});
 
     await logActivity(tx, {
@@ -1341,7 +1355,7 @@ const addPayment = catchAsync(async (req, res) => {
       description: `Payment added for event #${eventId}`,
       subject_type: "Event",
       subject_id: eventId,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         event_id: eventId,
         amount: Number(amount),
@@ -1423,7 +1437,7 @@ const updatePayment = catchAsync(async (req, res) => {
       description: `Payment #${paymentId} updated for event #${existing.event_id}`,
       subject_type: "EventPayment",
       subject_id: paymentId,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         event_id: Number(existing.event_id),
         old: {
@@ -1471,7 +1485,7 @@ const deletePayment = catchAsync(async (req, res) => {
       description: `Payment #${paymentId} deleted for event #${existing.event_id}`,
       subject_type: "EventPayment",
       subject_id: paymentId,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         event_id: Number(existing.event_id),
         amount: existing.amount,
@@ -1542,7 +1556,7 @@ const cancelEvent = catchAsync(async (req, res) => {
       .createNote(tx, {
         eventId,
         notes: `Event cancelled - refund ${refundAmount}`,
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       })
       .catch(() => {});
 
@@ -1551,7 +1565,7 @@ const cancelEvent = catchAsync(async (req, res) => {
       description: `Event #${eventId} cancelled`,
       subject_type: "Event",
       subject_id: eventId,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         event_id: eventId,
         refund_amount: newRefundAmount,
@@ -1690,7 +1704,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
       .createNote(tx, {
         eventId,
         notes: "Event re-confirmed",
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       })
       .catch(() => {});
 
@@ -1699,7 +1713,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
       description: `Event #${eventId} re-confirmed`,
       subject_type: "Event",
       subject_id: eventId,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { event_id: eventId },
     });
 
@@ -1750,7 +1764,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
           description: `Outlook calendar entry created for event #${eventDetail.id}`,
           subject_type: "Event",
           subject_id: eventDetail.id,
-          causer_id: req.user?.id || null,
+          causer_id: req.user?.sub || null,
           properties: { calendar_event_id: created.id },
         });
       }
@@ -1931,7 +1945,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
 //           .createNote(tx, {
 //             eventId,
 //             notes: "updated",
-//             created_by: req.user?.id || null,
+//             created_by: req.user?.sub || null,
 //           })
 //           .catch(() => {});
 //       } catch (e) {}
@@ -2088,7 +2102,7 @@ const updateEvent = catchAsync(async (req, res) => {
   eventNoteService.createNote(prisma, {
     eventId,
     notes: "Event details updated via management portal",
-    created_by: req.user?.id || null,
+    created_by: req.user?.sub || null,
   }).catch(() => {});
 
   await logActivity(prisma, {
@@ -2096,7 +2110,7 @@ const updateEvent = catchAsync(async (req, res) => {
     description: `Confirmed event #${eventId} details updated`,
     subject_type: "Event",
     subject_id: eventId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       event_id: eventId,
       changed_fields: Object.keys(eventUpdateData),
@@ -2141,7 +2155,7 @@ const updateEvent = catchAsync(async (req, res) => {
     body.signature_image.startsWith("data:image/")
   ) {
     try {
-      const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+      const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
       let requesterId = null;
       if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
       if (!requesterId && req.user?.email) {

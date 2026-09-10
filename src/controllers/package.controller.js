@@ -158,7 +158,7 @@ const createPackage = catchAsync(async (req, res) => {
     description: `Package #${Number(created.id)} created`,
     subject_type: "PackageUser",
     subject_id: Number(created.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       package_name: finalPackageName,
       cost_price: cp,
@@ -367,7 +367,7 @@ const updatePackage = catchAsync(async (req, res) => {
     description: `Package #${id} updated`,
     subject_type: "PackageUser",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old_cost_price: existing.cost_price != null ? Number(existing.cost_price) : null,
       new_cost_price: cp != null ? Number(cp) : null,
@@ -497,7 +497,7 @@ const deletePackage = catchAsync(async (req, res) => {
     description: `Package #${id} deleted`,
     subject_type: "PackageUser",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { package_name: existing?.package_name ?? null },
   });
 
@@ -585,7 +585,7 @@ const deleteManyPackages = catchAsync(async (req, res) => {
     description: `${deletable.length} package(s) deleted${blocked.length ? `, ${blocked.length} blocked` : ""}`,
     subject_type: "PackageUser",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: serializeForJson({ ids: deletable, blocked, count: deletable.length }),
   });
 

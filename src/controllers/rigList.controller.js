@@ -12,7 +12,7 @@ export const listEvents = catchAsync(async (req, res) => {
 
   // Staff only rigs their own events — Client can never reach this route
   // (blocked by `blockClient`), Admin/Super Admin still see everything.
-  const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+  const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
   let requesterId = null;
   if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
   if (!requesterId && req.user && req.user.email) {
@@ -98,7 +98,7 @@ export const StoreRigListNotes = catchAsync(async (req, res) => {
     description: `Rig list notes updated for event #${id}`,
     subject_type: "Event",
     subject_id: Number(id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old_rigList_event_notes: existing.rigList_event_notes,
       new_rigList_event_notes: notes || note || null,

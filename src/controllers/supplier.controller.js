@@ -107,7 +107,7 @@ export const createSupplier = catchAsync(async (req, res) => {
     description: `Supplier #${created?.id} created`,
     subject_type: "Supplier",
     subject_id: created?.id != null ? Number(created.id) : null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: created?.name || null, company_name: created?.company_name || null },
   });
 
@@ -145,7 +145,7 @@ export const updateSupplier = catchAsync(async (req, res) => {
     description: `Supplier #${id} updated`,
     subject_type: "Supplier",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old: existingSupplier
         ? { name: existingSupplier.name, company_name: existingSupplier.company_name }
@@ -179,7 +179,7 @@ export const deleteSupplier = catchAsync(async (req, res) => {
     description: `Supplier #${id} deleted`,
     subject_type: "Supplier",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: supplierBeforeDelete?.name || null },
   });
 
@@ -232,7 +232,7 @@ const deleteManySuppliers = catchAsync(async (req, res) => {
     description: `${ids.length} supplier(s) deleted`,
     subject_type: "Supplier",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids, count: ids.length },
   });
 

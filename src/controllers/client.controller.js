@@ -20,7 +20,7 @@ import { loadPermissionsForUserId } from "../middleware/authorize.js";
 async function isForceDeleteAllowed(req) {
   try {
     if (!req.user) return false;
-    const sub = req.user.sub || req.user.id || req.user.email;
+    const sub = req.user.sub || req.user.sub || req.user.email;
     let userId = null;
     if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
     if (!userId) {
@@ -93,7 +93,7 @@ export const createClient = catchAsync(async (req, res) => {
     // is_email_send: false,
     profile_photo: profilePhotoUrl,
     deleted_at: deletedAt,
-    created_by: req.user && req.user.id ? Number(req.user.id) : null,
+    created_by: req.user && req.user.sub ? Number(req.user.sub) : null,
     updated_by: null,
   };
   let user;
@@ -122,7 +122,7 @@ export const createClient = catchAsync(async (req, res) => {
           date: toDbDate(String(d)),
           event_status_id: 1,
           user_id: Number(user.id),
-          created_by: req.user ? Number(req.user.id) : null,
+          created_by: req.user ? Number(req.user.sub) : null,
         },
       });
       createdEvents.push(ev);
@@ -132,7 +132,7 @@ export const createClient = catchAsync(async (req, res) => {
         await eventNoteService.createNote(prisma, {
           eventId: Number(ev.id),
           notes: "Created as an enquiry",
-          created_by: req.user?.id || null,
+          created_by: req.user?.sub || null,
         });
       } catch (e) {}
 
@@ -142,7 +142,7 @@ export const createClient = catchAsync(async (req, res) => {
         description: `Enquiry created for event #${Number(ev.id)}`,
         subject_type: "Event",
         subject_id: Number(ev.id),
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { attributes: serializeForJson(ev) },
       });
     } catch (e) {
@@ -155,7 +155,7 @@ export const createClient = catchAsync(async (req, res) => {
     description: `Client ${user.id} created`,
     subject_type: "Client",
     subject_id: Number(user.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: user.name, email: user.email },
   });
 
@@ -302,7 +302,7 @@ export const updateClient = catchAsync(async (req, res) => {
   }
 
   // set updater
-  data.updated_by = req.user ? Number(req.user.id) : null;
+  data.updated_by = req.user ? Number(req.user.sub) : null;
 
   // Capture pre-update values for the audit log
   const existingClient = await userSvc.getById(id);
@@ -315,7 +315,7 @@ export const updateClient = catchAsync(async (req, res) => {
     description: `Client ${id} updated`,
     subject_type: "Client",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old: {
         name: existingClient?.name,
@@ -363,7 +363,7 @@ export const deleteClient = catchAsync(async (req, res) => {
       description: `Client ${id} deleted`,
       subject_type: "Client",
       subject_id: id,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { name: existingClient?.name || null, email: existingClient?.email || null },
     });
 
@@ -385,7 +385,7 @@ export const deleteClient = catchAsync(async (req, res) => {
     description: `Client ${id} deleted`,
     subject_type: "Client",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: existingClient?.name || null, email: existingClient?.email || null },
   });
 
@@ -444,7 +444,7 @@ export const deleteManyClients = catchAsync(async (req, res) => {
       description: `${numericIds.length} clients bulk deleted`,
       subject_type: "Client",
       subject_id: null,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { ids: numericIds, count: del.count },
     });
 
@@ -456,7 +456,7 @@ export const deleteManyClients = catchAsync(async (req, res) => {
     where: { id: { in: numericIds } },
     data: {
       deleted_at: now,
-      updated_by: req.user ? Number(req.user.id) : null,
+      updated_by: req.user ? Number(req.user.sub) : null,
     },
   });
 
@@ -465,7 +465,7 @@ export const deleteManyClients = catchAsync(async (req, res) => {
     description: `${numericIds.length} clients bulk deleted`,
     subject_type: "Client",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids: numericIds, count: updates.count },
   });
 
@@ -477,14 +477,37 @@ export const deleteManyClients = catchAsync(async (req, res) => {
   });
 });
 
+// Matches Laravel's NewEnquiryController::index() exactly: Admin/Super Admin
+// see every client, but Staff/DJ only see clients from enquiries THEY
+// created (events.created_by — not dj_id, which is who's assigned to
+// perform, not who opened the enquiry). Node previously showed every client
+// to every role here, so any Staff/DJ opening New Enquiry saw the entire
+// client roster instead of just their own.
 export const listclientdropdown = catchAsync(async (req, res) => {
-  const clients = await userSvc.list({
-    filter: { deleted_at: null, role_id: BigInt(4) },
-    select: { id: true, name: true },
-    // request no pagination so dropdown gets the full set
-    perPage: null,
-    sort: "name:asc",
-  });
+  const roleId = Number(req.user?.role_id);
+  let clients;
+  if (roleId === 3) {
+    const events = await prisma.event.findMany({
+      where: { created_by: Number(req.user?.sub) },
+      select: { users_events_user_idTousers: { select: { id: true, name: true } } },
+    });
+    const byId = new Map();
+    for (const e of events) {
+      const u = e.users_events_user_idTousers;
+      if (u) byId.set(u.id, u);
+    }
+    clients = Array.from(byId.values()).sort((a, b) =>
+      String(a.name).localeCompare(String(b.name)),
+    );
+  } else {
+    clients = await userSvc.list({
+      filter: { deleted_at: null, role_id: BigInt(4) },
+      select: { id: true, name: true },
+      // request no pagination so dropdown gets the full set
+      perPage: null,
+      sort: "name:asc",
+    });
+  }
   res.json(serializeForJson(clients));
 });
 

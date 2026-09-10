@@ -88,7 +88,7 @@ const createEquipment = catchAsync(async (req, res) => {
           description: `Supplier #${supplier.id} created`,
           subject_type: "Supplier",
           subject_id: Number(supplier.id),
-          causer_id: req.user?.id || null,
+          causer_id: req.user?.sub || null,
           properties: { company_name: supplier.company_name || null },
         });
       }
@@ -102,7 +102,7 @@ const createEquipment = catchAsync(async (req, res) => {
       description: `Equipment #${created?.id} created`,
       subject_type: "Equipment",
       subject_id: created?.id != null ? Number(created.id) : null,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         name: created?.name || null,
         cost_price: created?.cost_price != null ? Number(created.cost_price) : null,
@@ -132,7 +132,7 @@ const updateEquipment = catchAsync(async (req, res) => {
         description: `Supplier #${supplier.id} created`,
         subject_type: "Supplier",
         subject_id: Number(supplier.id),
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { company_name: supplier.company_name || null },
       });
     }
@@ -173,7 +173,7 @@ const updateEquipment = catchAsync(async (req, res) => {
       description: `Equipment #${id} updated`,
       subject_type: "Equipment",
       subject_id: id,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         old: existingEquipment
           ? {
@@ -221,7 +221,7 @@ const deleteEquipment = catchAsync(async (req, res) => {
       description: `Equipment #${id} deleted`,
       subject_type: "Equipment",
       subject_id: id,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { name: equipmentBeforeDelete?.name || null },
     });
 
@@ -272,7 +272,7 @@ const deleteManyEquipment = catchAsync(async (req, res) => {
         description: `${deletableIds.length} equipment item(s) deleted`,
         subject_type: "Equipment",
         subject_id: null,
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { ids: deletableIds, count: deletableIds.length },
       });
     }
@@ -317,7 +317,7 @@ const reorderEquipment = catchAsync(async (req, res) => {
     description: "Equipment display order changed",
     subject_type: "Equipment",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids },
   });
 

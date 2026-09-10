@@ -78,7 +78,7 @@ const signUp = catchAsync(async (req, res) => {
     description: `User ${user.id} created`,
     subject_type: "User",
     subject_id: Number(user.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       email: user.email,
       role_id: typeof user.role_id === "bigint" ? Number(user.role_id) : user.role_id,
@@ -153,7 +153,7 @@ const requestVerifyEmail = catchAsync(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "missing_token" });
 
   // try to resolve numeric user id from token subject, falling back to email
-  const sub = req.user.sub || req.user.id || req.user.email;
+  const sub = req.user.sub || req.user.sub || req.user.email;
   let userId = null;
   if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
 
@@ -351,7 +351,7 @@ const updateUser = catchAsync(async (req, res) => {
     description: `User ${id} updated`,
     subject_type: "User",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old: {
         name: existing.name,
@@ -411,7 +411,7 @@ const deleteUser = catchAsync(async (req, res) => {
     description: `User ${id} deleted`,
     subject_type: "User",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { email: existingUser?.email || null },
   });
   // If a soft-delete was performed, the result should include `deleted_at`.
@@ -490,7 +490,7 @@ const deleteManyUsers = catchAsync(async (req, res) => {
     description: `${deletable.length} users bulk deleted${blocked.length ? `, ${blocked.length} blocked` : ""}`,
     subject_type: "User",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids: deletable, blocked, count },
   });
 
@@ -542,7 +542,7 @@ const restoreUsers = catchAsync(async (req, res) => {
     description: `${ids.length} user(s) restored`,
     subject_type: "User",
     subject_id: ids.length === 1 ? ids[0] : null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids, count: result?.count },
   });
 
@@ -677,16 +677,23 @@ const resetPassword = catchAsync(async (req, res) => {
     description: `Password reset for user ${user.id}`,
     subject_type: "User",
     subject_id: Number(user.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {},
   });
 
   return res.json({ ok: true, email: user.email });
 });
 
+// Only consumed by the Enquiry form's "Select DJ" field (the sole caller of
+// GET /user/get-dropdown — see src/api/dropdown.ts), so it's safe to scope
+// this specifically to actual DJs. Admin/Super Admin accounts are included
+// alongside Staff because some admins genuinely DJ (e.g. DJ Nicku) — but
+// dev/support admin accounts with no configured package (e.g. Asim, FaiQ
+// MaLik) aren't real DJs and were cluttering the list. A linked
+// `package_users` row is what makes an account an actual selectable DJ.
 const listUserDropdown = catchAsync(async (req, res) => {
   const users = await userSvc.list({
-    filter: { deleted_at: null, NOT:{ role_id: BigInt(4)} },
+    filter: { deleted_at: null, NOT: { role_id: BigInt(4) }, package_users: { some: {} } },
     select: { id: true, name: true, email: true, package_users:{select: { id: true, package_name: true }} },
     sort: "name:asc",
   });
@@ -738,7 +745,7 @@ const listDjColors = catchAsync(async (req, res) => {
 
 const currentUser = catchAsync(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'missing_token' });
-  const sub = req.user.sub || req.user.id || req.user.email;
+  const sub = req.user.sub || req.user.sub || req.user.email;
   let userId = null;
   if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
   if (!userId) {

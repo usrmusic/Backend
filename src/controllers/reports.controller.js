@@ -644,7 +644,7 @@ const updateAdminReportRow = catchAsync(async (req, res) => {
     description: `Extra cost/profit adjusted on event #${id}`,
     subject_type: "Event",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old_extra_cost: event.extra_cost,
       new_extra_cost: extraCost,
@@ -676,7 +676,7 @@ const updateSupplierPaymentEquipment = catchAsync(async (req, res) => {
     description: `Supplier payment marked for event_package #${id}`,
     subject_type: "EventPackage",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { payment_send: payment_send ?? null, payment_date: payment_date ?? null },
   });
 
@@ -702,7 +702,7 @@ const updateSupplierPaymentDj = catchAsync(async (req, res) => {
     description: `DJ payment marked for event #${id}`,
     subject_type: "Event",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { payment_send: payment_send ?? null, payment_date: payment_date ?? null },
   });
 

@@ -46,7 +46,7 @@ const getEventsDropDown = catchAsync(async (req, res) => {
 
     // determine requesting user and scope so clients only see their events
     if (!req.user) return res.status(401).json({ error: 'missing_token' });
-    const sub = req.user.sub || req.user.id || req.user.email;
+    const sub = req.user.sub || req.user.sub || req.user.email;
     let userId = null;
     if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
     if (!userId) {
@@ -177,7 +177,7 @@ const getDashboardStats = catchAsync(async (req, res) => {
     const year = req.query.year ? Number(req.query.year) : null;
 
     if (!req.user) return res.status(401).json({ error: 'missing_token' });
-    const sub = req.user.sub || req.user.id || req.user.email;
+    const sub = req.user.sub || req.user.sub || req.user.email;
     let userId = null;
     if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
     if (!userId) {
@@ -224,7 +224,7 @@ const recalculateProfits = catchAsync(async (req, res) => {
         description: "Bulk profit recalculation run",
         subject_type: "Event",
         subject_id: null,
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: result && result.updated !== undefined ? { updated_count: Number(result.updated) } : null,
     });
 
@@ -237,7 +237,7 @@ const getUpcomingEvents = catchAsync(async (req, res) => {
     const search = rawSearch ? String(rawSearch).trim() : null;
 
     if (!req.user) return res.status(401).json({ error: 'missing_token' });
-    const sub = req.user.sub || req.user.id || req.user.email;
+    const sub = req.user.sub || req.user.sub || req.user.email;
     let userId = null;
     if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
     if (!userId) {

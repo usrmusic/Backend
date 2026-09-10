@@ -148,7 +148,7 @@ const createCompany = catchAsync(async (req, res) => {
     description: `Company #${Number(created.id)} created`,
     subject_type: "CompanyName",
     subject_id: Number(created.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: created.name },
   });
 
@@ -261,7 +261,7 @@ const updateCompany = catchAsync(async (req, res) => {
     description: `Company #${id} updated`,
     subject_type: "CompanyName",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old_vat: existing.vat ?? null,
       new_vat: data.vat ?? null,
@@ -304,7 +304,7 @@ const deleteCompanies = catchAsync(async (req, res) => {
     description: `${ids.length} company(ies) deleted`,
     subject_type: "CompanyName",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids, count: ids.length },
   });
 
@@ -336,7 +336,7 @@ const deleteCompany = catchAsync(async (req, res) => {
     description: `Company #${id} deleted`,
     subject_type: "CompanyName",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: company.name },
   });
 

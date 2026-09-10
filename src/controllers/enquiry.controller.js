@@ -55,7 +55,7 @@ const createEnquiry = catchAsync(async (req, res) => {
     try {
       venue = await venueSvc.create({
         venue: data.new_venue_name,
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       });
     } catch (e) {
       console.log("[createEnquiry] create venue failed", e?.message || e);
@@ -106,7 +106,7 @@ const createEnquiry = catchAsync(async (req, res) => {
         password: hashed,
         password_text: plainPassword,
         role_id: BigInt(4),
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       });
     } else {
       // If is_new_client = false, try to find/reuse existing or create if not found
@@ -141,7 +141,7 @@ const createEnquiry = catchAsync(async (req, res) => {
           password: hashed,
           password_text: plainPassword,
           role_id: BigInt(4),
-          created_by: req.user?.id || null,
+          created_by: req.user?.sub || null,
         });
       }
     }
@@ -222,7 +222,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       await eventNoteService.createNote(prisma, {
         eventId: Number(event.id),
         notes: "Updated as an enquiry",
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       });
     } catch (e) {}
   }
@@ -244,7 +244,7 @@ const createEnquiry = catchAsync(async (req, res) => {
         data.dj_cost != null ? round2(data.dj_cost) : null,
       venue_id: venue?.id || (data.venue_id ? Number(data.venue_id) : null),
       user_id: Number(client.id),
-      created_by: req.user && req.user.id ? Number(req.user.id) : null,
+      created_by: req.user && req.user.sub ? Number(req.user.sub) : null,
       contract_token: uuidv4(),
       event_status_id: 1,
       no_of_guests:
@@ -260,7 +260,7 @@ const createEnquiry = catchAsync(async (req, res) => {
       await eventNoteService.createNote(prisma, {
         eventId: Number(event.id),
         notes: "Created as an enquiry",
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       });
     } catch (e) {}
   }
@@ -383,7 +383,7 @@ const createEnquiry = catchAsync(async (req, res) => {
     description: `Enquiry created for event #${Number(event.id)}`,
     subject_type: "Event",
     subject_id: Number(event.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       client_name: client?.name || null,
       venue_id: venue?.id != null ? Number(venue.id) : data.venue_id != null ? Number(data.venue_id) : null,
@@ -502,7 +502,7 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
   // OpenEnquiryService returns every event unscoped, verified against
   // OpenEnquiryService.php). Admin/Super Admin still sees everything.
   {
-    const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+    const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
     let requesterId = null;
     if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
     if (!requesterId && req.user && req.user.email) {
@@ -541,6 +541,10 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
       dj_package_name: true,
       event_type: true,
       deposit_amount: true,
+      // Backs the Open Enquiry table's "Date Created" column — wasn't
+      // selected at all before, so every row rendered blank regardless of
+      // the real value in the DB.
+      created_at: true,
       venues: { select: { id: true, venue: true } },
       users_events_user_idTousers: {
         select: { id: true, name: true, email: true, contact_number: true },
@@ -601,7 +605,7 @@ const getStatusCounts = catchAsync(async (req, res) => {
   // they're assigned to or created, Client only counts their own events,
   // Admin/Super Admin still see the global totals.
   let where = {};
-  const sub = req.user && (req.user.sub || req.user.id || req.user.email);
+  const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
   let requesterId = null;
   if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
   if (!requesterId && req.user && req.user.email) {
@@ -1049,7 +1053,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
       .createNote(tx, {
         eventId: Number(id),
         notes: "Updated as an enquiry",
-        created_by: req.user?.id || null,
+        created_by: req.user?.sub || null,
       })
       .catch(() => {});
 
@@ -1062,7 +1066,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
       description: `Event #${id} package/pricing updated`,
       subject_type: "Event",
       subject_id: Number(id),
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: {
         old_total_cost_for_equipment: existingEvent.total_cost_for_equipment,
         new_total_cost_for_equipment:
@@ -1171,7 +1175,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
 //     await eventNoteService.createNote(tx, {
 //       eventId,
 //       notes: `Quote sent - ${companyName}`,
-//       created_by: req.user?.id || null,
+//       created_by: req.user?.sub || null,
 //     });
 //     return await tx.event.findUnique({ where: { id: eventId } });
 //   });
@@ -1228,7 +1232,7 @@ const sendInvoice = catchAsync(async (req, res) => {
     await eventNoteService.createNote(tx, {
       eventId,
       notes: `Invoice Sent - ${companyName}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     });
     return await tx.event.findUnique({ where: { id: eventId } });
   });
@@ -1676,7 +1680,7 @@ const addNote = catchAsync(async (req, res) => {
   const created = await eventNoteService.createNote(prisma, {
     eventId: event_id,
     notes,
-    created_by: req.user?.id || null,
+    created_by: req.user?.sub || null,
   });
 
   await logActivity(prisma, {
@@ -1684,7 +1688,7 @@ const addNote = catchAsync(async (req, res) => {
     description: `Note added to event #${event_id}`,
     subject_type: "Event",
     subject_id: Number(event_id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { notes },
   });
 
@@ -1798,14 +1802,14 @@ const sendBrochure = catchAsync(async (req, res) => {
     await eventNoteService.createNote(tx, {
       eventId,
       notes: noteText,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     });
     await logActivity(tx, {
       log_name: "brochure sent",
       description: `Brochure emailed for event #${eventId}`,
       subject_type: "Event",
       subject_id: Number(eventId),
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { to: clientEmail, company_id: company?.id != null ? Number(company.id) : null },
     });
     return await tx.event.findUnique({ where: { id: eventId } });
@@ -1903,14 +1907,14 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
     await eventNoteService.createNote(tx, {
       eventId,
       notes: noteText,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     });
     await logActivity(tx, {
       log_name: "update email sent",
       description: `Update email sent for event #${eventId}`,
       subject_type: "Event",
       subject_id: Number(eventId),
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { to: clientEmail, company_id: company?.id != null ? Number(company.id) : null },
     });
     return await tx.event.findUnique({ where: { id: eventId } });
@@ -2010,10 +2014,12 @@ const sendQuote = catchAsync(async (req, res) => {
     .catch(() => null);
   const subject = body.subject || template?.subject || "Quote";
   let raw = body.body || template?.body || `Quote for event ${eventId}`;
-  // Was a truthy check — a deposit of exactly 0 (falsy) skipped substitution
-  // and left the literal "{--amount--}" placeholder in the sent email.
-  if (raw && event.deposit_amount != null)
-    raw = String(raw).replace("{--amount--}", `£${event.deposit_amount}`);
+  // Most open enquiries don't have a deposit_amount yet (it's only set once
+  // staff save it on the Enquiry form) — the `!= null` guard skipped
+  // substitution for that (very common) case, leaving the literal
+  // "{--amount--}" token in the sent email. Laravel's own equivalent
+  // (email_content_api.js) always substitutes, defaulting to 0 — do the same.
+  if (raw) raw = String(raw).replace("{--amount--}", `£${event.deposit_amount ?? 0}`);
 
   // fetch full event details for parity with Laravel email
   const fullEvent = await prisma.event
@@ -2133,14 +2139,14 @@ const sendQuote = catchAsync(async (req, res) => {
     await eventNoteService.createNote(tx, {
       eventId,
       notes: `Quote sent - ${companyName}`,
-      created_by: req.user?.id || null,
+      created_by: req.user?.sub || null,
     });
     await logActivity(tx, {
       log_name: "quote sent",
       description: `Quote emailed for event #${eventId}`,
       subject_type: "Event",
       subject_id: Number(eventId),
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { to: to || null, company_id: companyId != null ? Number(companyId) : null },
     });
     return await tx.event.findUnique({ where: { id: eventId } });
@@ -2226,7 +2232,7 @@ const deleteEnquiry = catchAsync(async (req, res) => {
         description: `Enquiry #${eventId} deleted`,
         subject_type: "Event",
         subject_id: Number(eventId),
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { client_name: user?.name || null },
       });
       return { success: true, id: userId };
@@ -2237,7 +2243,7 @@ const deleteEnquiry = catchAsync(async (req, res) => {
         description: `Enquiry #${eventId} deleted`,
         subject_type: "Event",
         subject_id: Number(eventId),
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { client_name: user?.name || null },
       });
       return { success: true, id: eventId };
@@ -2338,7 +2344,7 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
         description: `${ids.length} enquiries deleted`,
         subject_type: "Event",
         subject_id: null,
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { ids, count: ids.length },
       });
       return { success: true, id: primaryUserId, deleted: ids };
@@ -2349,7 +2355,7 @@ const deleteManyEnquiries = catchAsync(async (req, res) => {
         description: `${ids.length} enquiries deleted`,
         subject_type: "Event",
         subject_id: null,
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { ids, count: ids.length },
       });
       return { success: true, ids };
@@ -2387,7 +2393,7 @@ const reopenEnquiry = catchAsync(async (req, res) => {
     description: `Enquiry #${eventId} reopened`,
     subject_type: "Event",
     subject_id: eventId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
   });
 
   res.status(200).json(serializeForJson({ success: true, data: updated }));

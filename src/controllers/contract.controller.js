@@ -161,7 +161,7 @@ const ensureContractTokenForEvent = catchAsync(async (req, res) => {
     description: `Signing token generated for event #${event.id}`,
     subject_type: 'Event',
     subject_id: Number(event.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
   });
 
   return res.json(
@@ -240,7 +240,7 @@ const sendContractLinkEmail = catchAsync(async (req, res) => {
     description: `Contract signing link emailed for event #${event.id}`,
     subject_type: 'Event',
     subject_id: Number(event.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
   });
 
   return res.json(
@@ -376,7 +376,7 @@ const deleteContract = catchAsync(async (req, res) => {
     description: `Signed contract #${Number(row.id)} deleted for event #${eventIdForLog}`,
     subject_type: 'Contract',
     subject_id: Number(row.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { event_id: eventIdForLog },
   });
 

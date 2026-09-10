@@ -12,7 +12,7 @@ function escapeHtml(value) {
 // (resources/views/email/user_credential_mail.blade.php), sent when a
 // client's deposit is accepted and their event is confirmed (Laravel's
 // EventBooked -> SendCredentialsToClient listener).
-export function buildUserCredentialEmail({ name, email, password, loginUrl }) {
+export function buildUserCredentialEmail({ name, email, password, loginUrl, logoUrl }) {
   const html = `<!doctype html>
 <html lang="en-US">
 <head>
@@ -22,6 +22,10 @@ export function buildUserCredentialEmail({ name, email, password, loginUrl }) {
 <body style="margin:0; padding:0; background-color:#f2f3f8;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f2f3f8" style="font-family:'Open Sans', Arial, sans-serif;">
     <tr><td style="height:40px;">&nbsp;</td></tr>
+    ${logoUrl
+      ? `<tr><td style="text-align:center;"><img src="${escapeHtml(logoUrl)}" alt="USR logo" width="90" style="display:inline-block;" /></td></tr>
+    <tr><td style="height:20px;">&nbsp;</td></tr>`
+      : ""}
     <tr>
       <td>
         <table width="95%" align="center" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; background:#fff; border-radius:8px; text-align:center; box-shadow:0 6px 18px 0 rgba(0,0,0,.06);">

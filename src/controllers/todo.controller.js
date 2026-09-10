@@ -10,6 +10,30 @@ import sendEmail from "../utils/mail/graphMailClient.js";
 
 const todoSvc = services.get("todos");
 
+// "Client @ Venue (DD/MM/YYYY)" — the frontend (Dashboard todo widget) was
+// showing the bare event id ("E:1353") since a todo carried no readable
+// event info at all. Falls back gracefully as pieces go missing, and only
+// to a bare "Event #id" if literally nothing else is available. Uses UTC
+// getters on the DATE column, not .toISOString()/local parsing, to avoid
+// the off-by-one-day bug already fixed elsewhere in this codebase.
+function buildEventLabel(event, eventId) {
+  if (!event) return eventId ? `Event #${eventId}` : null;
+  const client = event.users_events_user_idTousers?.name || null;
+  const venue = event.venues?.venue || null;
+  let dateLabel = null;
+  if (event.date) {
+    const d = new Date(event.date);
+    if (!Number.isNaN(d.getTime())) {
+      dateLabel = `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+    }
+  }
+  const parts = [client, venue].filter(Boolean).join(" @ ");
+  if (parts && dateLabel) return `${parts} (${dateLabel})`;
+  if (parts) return parts;
+  if (dateLabel) return dateLabel;
+  return eventId ? `Event #${eventId}` : null;
+}
+
 async function resolveAssignedTo(id) {
   const parsed = Number(id);
   if (!parsed) return null;
@@ -34,7 +58,7 @@ const listTodo = catchAsync(async (req, res) => {
   // task assignments, deadlines and staff emails (IDOR). Allow admin/staff
   // (roles 1/2/3) freely; a Client may only see todos for their own event.
   if (!req.user) return res.status(401).json({ error: 'missing_token' });
-  const sub = req.user.sub || req.user.id || req.user.email;
+  const sub = req.user.sub || req.user.sub || req.user.email;
   let userId = /^[0-9]+$/.test(String(sub)) ? Number(sub) : null;
   if (!userId && req.user.email) {
     const u = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
@@ -59,6 +83,16 @@ const listTodo = catchAsync(async (req, res) => {
     include: {
       users_todos_assigned_toTousers: { select: { id: true, name: true, email: true } },
       users_todos_created_byTousers: { select: { id: true, name: true, email: true } },
+      // Backs `event_label` below — the Dashboard todo widget was showing
+      // the bare event id ("E:1353") since it had no name/venue/date to
+      // build a readable label from at all.
+      events: {
+        select: {
+          date: true,
+          venues: { select: { venue: true } },
+          users_events_user_idTousers: { select: { name: true } },
+        },
+      },
     },
   });
   // attach simple name fields to make frontend rendering easier
@@ -66,14 +100,19 @@ const listTodo = catchAsync(async (req, res) => {
     const tt = t || {};
     const assignedName = tt.users_todos_assigned_toTousers?.name || null;
     const createdName = tt.users_todos_created_byTousers?.name || null;
-    return { ...tt, assigned_user_name: assignedName, created_user_name: createdName };
+    return {
+      ...tt,
+      assigned_user_name: assignedName,
+      created_user_name: createdName,
+      event_label: buildEventLabel(tt.events, tt.event_id),
+    };
   });
   res.json(serializeForJson(enhanced));
 });
 
 const listAssignedTodos = catchAsync(async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'missing_token' });
-  const sub = req.user.sub || req.user.id || req.user.email;
+  const sub = req.user.sub || req.user.sub || req.user.email;
   let userId = null;
   if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
   if (!userId) {
@@ -103,13 +142,28 @@ const listAssignedTodos = catchAsync(async (req, res) => {
     include: {
       users_todos_assigned_toTousers: { select: { id: true, name: true, email: true } },
       users_todos_created_byTousers: { select: { id: true, name: true, email: true } },
+      // Backs `event_label` below — the Dashboard todo widget was showing
+      // the bare event id ("E:1353") since it had no name/venue/date to
+      // build a readable label from at all.
+      events: {
+        select: {
+          date: true,
+          venues: { select: { venue: true } },
+          users_events_user_idTousers: { select: { name: true } },
+        },
+      },
     },
   });
   const enhanced = (Array.isArray(todos) ? todos : []).map((t) => {
     const tt = t || {};
     const assignedName = tt.users_todos_assigned_toTousers?.name || null;
     const createdName = tt.users_todos_created_byTousers?.name || null;
-    return { ...tt, assigned_user_name: assignedName, created_user_name: createdName };
+    return {
+      ...tt,
+      assigned_user_name: assignedName,
+      created_user_name: createdName,
+      event_label: buildEventLabel(tt.events, tt.event_id),
+    };
   });
   res.json(serializeForJson(enhanced));
 });
@@ -138,7 +192,7 @@ const createTodo = catchAsync(async (req, res) => {
     description: `Todo #${Number(newTodo.id)} created`,
     subject_type: "Todo",
     subject_id: Number(newTodo.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       event_id: Number(event_id),
       action: todoData.action,
@@ -229,7 +283,7 @@ const updateTodo = catchAsync(async (req, res) => {
     description: `Todo #${Number(todoId)} updated`,
     subject_type: "Todo",
     subject_id: Number(todoId),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       event_id: Number(eventId),
       action: updateData.action,
@@ -252,7 +306,7 @@ const toggleTodoComplete = catchAsync(async (req, res) => {
   const todo = await prisma.todos.findFirst({ where: { id: todoId, event_id: eventId } });
   if (!todo) return res.status(404).json({ error: 'todo_not_found' });
 
-  const sub = req.user?.sub || req.user?.id || req.user?.email;
+  const sub = req.user?.sub || req.user?.sub || req.user?.email;
   let requesterId = null;
   if (typeof sub === 'number' || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
   if (!requesterId && req.user?.email) {
@@ -288,7 +342,7 @@ const toggleTodoComplete = catchAsync(async (req, res) => {
     description: `Todo #${Number(todoId)} marked ${updated.complete ? "complete" : "incomplete"}`,
     subject_type: "Todo",
     subject_id: Number(todoId),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { complete: !!updated.complete },
   });
 
@@ -322,7 +376,7 @@ const deleteTodo = catchAsync(async (req, res) => {
     description: `Todo #${Number(todoId)} deleted`,
     subject_type: "Todo",
     subject_id: Number(todoId),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { action: existingForLog?.action || null },
   });
 

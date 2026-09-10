@@ -86,6 +86,16 @@ router
     checkPermissionAny(["user", "new enquiry", "open enquiry"]),
     userController.listUserDropdown,
   );
+// Enquiry form's "Select DJ" — same access as get-dropdown above, but only
+// accounts with an actual configured package (see listDjDropdown).
+// Must stay above `/:id` — otherwise "dj-dropdown" is swallowed as an id param.
+router
+  .route("/dj-dropdown")
+  .get(
+    verifyAccessToken,
+    checkPermissionAny(["user", "new enquiry", "open enquiry"]),
+    userController.listDjDropdown,
+  );
 // Must stay above `/:id` — otherwise "dj-colors" is swallowed as an id param.
 router
   .route("/dj-colors")

@@ -2129,43 +2129,24 @@ const updateEvent = catchAsync(async (req, res) => {
 
     const ms = await prisma.microsoftEvent.findFirst({ where: { event_id: BigInt(eventId) } });
 
-    if (fresh) {
+    // Reverted to Laravel parity — Laravel's UpdateEventInOutlookCalendar
+    // also only ever updates an existing tracked Graph event and does
+    // nothing if there's no microsoft_events row (it doesn't even guard
+    // against the null case; it just throws and the exception gets
+    // swallowed by its own try/catch). No create-on-missing fallback here.
+    if (ms?.microsoft_event_id && fresh) {
       const eventPackages = await prisma.eventPackage.findMany({
         where: { event_id: eventId, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event: fresh, eventPackages });
-      const startIso = microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.start_time);
-      const endIso = microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.end_time);
-
-      if (ms?.microsoft_event_id) {
-        await microsoftGraph.updateEvent(ms.microsoft_event_id, {
-          subject,
-          content,
-          startIso,
-          endIso,
-          location,
-        }).catch(err => console.error("MS Graph Sync Failed:", err));
-      } else {
-        // No tracked Graph event for this one — happens for entries created
-        // before Node started recording microsoft_events (e.g. migrated
-        // from Laravel, or from an earlier bug window), so "Update" always
-        // silently no-op'd instead of ever fixing a stale/blank Outlook
-        // entry. Create one now and start tracking it, same as confirmEvent.
-        const created = await microsoftGraph
-          .createEvent({ subject, content, startIso, endIso, location })
-          .catch(err => { console.error("MS Graph Create-on-update Failed:", err); return null; });
-        if (created?.id) {
-          await prisma.microsoftEvent.create({
-            data: {
-              event_id: BigInt(eventId),
-              microsoft_event_id: String(created.id),
-              created_at: new Date(),
-              updated_at: new Date(),
-            },
-          }).catch(() => {});
-        }
-      }
+      await microsoftGraph.updateEvent(ms.microsoft_event_id, {
+        subject,
+        content,
+        startIso: microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.start_time),
+        endIso: microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.end_time),
+        location,
+      }).catch(err => console.error("MS Graph Sync Failed:", err));
     }
   } catch (e) {
     console.error("Post-update sync error:", e);

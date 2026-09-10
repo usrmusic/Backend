@@ -684,14 +684,30 @@ const resetPassword = catchAsync(async (req, res) => {
   return res.json({ ok: true, email: user.email });
 });
 
-// Only consumed by the Enquiry form's "Select DJ" field (the sole caller of
-// GET /user/get-dropdown — see src/api/dropdown.ts), so it's safe to scope
-// this specifically to actual DJs. Admin/Super Admin accounts are included
-// alongside Staff because some admins genuinely DJ (e.g. DJ Nicku) — but
-// dev/support admin accounts with no configured package (e.g. Asim, FaiQ
-// MaLik) aren't real DJs and were cluttering the list. A linked
-// `package_users` row is what makes an account an actual selectable DJ.
+// General-purpose staff/admin dropdown — every non-Client account,
+// regardless of whether they have a package configured yet. Used by the
+// Packages page's "Add Package" modal (must be able to pick a newly added
+// DJ who has NO package yet, since assigning their first one is the whole
+// point of that screen) and anywhere else a plain staff list is needed.
+// Deliberately NOT filtered by package_users — see listDjDropdown below
+// for the DJ-only variant.
 const listUserDropdown = catchAsync(async (req, res) => {
+  const users = await userSvc.list({
+    filter: { deleted_at: null, NOT: { role_id: BigInt(4) } },
+    select: { id: true, name: true, email: true, package_users:{select: { id: true, package_name: true }} },
+    sort: "name:asc",
+  });
+  res.json(serializeForJson(users));
+});
+
+// DJ-only dropdown — the Enquiry form's "Select DJ" field. Admin/Super
+// Admin accounts are included alongside Staff because some admins
+// genuinely DJ (e.g. DJ Nicku), but a dev/support admin account with no
+// configured package (e.g. Asim, FaiQ MaLik) isn't a real DJ and was
+// cluttering this specific list. A linked `package_users` row is what
+// makes an account an actual selectable DJ. Separate endpoint from
+// listUserDropdown above, which every other caller needs unfiltered.
+const listDjDropdown = catchAsync(async (req, res) => {
   const users = await userSvc.list({
     filter: { deleted_at: null, NOT: { role_id: BigInt(4) }, package_users: { some: {} } },
     select: { id: true, name: true, email: true, package_users:{select: { id: true, package_name: true }} },
@@ -787,5 +803,6 @@ export default {
   getUser,
   currentUser,
   listUserDropdown,
+  listDjDropdown,
   listDjColors,
 };

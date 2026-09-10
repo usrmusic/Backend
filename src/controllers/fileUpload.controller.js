@@ -100,7 +100,7 @@ export const listFiles = catchAsync(async (req, res) => {
   //   - role_id 3 (Staff/DJ) -> general files, or files whose event's DJ is them
   //   - everyone else (role_id 4/Client, or unknown) -> general files, or
   //     files whose event belongs to them (event.user_id === requester)
-  const requesterId = Number(req.user?.sub || req.user?.id);
+  const requesterId = Number(req.user?.sub || req.user?.sub);
   const roleId = req.user?.role_id != null ? Number(req.user.role_id) : null;
 
   let scopedFilter = filter;
@@ -134,6 +134,7 @@ export const listFiles = catchAsync(async (req, res) => {
     events: {
       select: {
         date: true,
+        venues: { select: { venue: true } },
         users_events_user_idTousers: { select: { name: true } },
       },
     },
@@ -149,8 +150,10 @@ export const listFiles = catchAsync(async (req, res) => {
   const count = await fileSvc.model.count({ where: scopedFilter });
   const totalPages = perPage > 0 ? Math.ceil(count / perPage) : 1;
 
-  // Matches Laravel's file_upload_formatter.js eventFormatter exactly:
-  // "DD-MM-YYYY (ClientName)" when there's an event, "Global" otherwise.
+  // "Client @ Venue (DD-MM-YYYY)" — same format as the Dashboard todo
+  // widget's event_label, deliberately diverging from Laravel's plainer
+  // "DD-MM-YYYY (ClientName)" per request, since a venue is more useful
+  // for identifying a file than the date alone.
   const pad2 = (n) => String(n).padStart(2, "0");
   const filesWithEvent = files.map((f) => {
     const ev = f.events;
@@ -159,7 +162,9 @@ export const listFiles = catchAsync(async (req, res) => {
       const d = new Date(ev.date);
       const dateStr = `${pad2(d.getUTCDate())}-${pad2(d.getUTCMonth() + 1)}-${d.getUTCFullYear()}`;
       const clientName = ev.users_events_user_idTousers?.name || "";
-      event = `${dateStr} (${clientName})`;
+      const venue = ev.venues?.venue || "";
+      const who = [clientName, venue].filter(Boolean).join(" @ ");
+      event = who ? `${who} (${dateStr})` : dateStr;
     }
     return { ...f, event };
   });
@@ -175,7 +180,7 @@ export const listFiles = catchAsync(async (req, res) => {
 // permission, since clients are never granted that admin-facing permission —
 // safe because the query is hard-scoped to events the requester owns.
 export const listMyFiles = catchAsync(async (req, res) => {
-  const requesterId = Number(req.user?.sub || req.user?.id);
+  const requesterId = Number(req.user?.sub || req.user?.sub);
   if (!requesterId) return res.status(401).json({ error: "unauthorized" });
 
   const perPage = Number(req.query.perPage || req.query.limit || 25);
@@ -208,7 +213,7 @@ export const listMyFiles = catchAsync(async (req, res) => {
 // Ownership-checked download counterpart to `listMyFiles` — used by clients
 // who lack the "file upload" permission required by the admin download route.
 export const downloadMyFile = catchAsync(async (req, res) => {
-  const requesterId = Number(req.user?.sub || req.user?.id);
+  const requesterId = Number(req.user?.sub || req.user?.sub);
   const id = Number(req.params.id);
   if (!requesterId) return res.status(401).json({ error: "unauthorized" });
   if (!id) return res.status(400).json({ error: "invalid_id" });
@@ -290,7 +295,7 @@ const updateFileMetadata = catchAsync(async (req, res) => {
     description: `File #${Number(id)} metadata updated`,
     subject_type: "FileUpload",
     subject_id: Number(id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { old_file_name: f.file_name, new_file_name: file_name },
   });
 
@@ -347,8 +352,8 @@ export const uploadfile = catchAsync(async (req, res) => {
     general: general === "true" || general === true ? true : false,
     delete_after: deleteAfter || null,
     created_by:
-      req.user && (req.user.id || req.user.sub)
-        ? Number(req.user.id || req.user.sub)
+      req.user && (req.user.sub || req.user.sub)
+        ? Number(req.user.sub || req.user.sub)
         : null,
   };
 
@@ -359,7 +364,7 @@ export const uploadfile = catchAsync(async (req, res) => {
     description: `File #${Number(created.id)} uploaded`,
     subject_type: "FileUpload",
     subject_id: Number(created.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       file_name: data.file_name,
       file_type: data.file_type,
@@ -418,7 +423,7 @@ const deleteFile = catchAsync(async (req, res) => {
     description: `File #${Number(id)} deleted`,
     subject_type: "FileUpload",
     subject_id: Number(id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { file_name: f.file_name },
   });
 
@@ -470,7 +475,7 @@ const deleteMedia = catchAsync(async (req, res) => {
     description: `Media #${Number(id)} deleted`,
     subject_type: "Media",
     subject_id: Number(id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { display_name: f.display_name },
   });
 
@@ -607,7 +612,7 @@ const uploadMedia = catchAsync(async (req, res) => {
     description: `Media #${Number(created.id)} uploaded`,
     subject_type: "Media",
     subject_id: Number(created.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { display_name: data.display_name },
   });
 
@@ -705,7 +710,7 @@ const updateMedia = catchAsync(async (req, res) => {
     description: `Media #${Number(id)} updated`,
     subject_type: "Media",
     subject_id: Number(id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old_display_name: existing.display_name,
       new_display_name: updated.display_name,

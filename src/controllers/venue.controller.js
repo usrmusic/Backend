@@ -17,7 +17,7 @@ const venueSvc = services.get("venue");
 async function isForceDeleteAllowed(req) {
   try {
     if (!req.user) return false;
-    const sub = req.user.sub || req.user.id || req.user.email;
+    const sub = req.user.sub || req.user.sub || req.user.email;
     let userId = null;
     if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) userId = Number(sub);
     if (!userId) {
@@ -149,7 +149,7 @@ const createVenue = catchAsync(async (req, res) => {
     description: `Venue #${created?.id} created`,
     subject_type: "Venue",
     subject_id: created?.id != null ? Number(created.id) : null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { venue: created?.venue || null },
   });
 
@@ -217,7 +217,7 @@ const updateVenue = catchAsync(async (req, res) => {
     description: `Venue #${id} updated`,
     subject_type: "Venue",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old: existingVenue
         ? { venue: existingVenue.venue, venue_address: existingVenue.venue_address }
@@ -249,7 +249,7 @@ const deleteVenue = catchAsync(async (req, res) => {
         description: `Venue #${id} deleted`,
         subject_type: "Venue",
         subject_id: id,
-        causer_id: req.user?.id || null,
+        causer_id: req.user?.sub || null,
         properties: { venue: venueBeforeDelete?.venue || null, forced: true },
       });
       return res.json({ ok: true, forced: true });
@@ -283,7 +283,7 @@ const deleteVenue = catchAsync(async (req, res) => {
     description: `Venue #${id} deleted`,
     subject_type: "Venue",
     subject_id: id,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { venue: venueBeforeDelete?.venue || null, forced: false },
   });
 
@@ -340,7 +340,7 @@ const deleteManyVenues = catchAsync(async (req, res) => {
       description: `${numericIds.length} venue(s) deleted`,
       subject_type: "Venue",
       subject_id: null,
-      causer_id: req.user?.id || null,
+      causer_id: req.user?.sub || null,
       properties: { ids: numericIds, count: numericIds.length, forced: true },
     });
     return res.json({ ok: true, count: del.count, forced: true });
@@ -352,7 +352,7 @@ const deleteManyVenues = catchAsync(async (req, res) => {
     description: `${numericIds.length} venue(s) deleted`,
     subject_type: "Venue",
     subject_id: null,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { ids: numericIds, count: numericIds.length, forced: false },
   });
   return res.json({ ok: true, count: updates.count, forced: false });

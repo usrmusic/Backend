@@ -43,7 +43,7 @@ async function storeRole(req, res) {
     description: `Role #${role.id} created`,
     subject_type: 'Role',
     subject_id: Number(role.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name },
   });
   res.status(201).json(serializeForJson(role));
@@ -65,7 +65,7 @@ async function updateRole(req, res) {
     description: `Role #${roleId} updated`,
     subject_type: 'Role',
     subject_id: roleId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { old_name: existing?.name ?? null, new_name: name },
   });
   res.json(serializeForJson(role));
@@ -90,7 +90,7 @@ async function destroyRole(req, res) {
     description: `Role #${roleId} deleted`,
     subject_type: 'Role',
     subject_id: roleId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: existing?.name ?? null },
   });
   res.json({ ok: true });
@@ -112,7 +112,7 @@ async function storePermission(req, res) {
     description: `Permission #${perm.id} created`,
     subject_type: 'Permission',
     subject_id: Number(perm.id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name },
   });
   res.status(201).json(serializeForJson(perm));
@@ -142,7 +142,7 @@ async function updatePermission(req, res) {
     description: `Permission #${permissionId} updated`,
     subject_type: 'Permission',
     subject_id: permissionId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { old_name: existing?.name ?? null, new_name: name },
   });
   res.json(serializeForJson(perm));
@@ -167,7 +167,7 @@ async function destroyPermission(req, res) {
     description: `Permission #${permissionId} deleted`,
     subject_type: 'Permission',
     subject_id: permissionId,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { name: existing?.name ?? null },
   });
   res.json({ ok: true });
@@ -215,7 +215,7 @@ async function assignPermissions(req, res) {
     description: `Permissions assigned to role #${rid}`,
     subject_type: 'Role',
     subject_id: rid,
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: { old_permission_ids: oldPermissionIds, new_permission_ids: pids },
   });
 

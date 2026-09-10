@@ -179,7 +179,7 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
             total_cost_for_equipment: true,
             vat_value: true,
             event_cost: true,
-            users_events_dj_idTousers: { select: { id: true, name: true } },
+            users_events_dj_idTousers: { select: { id: true, name: true, color: true } },
             event_statuses: { select: { id: true, status: true } },
         },
     });
@@ -194,6 +194,11 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
 
     const statusCounts = {};
     const djCounts = {};
+    // The DJ's own colour (users.color) — same field the dashboard calendar
+    // widget already uses for its chips — so Sales Analytics' legend dots
+    // and donut slices match that DJ's colour everywhere else in the app,
+    // instead of an arbitrary generated palette unrelated to them.
+    const djColors = {};
 
     const confirmedCompletedEvents = events.filter((e) => [2, 3].includes(e.event_status_id));
     // "Events" stat card matches Laravel's confirmAndCompletedEvents count —
@@ -238,6 +243,9 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
     confirmedCompletedEvents.forEach((e) => {
         const djName = e.users_events_dj_idTousers?.name ? String(e.users_events_dj_idTousers.name) : (e.dj_id ? String(e.dj_id) : 'unassigned');
         djCounts[djName] = (djCounts[djName] || 0) + 1;
+        if (e.users_events_dj_idTousers?.color && !djColors[djName]) {
+            djColors[djName] = e.users_events_dj_idTousers.color;
+        }
     });
     // Deliberate departure from Laravel (Laravel's confirmEnquiryEvents has
     // no date filter at all) — by request, "Remaining" here means Confirmed
@@ -384,6 +392,21 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
     totalTurnover += cancelOveraAllProfit;
     totalProfit += cancelOveraAllProfit;
 
+    // event_notes.created_by is a bare Int column (no Prisma relation), so
+    // the Dashboard's "Events Activity" widget was rendering the raw id (or
+    // "System" when null) instead of a name — same class of bug already
+    // fixed for events.created_by. Batch-resolve the distinct ids actually
+    // present rather than a query per note.
+    const noteCreatorIds = [...new Set(recentNotes.map((n) => n.created_by).filter((id) => id != null))];
+    const noteCreators = noteCreatorIds.length
+        ? await prisma.user.findMany({ where: { id: { in: noteCreatorIds } }, select: { id: true, name: true } })
+        : [];
+    const noteCreatorNameById = new Map(noteCreators.map((u) => [Number(u.id), u.name]));
+    const recentNotesWithNames = recentNotes.map((n) => ({
+        ...n,
+        created_by_name: n.created_by != null ? noteCreatorNameById.get(Number(n.created_by)) || null : null,
+    }));
+
     return {
         year: targetYear,
         totalEvents,
@@ -397,11 +420,11 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
             profits: monthlyProfits,
             turnover: monthlyTurnover,
         },
-        salesAnalytics: { statusCounts, djCounts },
+        salesAnalytics: { statusCounts, djCounts, djColors },
         pendingPayments,
         openEnquiries,
         calendarEvents,
-        recentNotes
+        recentNotes: recentNotesWithNames
     };
 }
 

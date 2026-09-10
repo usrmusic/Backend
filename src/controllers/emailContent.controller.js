@@ -57,7 +57,7 @@ export const updateEmailContent = catchAsync(async (req, res) => {
     description: `Email template #${Number(id)} updated`,
     subject_type: "EmailContent",
     subject_id: Number(id),
-    causer_id: req.user?.id || null,
+    causer_id: req.user?.sub || null,
     properties: {
       old_subject: existing.subject,
       new_subject: updateData.subject,

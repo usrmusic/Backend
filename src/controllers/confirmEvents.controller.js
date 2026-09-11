@@ -220,12 +220,16 @@ const confirmEvent = catchAsync(async (req, res) => {
       // Static USR wordmark — Laravel's version of this email always showed
       // this same logo regardless of company, this one had none at all.
       const credLogoUrl = await getSignedGetUrl("brand/usr-logo-dark.png").catch(() => null);
+      const credSignatureUrl = company?.admin_signature
+        ? await getSignedGetUrl(String(company.admin_signature)).catch(() => null)
+        : null;
       const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
         name: user.name || "Client",
         email: user.email,
         password: user.password_text,
         loginUrl: process.env.FRONTEND_URL || "https://www.usrmusic.com/login",
         logoUrl: credLogoUrl,
+        signatureUrl: credSignatureUrl,
       });
       await sendEmail({ to: [user.email], subject: credSubject, html: credHtml }).catch(
         (e) => {
@@ -809,6 +813,9 @@ const sendInvoice = catchAsync(async (req, res) => {
     website: company?.website || null,
     instagram: company?.instagram || null,
     facebook: company?.facebook || null,
+    bank_name: company?.bank_name || null,
+    sort_code: company?.sort_code || null,
+    account_number: company?.account_number || null,
   };
 
   // Matches Laravel's send_invoice.blade.php shell exactly — no itemised
@@ -981,6 +988,9 @@ const sendQuote = catchAsync(async (req, res) => {
     instagram: company?.instagram || null,
     facebook: company?.facebook || null,
     admin_signature: company?.admin_signature || null,
+    bank_name: company?.bank_name || null,
+    sort_code: company?.sort_code || null,
+    account_number: company?.account_number || null,
   };
 
   const firstName = user?.name || "Client";

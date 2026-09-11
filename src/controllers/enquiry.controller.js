@@ -2053,6 +2053,9 @@ const sendQuote = catchAsync(async (req, res) => {
     instagram: company?.instagram || null,
     facebook: company?.facebook || null,
     admin_signature: company?.admin_signature || null,
+    bank_name: company?.bank_name || null,
+    sort_code: company?.sort_code || null,
+    account_number: company?.account_number || null,
   };
 
   // format event date for subject similar to Laravel

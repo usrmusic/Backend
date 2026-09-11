@@ -174,6 +174,17 @@ export async function signContractForEvent({
     signedUrl = await getSignedGetUrl(pdfKey);
   } catch {}
 
+  // The email link must stay valid indefinitely (clients open old emails
+  // months later), but a presigned S3 URL maxes out at 7 days for long-term
+  // IAM credentials — clicking it after that returns AccessDenied. Point the
+  // email at our own permanent, token-based route instead, which mints a
+  // fresh presigned URL on every click. `signedUrl` above is still returned
+  // from this function for API callers that want the raw S3 link directly.
+  const apiBase = (process.env.PUBLIC_API_URL || 'https://usrmusic.up.railway.app').replace(/\/$/, '');
+  const permanentDownloadUrl = event.contract_token
+    ? `${apiBase}/api/contract/${event.contract_token}/download`
+    : signedUrl;
+
   if (notify) {
     if (user?.email && signedUrl) {
       const logoUrl = company?.company_logo
@@ -181,7 +192,7 @@ export async function signContractForEvent({
         : null;
       const { subject, html } = buildContractSignedEmail({
         name: user.name || '',
-        signedUrl,
+        signedUrl: permanentDownloadUrl,
         company,
         logoUrl,
       });

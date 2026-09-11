@@ -183,7 +183,17 @@ export const createClient = catchAsync(async (req, res) => {
 
 export const listClients = catchAsync(async (req, res) => {
   // Build filter from query params
-  let filter = { deleted_at: null, role_id: BigInt(4) };
+  // `status` toggles which clients show: default (unset) is active-only,
+  // matching every existing caller of this endpoint. "inactive" scopes to
+  // soft-deleted (deactivated/blocked) clients — Laravel's ClientController
+  // never filters these out at all (it lists everyone via withTrashed() and
+  // shows an Active/Blocked badge in the same table); this app's clients
+  // list, unlike Laravel's, hides deleted_at entirely by default, so once a
+  // client was deactivated there was no way to see or reactivate them again.
+  const status = req.query.status || req.params.status;
+  let filter = { role_id: BigInt(4) };
+  if (status === "inactive") filter.deleted_at = { not: null };
+  else if (status !== "all") filter.deleted_at = null;
   if (req.query.filter || req.params.filter) {
     try {
       const parsed =

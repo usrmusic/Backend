@@ -135,6 +135,27 @@ const signContractByToken = catchAsync(async (req, res) => {
   }
 });
 
+// Public: redirect to a fresh presigned URL for the client's signed contract,
+// keyed by the event's permanent contract_token (not the presigned S3 URL
+// itself, which expires after 7 days — see the route comment for why).
+const downloadSignedContractByToken = catchAsync(async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return res.status(400).json({ error: 'token_required' });
+
+  const event = await prisma.event.findUnique({
+    where: { contract_token: token },
+    include: { contracts: { orderBy: { id: 'desc' }, take: 1 } },
+  });
+  if (!event) return res.status(404).json({ error: 'event_not_found' });
+
+  const latestContract = Array.isArray(event.contracts) ? event.contracts[0] : null;
+  const pdfKey = latestContract?.signed_pdf_path || null;
+  if (!pdfKey) return res.status(404).json({ error: 'signed_contract_not_found' });
+
+  const url = await getSignedGetUrl(String(pdfKey), 60 * 10, `contract_${event.id}.pdf`);
+  return res.redirect(303, url);
+});
+
 // Authenticated: ensure the event has a contract_token (creating one on
 // demand) and return a public signing URL the admin can share with the client.
 const ensureContractTokenForEvent = catchAsync(async (req, res) => {
@@ -386,6 +407,7 @@ const deleteContract = catchAsync(async (req, res) => {
 export default {
   showContractByToken,
   signContractByToken,
+  downloadSignedContractByToken,
   ensureContractTokenForEvent,
   sendContractLinkEmail,
   listContractsForEvent,

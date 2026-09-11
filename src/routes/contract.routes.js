@@ -47,4 +47,13 @@ router.delete(
 router.get('/:token', contractController.showContractByToken);
 router.post('/:token/sign', contractController.signContractByToken);
 
+// Public: permanent download link for the client's signed contract, emailed
+// to them once at signing time. Redirects to a freshly-generated presigned
+// S3 URL on every hit instead of embedding one directly in the email body —
+// a presigned URL maxes out at 7 days (AWS SigV4 limit for long-term IAM
+// credentials), so a client opening the emailed link after that returned
+// AccessDenied. This route never expires because the presign happens here,
+// at click time, not once at send time.
+router.get('/:token/download', contractController.downloadSignedContractByToken);
+
 export default router;

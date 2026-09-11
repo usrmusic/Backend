@@ -567,7 +567,13 @@ const listUsers = catchAsync(async (req, res) => {
   // build base filter (only active users; exclude Client role — clients live
   // under /api/client. This matches Laravel's User::scopeStaffs which filters
   // role_id != Client.)
-  let filter = { deleted_at: null, NOT: { role_id: BigInt(4) } };
+  // `status=inactive` scopes to deactivated staff instead — same toggle as
+  // /api/client, needed so restoreUsers (POST /user/restore, already wired
+  // for Laravel parity) has anyone to actually target from the UI.
+  const status = req.query.status || req.params.status;
+  let filter = { NOT: { role_id: BigInt(4) } };
+  if (status === "inactive") filter.deleted_at = { not: null };
+  else if (status !== "all") filter.deleted_at = null;
   if (req.query.filter || req.params.filter) {
     try {
       const parsed =

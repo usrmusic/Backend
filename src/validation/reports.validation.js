@@ -32,6 +32,11 @@ const adminReport = Joi.object({
         page: Joi.number().integer().min(1).optional(),
         perPage: Joi.number().integer().min(1).max(100).optional(),
         sort: Joi.string().optional(),
+        // Column sorting for the Admin Report table. The controller whitelists
+        // sort_by against its own sortMap, so an unknown value falls back to
+        // event_date rather than reaching SQL.
+        sort_by: Joi.string().optional(),
+        sort_dir: Joi.string().valid("asc", "desc").optional(),
         company_name: Joi.string().optional(),
         client_name: Joi.string().optional(),
         event_date: Joi.string().optional(),

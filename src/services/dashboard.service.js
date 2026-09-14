@@ -143,27 +143,22 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
      * We process these in-memory to avoid 12+ separate DB calls.
      */
     // Build scope-aware where clause
-    let baseWhere = { date: dateFilter };
-
-    if (scope === 'team') {
-        // Match by THIS user's id, never by role — matching on role_id would
-        // pull in every other Staff member's events too (any DJ with the
-        // same role), not just events actually assigned to this user.
-        const teamOr = [];
-        if (userId) {
-            teamOr.push({ dj_id: userId });
-            teamOr.push({ created_by: userId });
-        }
-        if (teamOr.length) baseWhere = { AND: [baseWhere, { OR: teamOr }] };
-    } else if (scope === 'personal') {
-        const personalOr = [];
-        if (userId) {
-            personalOr.push({ user_id: userId });
-            personalOr.push({ dj_id: userId });
-            personalOr.push({ created_by: userId });
-        }
-        if (personalOr.length) baseWhere = { AND: [baseWhere, { OR: personalOr }] };
+    // Role scoping only — deliberately separate from the year filter so
+    // widgets that must NOT be year-bound (the calendar) can reuse the same
+    // scoping without inheriting `dateFilter`.
+    // Match by THIS user's id, never by role — matching on role_id would
+    // pull in every other Staff member's events too (any DJ with the
+    // same role), not just events actually assigned to this user.
+    let scopeOr = [];
+    if (scope === 'team' && userId) {
+        scopeOr = [{ dj_id: userId }, { created_by: userId }];
+    } else if (scope === 'personal' && userId) {
+        scopeOr = [{ user_id: userId }, { dj_id: userId }, { created_by: userId }];
     }
+    const scopeWhere = scopeOr.length ? { OR: scopeOr } : {};
+
+    let baseWhere = { date: dateFilter };
+    if (scopeOr.length) baseWhere = { AND: [baseWhere, { OR: scopeOr }] };
 
     const events = await prisma.event.findMany({
         where: baseWhere,
@@ -321,12 +316,18 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
                 event_payments: { select: { amount: true } },
             },
         }),
-        // Open Enquiries List — no year filter, matching openEnquiriesCount
-        // above and Laravel's own open-enquiry widget query (an open enquiry
-        // usually has no event date yet, so year-scoping this dropped most
-        // of them).
+        // Open Enquiries List — deliberately reuses `openEnquiryWhere` (the
+        // exact filter behind openEnquiriesCount) rather than `baseWhere`.
+        // `baseWhere` carries `date: dateFilter`, i.e. the dashboard's
+        // selected year, and an open enquiry's date is the *event* date,
+        // which is usually a future year — so the year filter silently
+        // emptied this list while the count beside it stayed correct (e.g.
+        // a DJ with 3 open enquiries all dated 2027 saw "3" next to an empty
+        // list on the 2026 dashboard). Sharing one filter keeps the list and
+        // its count consistent by construction, and matches Laravel's own
+        // open-enquiry widget, which has no year filter either.
         prisma.event.findMany({
-            where: (scope === 'admin') ? { event_statuses: { status: { contains: 'open' } } } : { AND: [{ event_statuses: { status: { contains: 'open' } } }, baseWhere] },
+            where: openEnquiryWhere,
             select: {
                 id: true,
                 couple_name: true,
@@ -338,9 +339,13 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
             orderBy: { date: 'desc' },
             take: 50,
         }),
-        // Confirmed Calendar Events
+        // Confirmed Calendar Events — NOT year-bound. Laravel's calendar
+        // (CalendarController) never limits events to a single year; clamping
+        // this to the dashboard's selected year hid every future booking, so
+        // a calendar sitting on 2026 showed nothing for events already booked
+        // into 2027. Role scoping still applies via `scopeWhere`.
         prisma.event.findMany({
-            where: (scope === 'admin') ? { event_statuses: { status: { contains: 'confirm' } }, date: dateFilter } : { AND: [{ event_statuses: { status: { contains: 'confirm' } }, date: dateFilter }, baseWhere] },
+            where: { AND: [{ event_statuses: { status: { contains: 'confirm' } } }, scopeWhere] },
             select: {
                 id: true,
                 date: true,
@@ -353,8 +358,17 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
             take: 200,
         }),
         // Notes related to this year's events
+        // Event Activity feed. Laravel (DashboardController) shows Admin/Super
+        // Admin every log entry but restricts everyone else to entries they
+        // themselves caused (`causer_id = me`). Scoping only by event — as
+        // this did — still leaked an admin's actions to any Staff member
+        // assigned to the same event, so `created_by` is filtered here to
+        // match Laravel's causer rule.
         prisma.eventNote.findMany({
-            where: { event_id: { in: events.map(e => e.id) } }, // Only notes for events fetched above
+            where: {
+                event_id: { in: events.map(e => e.id) }, // Only notes for events fetched above
+                ...(scope === 'admin' ? {} : { created_by: userId }),
+            },
             orderBy: { created_at: 'desc' },
             take: 10,
             select: { id: true, event_id: true, notes: true, created_at: true, created_by: true },

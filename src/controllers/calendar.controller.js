@@ -21,15 +21,15 @@ const getCalenderEvents = catchAsync(async (req, res) => {
         };
     }
 
-    // Role-based scoping, matching Laravel's CalendarController::upcomingEvents():
-    // role_id 1/2 (Super Admin/Admin) see all confirmed events; role_id 3
-    // (Staff/DJ) see only events they are DJing; everyone else (role_id 4,
-    // Client) sees only their own events.
+    // Role-based scoping. Laravel's CalendarController::upcomingEvents() also
+    // restricts role_id 3 (Staff/DJ) to events where dj_id is them; that is a
+    // DELIBERATE divergence here — the client asked for Staff and Admin to
+    // both see the whole calendar, since staff need visibility of the
+    // company's other bookings to plan around them. Clients (role_id 4) are
+    // still restricted to their own events, exactly as in Laravel.
     const roleId = Number(req.user?.role_id);
     const userId = req.user?.sub;
-    if (roleId === 3) {
-        filter.dj_id = userId;
-    } else if (roleId !== 1 && roleId !== 2) {
+    if (roleId !== 1 && roleId !== 2 && roleId !== 3) {
         filter.user_id = userId;
     }
 

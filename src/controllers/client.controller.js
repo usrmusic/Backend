@@ -497,8 +497,15 @@ export const listclientdropdown = catchAsync(async (req, res) => {
   const roleId = Number(req.user?.role_id);
   let clients;
   if (roleId === 3) {
+    // Staff see every client they have actually dealt with. Laravel
+    // (NewEnquiryController::index) matches on `created_by` alone, which hides
+    // clients whose event an Admin created and then assigned to this DJ — the
+    // common case, and one where the DJ plainly has a working relationship
+    // with the client. `dj_id` is therefore included alongside it: "either
+    // given by admin or by himself".
+    const staffId = Number(req.user?.sub);
     const events = await prisma.event.findMany({
-      where: { created_by: Number(req.user?.sub) },
+      where: { OR: [{ created_by: staffId }, { dj_id: staffId }] },
       select: { users_events_user_idTousers: { select: { id: true, name: true } } },
     });
     const byId = new Map();

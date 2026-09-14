@@ -416,6 +416,11 @@ const adminReport = catchAsync(async (req, res) => {
   const sortMap = {
     id: "event_id",
     date: "event_date",
+    // The Admin Report table sorts by its own column keys; `event_date` and
+    // `company_name` had no entry, so clicking those headers silently fell
+    // back to the default sort instead of doing nothing visible.
+    event_date: "event_date",
+    company_name: "company_name",
     event_status_id: "event_status",
     client_name: "client_name",
     dj_name: "dj_name",

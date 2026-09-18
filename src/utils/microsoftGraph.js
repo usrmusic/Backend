@@ -36,7 +36,7 @@ let tokenExpiry = 0;
 // alone, which serialized that epoch anchor as-is and silently synced every
 // event onto Jan 1 1970 — present in Graph, invisible on any real calendar
 // view. This combines the real date with the time-of-day correctly.
-function combineDateWithTimeOfDay(dateVal, timeVal) {
+function combineDateWithTimeOfDay(dateVal, timeVal, { rollToNextDay = false } = {}) {
   if (!dateVal) return null;
   const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
   if (Number.isNaN(d.getTime())) return null;
@@ -45,12 +45,30 @@ function combineDateWithTimeOfDay(dateVal, timeVal) {
   const combined = new Date(Date.UTC(
     d.getUTCFullYear(),
     d.getUTCMonth(),
-    d.getUTCDate(),
+    d.getUTCDate() + (rollToNextDay ? 1 : 0),
     hasTime ? t.getUTCHours() : 0,
     hasTime ? t.getUTCMinutes() : 0,
     hasTime ? t.getUTCSeconds() : 0,
   ));
   return combined.toISOString();
+}
+
+// Overnight events (e.g. 19:00 -> 00:30) have an end_time whose time-of-day is
+// earlier than start_time despite both being stored against the same `date`
+// column. Combining them naively produces an end instant before the start
+// instant, which Graph rejects with ErrorPropertyValidationFailure — this
+// silently dropped the calendar sync for every gig running past midnight.
+// Roll the end date forward a day whenever its time-of-day doesn't come after
+// the start's.
+function combineEventDateTimes(dateVal, startTimeVal, endTimeVal) {
+  const startIso = combineDateWithTimeOfDay(dateVal, startTimeVal);
+  const startTimeOfDay = startTimeVal instanceof Date ? startTimeVal : (startTimeVal ? new Date(startTimeVal) : null);
+  const endTimeOfDay = endTimeVal instanceof Date ? endTimeVal : (endTimeVal ? new Date(endTimeVal) : null);
+  const overnight = startTimeOfDay && endTimeOfDay
+    && !Number.isNaN(startTimeOfDay.getTime()) && !Number.isNaN(endTimeOfDay.getTime())
+    && endTimeOfDay.getTime() <= startTimeOfDay.getTime();
+  const endIso = combineDateWithTimeOfDay(dateVal, endTimeVal, { rollToNextDay: overnight });
+  return { startIso, endIso };
 }
 
 function toNaiveLocalDateTime(isoString) {
@@ -260,4 +278,4 @@ async function sendMail({ to, cc, subject, html, attachments }) {
   return { ok: true };
 }
 
-export default { createEvent, updateEvent, deleteEvent, sendMail, buildEventCalendarContent, formatUkTimeLabel, combineDateWithTimeOfDay };
+export default { createEvent, updateEvent, deleteEvent, sendMail, buildEventCalendarContent, formatUkTimeLabel, combineDateWithTimeOfDay, combineEventDateTimes };

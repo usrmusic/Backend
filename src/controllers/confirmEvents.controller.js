@@ -146,8 +146,7 @@ const confirmEvent = catchAsync(async (req, res) => {
       include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
     if (event) {
-      const startIso = microsoftGraph.combineDateWithTimeOfDay(event.date, event.start_time);
-      const endIso = microsoftGraph.combineDateWithTimeOfDay(event.date, event.end_time);
+      const { startIso, endIso } = microsoftGraph.combineEventDateTimes(event.date, event.start_time, event.end_time);
       const eventPackages = await prisma.eventPackage.findMany({
         where: { event_id: event.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
@@ -1739,8 +1738,7 @@ const reconfirmEvent = catchAsync(async (req, res) => {
       include: { users_events_user_idTousers: true, users_events_dj_idTousers: true, venues: true },
     });
     if (eventDetail) {
-      const startIso = microsoftGraph.combineDateWithTimeOfDay(eventDetail.date, eventDetail.start_time);
-      const endIso = microsoftGraph.combineDateWithTimeOfDay(eventDetail.date, eventDetail.end_time);
+      const { startIso, endIso } = microsoftGraph.combineEventDateTimes(eventDetail.date, eventDetail.start_time, eventDetail.end_time);
       const eventPackages = await prisma.eventPackage.findMany({
         where: { event_id: eventDetail.id, package_type_id: { in: [BigInt(1), BigInt(2)] } },
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
@@ -2150,11 +2148,12 @@ const updateEvent = catchAsync(async (req, res) => {
         select: { quantity: true, notes: true, equipment: { select: { name: true } } },
       }).catch(() => []);
       const { subject, content, location } = microsoftGraph.buildEventCalendarContent({ event: fresh, eventPackages });
+      const { startIso, endIso } = microsoftGraph.combineEventDateTimes(fresh.date, fresh.start_time, fresh.end_time);
       await microsoftGraph.updateEvent(ms.microsoft_event_id, {
         subject,
         content,
-        startIso: microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.start_time),
-        endIso: microsoftGraph.combineDateWithTimeOfDay(fresh.date, fresh.end_time),
+        startIso,
+        endIso,
         location,
       }).catch(err => console.error("MS Graph Sync Failed:", err));
     }

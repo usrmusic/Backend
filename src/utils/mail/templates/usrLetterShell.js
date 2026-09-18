@@ -10,6 +10,27 @@ function escapeHtml(value) {
 
 const row = (content) => `<tr><td align="left" style="word-break: break-word; font-family:'Calibri Light',serif, 'EmojiFont', sans-serif; color: #424040;font-size:16px;line-height: 22px;font-weight: normal; padding-bottom: 15px;">${content}</td></tr>`;
 
+// Every templated email (quote, invoice, brochure, update, thank you,
+// cancellation) built its body by replacing EVERY newline with a bare <br/>,
+// so blank-line-separated paragraphs and single line breaks within a
+// paragraph looked identical — just a run of <br/> tags with no real spacing
+// control. Outlook (see userCredentialEmail.js's URL/Username/Password fix)
+// renders that inconsistently, and manually-appended extra paragraphs (e.g.
+// the "sign your contract" line) then carried their own one-off margin,
+// producing uneven gaps between paragraphs. Real <p> tags with a consistent
+// top margin fix both: blank lines become paragraph breaks, single newlines
+// within a paragraph stay as soft <br/> line breaks.
+export function nl2p(text) {
+  const paragraphs = String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return paragraphs
+    .map((p, i) => `<p style="margin:${i === 0 ? "0" : "16px"} 0 0; padding:0;">${p.replace(/\n/g, "<br/>")}</p>`)
+    .join("");
+}
+
 // Shared shell behind every Laravel client-facing transactional email —
 // contract_signed, open_enquiry_send_quote, send_invoice,
 // confirmed_events_mail, usr_brochure, usr_update, cancel_events_mail, and

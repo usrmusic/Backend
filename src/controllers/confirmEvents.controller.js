@@ -5,7 +5,7 @@ import services from "../services/index.js";
 import eventNoteService from "../services/eventNoteService.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import { generateInvoicePdf, generateQuotePdf } from "../utils/pdfGenerator.js";
-import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
+import { buildUsrLetterEmail, nl2p } from "../utils/mail/templates/usrLetterShell.js";
 import sendEmail from "../utils/mail/graphMailClient.js";
 import { buildUserCredentialEmail } from "../utils/mail/templates/userCredentialEmail.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
@@ -219,16 +219,13 @@ const confirmEvent = catchAsync(async (req, res) => {
       // Static USR wordmark — Laravel's version of this email always showed
       // this same logo regardless of company, this one had none at all.
       const credLogoUrl = await getSignedGetUrl("brand/usr-logo-dark.png").catch(() => null);
-      const credSignatureUrl = company?.admin_signature
-        ? await getSignedGetUrl(String(company.admin_signature)).catch(() => null)
-        : null;
       const { subject: credSubject, html: credHtml } = buildUserCredentialEmail({
         name: user.name || "Client",
         email: user.email,
         password: user.password_text,
         loginUrl: process.env.FRONTEND_URL || "https://www.usrmusic.com/login",
         logoUrl: credLogoUrl,
-        signatureUrl: credSignatureUrl,
+        company,
       });
       await sendEmail({ to: [user.email], subject: credSubject, html: credHtml }).catch(
         (e) => {
@@ -306,7 +303,7 @@ const sendEventConfirmationEmail = catchAsync(async (req, res) => {
     : null;
   const clientHtml = buildUsrLetterEmail({
     name: firstName,
-    bodyHtml: String(bodyText).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(bodyText),
     company: companyDetails,
     logoUrl,
   });
@@ -824,7 +821,7 @@ const sendInvoice = catchAsync(async (req, res) => {
     : null;
   const invoiceHtml = buildUsrLetterEmail({
     name: first_name,
-    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(raw),
     company: companyDetails,
     logoUrl: invoiceLogoUrl,
   });
@@ -998,7 +995,7 @@ const sendQuote = catchAsync(async (req, res) => {
     : null;
   const emailHtml = buildUsrLetterEmail({
     name: firstName,
-    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(raw),
     company: companyDetails,
     logoUrl,
   });
@@ -1051,8 +1048,11 @@ const sendQuote = catchAsync(async (req, res) => {
     }
   }
 
+  // Plain text link, not a second button — see enquiry.controller.js's
+  // sendQuote for why (Laravel attaches this PDF rather than linking it at
+  // all; "Sign Your Contract" is the one real call to action here).
   const finalHtml = pdfUrl
-    ? `${emailHtml}<p><a href="${pdfUrl}">Download Quote (PDF)</a></p>`
+    ? `${emailHtml}<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #F2F4F6; margin: 0; padding: 0;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" role="presentation" style="width: 600px; background-color: #FFFFFF; margin: 0 auto; padding: 0 30px 30px;"><tr><td align="left" style="font-family:'Calibri Light',serif, 'EmojiFont', sans-serif; font-size:14px;"><a href="${pdfUrl}" style="color:#719984;">Download Quote (PDF)</a></td></tr></table></td></tr></table>`
     : emailHtml;
 
   if (to) {
@@ -1124,7 +1124,7 @@ const sendThankYouEmail = catchAsync(async (req, res) => {
 
   const html = buildUsrLetterEmail({
     name: firstName,
-    bodyHtml: String(thankYouBody).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(thankYouBody),
     company: companyDetails,
     logoUrl,
   });
@@ -1652,7 +1652,7 @@ const sendCancelEventEmail = catchAsync(async (req, res) => {
     : null;
   const bodyHtml = buildUsrLetterEmail({
     name: user?.name || "Client",
-    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(raw),
     company,
     logoUrl: cancelLogoUrl,
   });
@@ -2077,7 +2077,13 @@ const updateEvent = catchAsync(async (req, res) => {
   if (body.phone_number) userUpdateData.contact_number = String(body.phone_number);
 
   // --- no transaction: avoids P2028 pool exhaustion (same pattern as confirmEvent) ---
-  const ev = await prisma.event.findUnique({ where: { id: eventId } });
+  // Client name included so the update note (and the dashboard's Events
+  // Activity feed, which mixes entries from every event together) can say
+  // WHO this update was for, not just what changed.
+  const ev = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: { users_events_user_idTousers: { select: { name: true } } },
+  });
   if (!ev) return res.status(404).json({ error: "event_not_found" });
 
   // Update linked User if details changed
@@ -2092,9 +2098,10 @@ const updateEvent = catchAsync(async (req, res) => {
   }
 
   // Best-effort DJ mapping (no transaction needed — read-then-write is fine here)
+  let foundDj = null;
   if (body.dj_name) {
     const djName = String(body.dj_name).trim();
-    const foundDj = await prisma.user.findFirst({ where: { name: { contains: djName } } }).catch(() => null);
+    foundDj = await prisma.user.findFirst({ where: { name: { contains: djName } } }).catch(() => null);
     if (foundDj) eventUpdateData.dj_id = foundDj.id;
   }
 
@@ -2106,10 +2113,68 @@ const updateEvent = catchAsync(async (req, res) => {
     return res.status(500).json({ error: "update_failed", details: e.message });
   }
 
+  // Short human-readable summary of what actually changed, so the Notes
+  // tab/dashboard activity feed says "Jas Mann — DJ: DJ Jeevan, Date:
+  // 15/03/2028" instead of a generic "Event details updated via management
+  // portal". Venue is deliberately omitted — it's already shown right below
+  // this feed on the dashboard, so repeating it here is just noise.
+  const changedParts = [];
+  if (foundDj && Number(foundDj.id) !== Number(ev.dj_id ?? -1)) {
+    changedParts.push(`DJ: ${foundDj.name}`);
+  }
+  if ("date" in eventUpdateData) {
+    const oldDate = ev.date ? new Date(ev.date).toDateString() : null;
+    const newDate = eventUpdateData.date ? new Date(eventUpdateData.date).toDateString() : null;
+    if (oldDate !== newDate && eventUpdateData.date) {
+      changedParts.push(`Date: ${new Date(eventUpdateData.date).toLocaleDateString("en-GB")}`);
+    }
+  }
+  const OTHER_FIELD_LABELS = {
+    start_time: "Start Time",
+    end_time: "End Time",
+    access_time: "Access Time",
+    event_date_contact: "Event Day Contact",
+    no_of_guests: "Guests",
+    deposit_amount: "Deposit",
+    refund_amount: "Refund",
+    brief_itinerary: "Itinerary/Playlist",
+    stag_songs: "Stag Songs",
+    hen_songs: "Hen Songs",
+    videography: "Videographer",
+    caterer: "Caterer",
+    decor: "Decor",
+    couple_name: "Couple Name",
+    entrance_song_style: "Entrance Song",
+    cake_song_who_feeds: "Cake Cutting Song",
+    first_dance: "First Dance",
+    do: "Do's",
+    dont: "Don'ts",
+  };
+  for (const [key, label] of Object.entries(OTHER_FIELD_LABELS)) {
+    if (!(key in eventUpdateData)) continue;
+    const oldVal = ev[key] instanceof Date ? ev[key].toISOString() : (ev[key] ?? null);
+    const newVal =
+      eventUpdateData[key] instanceof Date ? eventUpdateData[key].toISOString() : (eventUpdateData[key] ?? null);
+    if (String(oldVal ?? "") === String(newVal ?? "")) continue;
+    if (key === "deposit_amount" || key === "refund_amount") {
+      changedParts.push(`${label}: £${Number(newVal || 0).toFixed(2)}`);
+    } else if (key === "no_of_guests") {
+      changedParts.push(`${label}: ${newVal}`);
+    } else {
+      changedParts.push(label);
+    }
+  }
+  if (Object.keys(userUpdateData).length) changedParts.push("client details");
+
+  const clientName = ev.users_events_user_idTousers?.name;
+  const noteText = changedParts.length
+    ? `${clientName ? `${clientName} — ` : ""}${changedParts.join(", ")}`
+    : `Event details updated${clientName ? ` for ${clientName}` : ""}`;
+
   // Log the update note (best-effort)
   eventNoteService.createNote(prisma, {
     eventId,
-    notes: "Event details updated via management portal",
+    notes: noteText,
     created_by: req.user?.sub || null,
   }).catch(() => {});
 

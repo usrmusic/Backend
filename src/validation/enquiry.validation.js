@@ -158,8 +158,10 @@ const updateEnquiry = Joi.object({
   body: Joi.object({
     name: Joi.string(),
     email: Joi.string().email(),
-    contact_number: Joi.string(),
-    address: Joi.string(),
+    contact_number: Joi.string().allow("", null),
+    address: Joi.string().allow("", null),
+    client_id: Joi.number().integer().allow(null),
+    is_new_client: Joi.boolean(),
     brochure_emailed: Joi.boolean(),
     called: Joi.boolean(),
     send_media: Joi.boolean(),
@@ -188,11 +190,10 @@ const updateEnquiry = Joi.object({
       )
       .allow(null),
     // The frontend submits ONE payload object for both create and edit
-    // (enquiry/page.tsx), so it always includes create-only fields like
-    // is_new_client/client_id even on an update — updateEnquiry's controller
-    // never reads them. .unknown(true) (matching createEnquiry's own schema)
-    // tolerates those rather than rejecting the whole request for a field this
-    // endpoint simply ignores.
+    // (enquiry/page.tsx). is_new_client/client_id (declared above) drive which
+    // client the event is linked to on update — see updateEnquiry's client
+    // resolution. .unknown(true) (matching createEnquiry's own schema) tolerates
+    // the remaining create-only fields rather than rejecting the whole request.
   }).unknown(true),
 });
 

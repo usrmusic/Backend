@@ -6,7 +6,7 @@ import { toDbDate } from "../utils/dateUtils.js";
 import sendEmail from "../utils/mail/graphMailClient.js";
 import { getSignedGetUrl, uploadStreamToS3 } from "../utils/s3Client.js";
 import { generateQuotePdf } from "../utils/pdfGenerator.js";
-import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
+import { buildUsrLetterEmail, nl2p } from "../utils/mail/templates/usrLetterShell.js";
 import eventNoteService from "../services/eventNoteService.js";
 import services from "../services/index.js";
 import genPassword from "../utils/genPassword.js";
@@ -830,6 +830,64 @@ const updateEnquiry = catchAsync(async (req, res) => {
     }
   }
 
+  // --- Resolve which client this event should belong to -------------------
+  // Three cases the edit form can submit (enquiry/page.tsx builds one payload
+  // for both create and edit):
+  //   1. An existing client picked from the Name dropdown -> is_new_client
+  //      false + client_id set. If it differs from the event's current client
+  //      the event is RELINKED to it (the old client keeps its own record).
+  //   2. "Add new" typed in -> is_new_client true, no client_id. A new client
+  //      row is created and the event is linked to it.
+  //   3. No switch, just edited contact details -> client_id matches the
+  //      event's current client, so its record is updated in place.
+  // Previously only case 3 existed: user_id was never reassigned, and the
+  // form's name/email/phone were always written onto the ORIGINAL client —
+  // so switching clients silently overwrote the old client's profile with
+  // the newly-selected client's details while the event stayed put.
+  const isNewClientCreation =
+    body.is_new_client === true || body.is_new_client === "true";
+  const providedClientId =
+    body.client_id != null && body.client_id !== "" ? Number(body.client_id) : null;
+  const currentClientId = Number(existingEvent.user_id);
+
+  let targetClientId = currentClientId;
+  let clientToCreate = null;
+
+  if (providedClientId && providedClientId !== currentClientId) {
+    const selected = await prisma.user
+      .findUnique({ where: { id: providedClientId } })
+      .catch(() => null);
+    if (!selected) return res.status(404).json({ error: "client_not_found" });
+    const isClientRole =
+      selected.role_id === BigInt(4) || String(selected.role_id) === "4";
+    if (!isClientRole)
+      return res
+        .status(400)
+        .json({ error: "This email is already attached with Dj" });
+    targetClientId = providedClientId;
+  } else if (isNewClientCreation && !providedClientId) {
+    // Same guard as createEnquiry: "add new" must not collide with an
+    // existing account, otherwise two clients would share one email.
+    if (body.email) {
+      const existingByEmail = await prisma.user
+        .findFirst({ where: { email: body.email } })
+        .catch(() => null);
+      if (existingByEmail)
+        return res.status(400).json({ error: "Email Is Already In Use" });
+    }
+    const plainPassword = req.body.password || genPassword();
+    clientToCreate = {
+      name: body.name || "Client",
+      email: body.email,
+      contact_number: body.contact_number || null,
+      address: body.address || null,
+      password: await bcrypt.hash(plainPassword, 10),
+      password_text: plainPassword,
+      role_id: BigInt(4),
+      created_by: req.user?.sub || null,
+    };
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     // reset contract if dj/package/date changed
     const shouldResetContract =
@@ -895,16 +953,30 @@ const updateEnquiry = catchAsync(async (req, res) => {
             : null;
     }
 
+    // "Add new" client — created inside the transaction so a later failure
+    // rolls it back instead of leaving an orphan account behind.
+    if (clientToCreate) {
+      const created = await tx.user.create({ data: clientToCreate });
+      targetClientId = Number(created.id);
+    }
+    // Relink the event when the client changed (switch or newly created).
+    if (targetClientId !== currentClientId) {
+      evUpdateData.user_id = targetClientId;
+    }
+
     const updatedEvent = await tx.event.update({
       where: { id },
       data: evUpdateData,
     });
 
-    // update user fields (client)
+    // Update the client the event now belongs to. Matches Laravel: editing
+    // contact details on the enquiry form updates that client's real record.
+    // Skipped for a just-created client — it already has these values, and
+    // re-writing them would be a redundant round-trip.
     try {
-      const userId = Number(updatedEvent.user_id || existingEvent.user_id);
       if (
-        userId &&
+        !clientToCreate &&
+        targetClientId &&
         (body.name !== undefined ||
           body.email !== undefined ||
           body.contact_number !== undefined ||
@@ -917,7 +989,7 @@ const updateEnquiry = catchAsync(async (req, res) => {
           udata.contact_number = body.contact_number || null;
         if (body.address !== undefined) udata.address = body.address || null;
         await tx.user
-          .update({ where: { id: userId }, data: udata })
+          .update({ where: { id: targetClientId }, data: udata })
           .catch(() => {});
       }
     } catch (e) {}
@@ -1217,7 +1289,7 @@ const sendInvoice = catchAsync(async (req, res) => {
     : null;
   const html = buildUsrLetterEmail({
     name: user?.name || "Client",
-    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(raw),
     company,
     logoUrl,
   });
@@ -1627,7 +1699,13 @@ const getEnquiryWithDetails = catchAsync(async (req, res) => {
   // always render the assigned DJ's name even if that user was later
   // soft-deleted and no longer appears in the active /user/get-dropdown list
   // — otherwise the Select DJ field silently renders blank on edit for any
-  // enquiry whose DJ has since left.
+  // enquiry whose DJ has since left. Same reasoning for the client relation:
+  // Staff/DJ accounts get a client dropdown scoped to only the clients they've
+  // dealt with (client.controller.js:listclientdropdown), so a client who
+  // just submitted a brand-new enquiry themselves (or was added by someone
+  // else) has no entry in that scoped list yet — without the relation here,
+  // the edit form has nothing to fall back on and shows the raw client id
+  // instead of their name.
   const event = await eventSvc
     .getById(Number(eventId), {
       include: {
@@ -1637,6 +1715,9 @@ const getEnquiryWithDetails = catchAsync(async (req, res) => {
             name: true,
             package_users: { select: { id: true, package_name: true } },
           },
+        },
+        users_events_user_idTousers: {
+          select: { id: true, name: true, email: true, contact_number: true, address: true },
         },
       },
     })
@@ -1779,9 +1860,13 @@ const sendBrochure = catchAsync(async (req, res) => {
     }
   }
 
-  // Matches Laravel's usr_brochure.blade.php shell.
-  const bodyHtml = `${raw ? String(raw).replace(/\n/g, "<br/>") : ""}${
-    brochureUrl ? `<p><a href="${brochureUrl}">Download Brochure</a></p>` : ""
+  // Matches Laravel's usr_brochure.blade.php shell. Button styled the same as
+  // the "Login to your Account" CTA in the booking confirmation email
+  // (userCredentialEmail.js), rather than a bare text link.
+  const bodyHtml = `${nl2p(raw)}${
+    brochureUrl
+      ? `<p style="margin:20px 0 0;"><a href="${brochureUrl}" style="background:#719984; text-decoration:none; display:inline-block; font-weight:600; color:#fff; text-transform:uppercase; font-size:14px; padding:11px 24px; border-radius:50px;">Download Brochure</a></p>`
+      : ""
   }`;
   const logoUrl = company.company_logo
     ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
@@ -1893,7 +1978,7 @@ const sendUpdateEmail = catchAsync(async (req, res) => {
     : null;
   const html = buildUsrLetterEmail({
     name: event?.users_events_user_idTousers?.name || "Client",
-    bodyHtml: String(raw).replace(/\n/g, "<br/>"),
+    bodyHtml: nl2p(raw),
     company,
     logoUrl,
   });
@@ -2077,9 +2162,10 @@ const sendQuote = catchAsync(async (req, res) => {
   const contractSignUrl = contract_token
     ? `${String(process.env.PUBLIC_FRONTEND_URL || "https://www.usrmusic.com").replace(/\/$/, "")}/contract/${contract_token}`
     : null;
-  const bodyHtml = `${raw ? String(raw).replace(/\n/g, "<br/>") : ""}${
+  const bodyHtml = `${nl2p(raw)}${
     contractSignUrl
-      ? `<p style="margin-top:15px;">Before signing, please make sure to read and agree to all terms and conditions. You can sign your contract here: <a style="color:blue;" href="${contractSignUrl}">signature link</a><br/>This will also be available on the portal once you have your login details.</p>`
+      ? `<p style="margin:16px 0 0;">Before signing, please make sure to read and agree to all terms and conditions. This will also be available on the portal once you have your login details.</p>
+         <p style="margin:20px 0 0;"><a href="${contractSignUrl}" style="background:#719984; text-decoration:none; display:inline-block; font-weight:600; color:#fff; text-transform:uppercase; font-size:14px; padding:11px 24px; border-radius:50px;">Sign Your Contract</a></p>`
       : ""
   }`;
   const logoUrl = companyDetails.company_logo
@@ -2132,8 +2218,13 @@ const sendQuote = catchAsync(async (req, res) => {
         where: { id: eventId },
         data: { names_id: companyId, contract_pdf_url: pdfKey || undefined },
       });
+    // Plain text link, not a second button — Laravel attaches this PDF to the
+    // email directly rather than linking it at all (Node links to S3
+    // instead, since it doesn't build the email through Laravel's attachment
+    // pipeline). "Sign Your Contract" above is the one real call to action;
+    // this is just a secondary "also, here's the file" line.
     const finalHtml = pdfUrl
-      ? `${emailHtml}<p><a href="${pdfUrl}">Download Quote (PDF)</a></p>`
+      ? `${emailHtml}<table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color: #F2F4F6; margin: 0; padding: 0;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" role="presentation" style="width: 600px; background-color: #FFFFFF; margin: 0 auto; padding: 0 30px 30px;"><tr><td align="left" style="font-family:'Calibri Light',serif, 'EmojiFont', sans-serif; font-size:14px;"><a href="${pdfUrl}" style="color:#719984;">Download Quote (PDF)</a></td></tr></table></td></tr></table>`
       : emailHtml;
     if (to)
       await sendEmail({ to, subject: subjectToUse, html: finalHtml }).catch(

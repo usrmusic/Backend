@@ -9,8 +9,8 @@ const createEquipment = {
     status: Joi.string().valid("ACTIVE", "INACTIVE").default("ACTIVE"),
     supplier_id: Joi.number().integer().optional().allow(null),
     supplier_name: Joi.string().trim().min(1).max(200).optional(),
-    pricing_guide: Joi.string().trim().max(2000).optional(),
-    rig_notes: Joi.string().trim().max(2000).optional(),
+    pricing_guide: Joi.string().trim().max(2000).allow(null, "").optional(),
+    rig_notes: Joi.string().trim().max(2000).allow(null, "").optional(),
     quantity: Joi.number().integer().min(0).optional(),
   }),
 };
@@ -44,8 +44,8 @@ const updateEquipment = {
     status: Joi.string().valid("ACTIVE", "INACTIVE"),
     supplier_id: Joi.number().integer().allow(null),
     supplier_name: Joi.string().trim().min(1).max(200),
-    pricing_guide: Joi.string().trim().max(2000),
-    rig_notes: Joi.string().trim().max(2000),
+    pricing_guide: Joi.string().trim().max(2000).allow(null, ""),
+    rig_notes: Joi.string().trim().max(2000).allow(null, ""),
     quantity: Joi.number().integer().min(0).optional(),
   }).min(1),
 };

@@ -10,8 +10,11 @@ export const listEvents = catchAsync(async (req, res) => {
   const isoDate = today.toISOString().slice(0, 10);
   let where = { ...(opts.where || {}), event_status_id: 2, date: { gte: new Date(isoDate) } };
 
-  // Staff only rigs their own events — Client can never reach this route
-  // (blocked by `blockClient`), Admin/Super Admin still see everything.
+  // Staff only rigs their own events by default — Client can never reach this
+  // route (blocked by `blockClient`), Admin/Super Admin still see everything.
+  // `?show_all=true` lets a staff member opt into seeing every confirmed
+  // event, same as Confirmed Events' "Show cancelled events" checkbox.
+  const showAll = req.query?.show_all === true;
   const sub = req.user && (req.user.sub || req.user.sub || req.user.email);
   let requesterId = null;
   if (typeof sub === "number" || /^[0-9]+$/.test(String(sub))) requesterId = Number(sub);
@@ -19,7 +22,7 @@ export const listEvents = catchAsync(async (req, res) => {
     const uu = await prisma.user.findUnique({ where: { email: String(req.user.email) }, select: { id: true } });
     if (uu) requesterId = Number(uu.id);
   }
-  if (requesterId) {
+  if (requesterId && !showAll) {
     const requester = await prisma.user.findUnique({ where: { id: requesterId }, select: { role_id: true } });
     if (requester && Number(requester.role_id) === 3) {
       where = { ...where, dj_id: requesterId };
@@ -66,9 +69,11 @@ export const getEvent = catchAsync(async (req, res) => {
 
   if (!event) return res.status(404).json({ error: 'not_found' });
 
+  // Basics (package_type_id 1) always listed before Extras (2).
   const packages = await prisma.eventPackage.findMany({
     where: { event_id: eventId },
     include: { equipment: true },
+    orderBy: { package_type_id: 'asc' },
   });
 
   res.json(serializeForJson({ event, packages }));

@@ -13,8 +13,10 @@ const listPackages = catchAsync(async (req, res) => {
   // bootstrap-table config for this list — no server pagination there).
   const showAll = q.perPage === "all";
   const page = showAll ? undefined : q.page ? Math.max(1, Number(q.page)) : 1;
+  // "all" reaches the service as the explicit no-LIMIT signal; `undefined`
+  // would hit its 25-row default instead (same bug as the Equipment list).
   const limit = showAll
-    ? undefined
+    ? "all"
     : q.perPage
     ? Math.min(100, Number(q.perPage))
     : q.limit

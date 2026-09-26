@@ -11,7 +11,7 @@ class CoreCrudService {
   }
 
   _buildQueryOptions(query = {}) {
-    const { filter, sort, page = 1, perPage = 25, select, include } = query;
+    const { filter, sort, page = 1, perPage, select, include } = query;
     const where = filter || {};
 
     let orderBy;
@@ -25,7 +25,19 @@ class CoreCrudService {
       });
     }
 
-    const take = perPage ? parseInt(perPage, 10) : undefined;
+    // `perPage` has three meanings and they must stay distinguishable:
+    //   omitted              → the 25-row default (ordinary paginated lists)
+    //   'all' / 0 / null     → no LIMIT at all (callers rendering a whole list)
+    //   a number             → that page size
+    // This was a bare `perPage = 25` destructuring default, so a controller
+    // signalling "all" by passing `undefined` hit the default and silently got
+    // 25 rows — which is what truncated the Equipment list mid-alphabet.
+    const unlimited = perPage === 'all' || perPage === 0 || perPage === null;
+    const take = unlimited
+      ? undefined
+      : perPage === undefined
+        ? 25
+        : parseInt(perPage, 10);
     const skip = page && take ? (parseInt(page, 10) - 1) * take : undefined;
 
     const opts = {};

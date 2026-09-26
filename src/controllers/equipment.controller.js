@@ -18,8 +18,11 @@ const listEquipment = catchAsync(async (req, res) => {
   // whole list on one page) skips pagination entirely rather than capping at
   // an arbitrary large number.
   const showAll = req.query.perPage === "all" || req.params.perPage === "all";
+  // "all" is passed through to the service verbatim — it is the explicit
+  // no-LIMIT signal there. Passing `undefined` instead used to fall through to
+  // the service's 25-row default, truncating this list mid-alphabet.
   const perPage = showAll
-    ? undefined
+    ? "all"
     : Number(req.query.perPage || req.query.limit || req.params.perPage || req.params.limit || 25);
   const page = showAll ? undefined : Number(req.query.page || req.params.page || 1);
   // Ties on sort_order (rows never dragged, all default 0) fall back to name

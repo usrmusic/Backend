@@ -2152,9 +2152,23 @@ const updateEvent = catchAsync(async (req, res) => {
   };
   for (const [key, label] of Object.entries(OTHER_FIELD_LABELS)) {
     if (!(key in eventUpdateData)) continue;
-    const oldVal = ev[key] instanceof Date ? ev[key].toISOString() : (ev[key] ?? null);
-    const newVal =
-      eventUpdateData[key] instanceof Date ? eventUpdateData[key].toISOString() : (eventUpdateData[key] ?? null);
+    // start_time/end_time are @db.Time(0) columns — Prisma always reads them
+    // back anchored to the epoch date (1970-01-01), while the value we're
+    // about to write is anchored to the event's real date. Comparing full
+    // ISO strings for these two fields always differs on the date portion
+    // even when the time-of-day is unchanged, which was flagging every save
+    // as a "Start Time, End Time" change and spamming the activity feed.
+    // Compare UTC hours/minutes only for these two.
+    let oldVal, newVal;
+    if (key === "start_time" || key === "end_time") {
+      oldVal = ev[key] instanceof Date ? `${ev[key].getUTCHours()}:${ev[key].getUTCMinutes()}` : (ev[key] ?? null);
+      newVal = eventUpdateData[key] instanceof Date
+        ? `${eventUpdateData[key].getUTCHours()}:${eventUpdateData[key].getUTCMinutes()}`
+        : (eventUpdateData[key] ?? null);
+    } else {
+      oldVal = ev[key] instanceof Date ? ev[key].toISOString() : (ev[key] ?? null);
+      newVal = eventUpdateData[key] instanceof Date ? eventUpdateData[key].toISOString() : (eventUpdateData[key] ?? null);
+    }
     if (String(oldVal ?? "") === String(newVal ?? "")) continue;
     if (key === "deposit_amount" || key === "refund_amount") {
       changedParts.push(`${label}: £${Number(newVal || 0).toFixed(2)}`);
@@ -2166,17 +2180,20 @@ const updateEvent = catchAsync(async (req, res) => {
   }
   if (Object.keys(userUpdateData).length) changedParts.push("client details");
 
-  const clientName = ev.users_events_user_idTousers?.name;
-  const noteText = changedParts.length
-    ? `${clientName ? `${clientName} — ` : ""}${changedParts.join(", ")}`
-    : `Event details updated${clientName ? ` for ${clientName}` : ""}`;
+  // Skip logging entirely when nothing actually changed (e.g. Save hit with
+  // no edits) — otherwise a no-op save still burns one of the dashboard
+  // activity feed's ~10 visible slots on a blank "Event details updated".
+  if (changedParts.length) {
+    const clientName = ev.users_events_user_idTousers?.name;
+    const noteText = `${clientName ? `${clientName} — ` : ""}updated event ${changedParts.join(", ")}`;
 
-  // Log the update note (best-effort)
-  eventNoteService.createNote(prisma, {
-    eventId,
-    notes: noteText,
-    created_by: req.user?.sub || null,
-  }).catch(() => {});
+    // Log the update note (best-effort)
+    eventNoteService.createNote(prisma, {
+      eventId,
+      notes: noteText,
+      created_by: req.user?.sub || null,
+    }).catch(() => {});
+  }
 
   await logActivity(prisma, {
     log_name: "confirmed event updated",

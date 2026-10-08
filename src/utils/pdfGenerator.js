@@ -55,6 +55,11 @@ function splitPackages(details = []) {
     name: d?.equipment?.name || d?.package_name || d?.notes || 'Item',
     quantity: d?.quantity ?? d?.extra_quantity ?? 1,
     notes: d?.notes || null,
+    // Carried through for the itemised invoice table (Qty/Description/Unit
+    // price/Total price) — the old dotted-list layout never showed per-line
+    // pricing, only a single combined total, so these were never read before.
+    unitPrice: d?.sell_price ?? 0,
+    totalPrice: d?.total_price ?? (Number(d?.sell_price ?? 0) * Number(d?.quantity ?? 1)),
   });
   const typeOf = (d) => Number(d?.package_type_id ?? d?.type ?? 1);
   return {

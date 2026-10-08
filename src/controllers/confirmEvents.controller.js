@@ -10,7 +10,7 @@ import sendEmail from "../utils/mail/graphMailClient.js";
 import { buildUserCredentialEmail } from "../utils/mail/templates/userCredentialEmail.js";
 import microsoftGraph from "../utils/microsoftGraph.js";
 import { parseDate, parseTimeToUtcDate, parsePaginationParams } from "../utils/helpers.js";
-import { toMoney, round2, isFullyPaid } from "../utils/money.js";
+import { toMoney, round2, isFullyPaid, formatMoney } from "../utils/money.js";
 import AppError from "../utils/AppError.js";
 import { loadPermissionsForUserId } from '../middleware/authorize.js';
 import { signContractForEvent } from "../services/contractSign.service.js";
@@ -80,9 +80,15 @@ const confirmEvent = catchAsync(async (req, res) => {
   // --- Step 5: VAT update (carry total_cost in memory — no re-read needed) ---
   const currentEvent = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { total_cost_for_equipment: true },
+    select: {
+      total_cost_for_equipment: true,
+      // Piggybacked onto this existing lookup for the "Confirmed <name> as an
+      // event" note below — avoids a second round-trip just for the name.
+      users_events_user_idTousers: { select: { name: true } },
+    },
   });
   const baseCost = toMoney(currentEvent?.total_cost_for_equipment);
+  const clientNameForNote = currentEvent?.users_events_user_idTousers?.name || "client";
 
   // finalCost: VAT-adjusted when the company charges VAT, else the base cost.
   // Rounded to pennies before storing — otherwise float artifacts like
@@ -114,7 +120,7 @@ const confirmEvent = catchAsync(async (req, res) => {
   const [eventNote, totalPaymentRow, paymentWithMethod] = await Promise.all([
     eventNoteService.createNote(prisma, {
       eventId,
-      notes: "Confirmed as an event",
+      notes: `Confirmed ${clientNameForNote} as an event`,
       created_by: req.user?.sub || null,
     }),
     prisma.eventPayment.aggregate({ where: { event_id: eventId }, _sum: { amount: true } }),
@@ -1277,7 +1283,7 @@ const refund = catchAsync(async (req, res) => {
     await eventNoteService
       .createNote(tx, {
         eventId,
-        notes: `Refund processed - ${refundAmount}`,
+        notes: `Refund processed - ${formatMoney(refundAmount)}`,
         created_by: req.user?.sub || null,
       })
       .catch(() => {});
@@ -1355,7 +1361,7 @@ const addPayment = catchAsync(async (req, res) => {
     // create note recording payment
     await eventNoteService.createNote(tx, {
       eventId,
-      notes: `Payment received - ${amount}`,
+      notes: `Payment received - ${formatMoney(amount)}`,
       created_by: req.user?.sub || null,
     }).catch(() => {});
 
@@ -1564,7 +1570,7 @@ const cancelEvent = catchAsync(async (req, res) => {
     await eventNoteService
       .createNote(tx, {
         eventId,
-        notes: `Event cancelled - refund ${refundAmount}`,
+        notes: `Event cancelled - refund ${formatMoney(refundAmount)}`,
         created_by: req.user?.sub || null,
       })
       .catch(() => {});

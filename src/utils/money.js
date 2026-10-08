@@ -64,4 +64,11 @@ export function isFullyPaid(paid, cost) {
   return p === c;
 }
 
-export default { toMoney, round2, sumMoney, isFullyPaid };
+/** Format a money-ish value as "£1,234.56" for human-facing text (activity
+ * notes, emails) — never for arithmetic, which must stay on toMoney/round2. */
+export function formatMoney(v) {
+  const n = round2(v);
+  return `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export default { toMoney, round2, sumMoney, isFullyPaid, formatMoney };

@@ -104,12 +104,14 @@ export function drawFooter(doc, companyDetails = {}) {
   doc.save().moveTo(0, y).lineTo(PAGE_W, y)
     .lineWidth(1).strokeColor(GREY).stroke().restore();
 
-  const parts = [
-    `Payment details - ${companyDetails.bank_name || 'Starling Bank'}`,
-    `Name: ${companyDetails.name || 'USR Holdings Ltd'}`,
-    `Account No: ${companyDetails.account_number || '12345678'}`,
-    `Sort Code: ${companyDetails.sort_code || '12-34-56'}`,
-  ];
+  // No fake fallback values — a company row missing a bank field now just
+  // omits that part of the line instead of printing invented bank details
+  // (Starling Bank / USR Holdings Ltd / 12345678 / 12-34-56) on a real quote.
+  const parts = [];
+  if (companyDetails.bank_name) parts.push(`Payment details - ${companyDetails.bank_name}`);
+  if (companyDetails.name) parts.push(`Name: ${companyDetails.name}`);
+  if (companyDetails.account_number) parts.push(`Account No: ${companyDetails.account_number}`);
+  if (companyDetails.sort_code) parts.push(`Sort Code: ${companyDetails.sort_code}`);
   if (companyDetails.vat) parts.push(`Vat: ${companyDetails.vat}`);
 
   doc.font(F).fontSize(8).fillColor(GREY)

@@ -372,7 +372,11 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
         // a calendar sitting on 2026 showed nothing for events already booked
         // into 2027. Role scoping still applies via `scopeWhere`.
         prisma.event.findMany({
-            where: { AND: [{ event_statuses: { status: { contains: 'confirm' } } }, scopeWhere] },
+            // Confirmed + Completed, past and future — same as the full
+            // Calendar page, so past bookings still show when scrolling back.
+            // No row cap: a cap on an ascending sort would keep only the
+            // oldest events and drop upcoming ones.
+            where: { AND: [{ event_status_id: { in: [2, 3] } }, scopeWhere] },
             select: {
                 id: true,
                 date: true,
@@ -382,7 +386,6 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
                 users_events_dj_idTousers: { select: { id: true, name: true, color: true } },
             },
             orderBy: { date: 'asc' },
-            take: 200,
         }),
         // Notes related to this year's events
         // Event Activity feed. Laravel (DashboardController) shows Admin/Super

@@ -36,6 +36,15 @@ export const signIn = catchAsync(async (req, res) => {
 
   authService.setRefreshCookie(res, refreshRaw);
 
+  // Feeds the dashboard's "[User] – Logged in" activity entries.
+  logActivity(prisma, {
+    log_name: "logged in",
+    description: `${user.name || user.email} logged in`,
+    subject_type: "User",
+    subject_id: Number(user.id),
+    causer_id: Number(user.id),
+  });
+
   const safeUser = serializeForJson({
     id: user.id,
     name: user.name,

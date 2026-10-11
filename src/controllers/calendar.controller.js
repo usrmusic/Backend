@@ -5,21 +5,13 @@ import services from '../services/index.js';
 const eventSvc = services.get('event');
 
 const getCalenderEvents = catchAsync(async (req, res) => {
-    const { year } = req.query || req.params || {};
-    const today = new Date();
-    // Compare only date portion, matching completeEventsJob.js's cutoff computation.
-    const cutoff = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-
-    const filter = { date: { gte: cutoff } };
-    if (year) {
-        // Additional constraint alongside the "not in the past" filter, so past
-        // months within the selected year are excluded too (matches Laravel's
-        // `upcomingEvents`, which never shows past events).
-        filter.date = {
-            gte: cutoff,
-            lte: new Date(`${year}-12-31`),
-        };
-    }
+    // Every Confirmed and Completed event, past and future — a deliberate
+    // divergence from Laravel's `upcomingEvents` (today onwards, Confirmed
+    // only): the client wants to scroll back through past bookings, which the
+    // nightly job has already moved to Completed. Cancelled events and open
+    // enquiries stay off the calendar. A `year` query param is still accepted
+    // by validation but no longer narrows the result.
+    const filter = { event_status_id: { in: [2, 3] } };
 
     // Role-based scoping. Laravel's CalendarController::upcomingEvents() also
     // restricts role_id 3 (Staff/DJ) to events where dj_id is them; that is a
@@ -34,20 +26,19 @@ const getCalenderEvents = catchAsync(async (req, res) => {
     }
 
     const events = await eventSvc.list({
-        // restrict to confirmed events only (match service implementation)
-        filter: { ...filter, event_statuses: { status: { contains: 'confirm' } } },
+        filter,
+        // Only what the calendar renders — this now returns every past and
+        // future booking, so unused fields would be pure payload.
         select: {
             id: true,
             date: true,
             start_time: true,
             end_time: true,
-            user_id: true,
-            venue_id: true,
             venues: {
-                select: { id: true, venue: true, venue_address: true },
+                select: { id: true, venue: true },
             },
             users_events_user_idTousers: {
-                select: { id: true, name: true, profile_photo: true },
+                select: { id: true, name: true },
             },
             // The DJ drives the event's colour on the calendar, so the relation
             // has to come back here — previously only the client was selected.

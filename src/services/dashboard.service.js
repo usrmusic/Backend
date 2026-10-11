@@ -1,5 +1,32 @@
 import prisma from '../utils/prismaClient.js';
 import { parseNumberLike, parseSearchDate } from '../utils/helpers.js';
+import { formatMoney } from '../utils/money.js';
+
+/* Short action label for an event note, for the dashboard feed's
+   "[Client] – [Action]" line. Notes have been written in several formats over
+   time (and payment amounts with or without £), so this normalises old and new
+   ones alike. Free-text notes staff add by hand fall through unchanged. */
+function activityActionFromNote(raw) {
+    const text = String(raw || '').trim();
+    let m;
+    if (/^updated as an enquiry/i.test(text)) return 'Open Enquiry Updated';
+    if (/^created as an enquiry/i.test(text)) return 'Open Enquiry Created';
+    if (/^confirmed\b.*\bas an event$/i.test(text)) return 'Confirmed';
+    if (/^event re-confirmed/i.test(text)) return 'Re-confirmed';
+    if ((m = text.match(/^payment received\s*-\s*(.+)$/i))) return `Payment Received - ${formatMoney(m[1])}`;
+    if ((m = text.match(/^refund processed\s*-\s*(.+)$/i))) return `Refund Processed - ${formatMoney(m[1])}`;
+    if ((m = text.match(/^event cancelled\s*-\s*refund\s*(.+)$/i))) return `Cancelled - Refund ${formatMoney(m[1])}`;
+    if (/^quote sen[dt]\b/i.test(text)) return 'Quote Sent';
+    if (/^invoice sent\b/i.test(text)) return 'Invoice Sent';
+    if (/^update email sent\b/i.test(text)) return 'Update Email Sent';
+    if (/^brochure email sent\b/i.test(text)) return 'Brochure Sent';
+    if (/^thank you email sent\b/i.test(text)) return 'Thank You Email Sent';
+    if (/^email sent\b/i.test(text)) return 'Email Sent';
+    // Event-detail saves: "<client> — updated event Start Time, …", an older
+    // "<client> — Start Time, …" variant, and "Event details updated via …".
+    if (/^updated event\b/i.test(text) || text.includes(' — ') || /^event details updated/i.test(text)) return 'Updated Event';
+    return text;
+}
 
 const MONTH_LABELS = [
 	'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
@@ -345,7 +372,11 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
         // a calendar sitting on 2026 showed nothing for events already booked
         // into 2027. Role scoping still applies via `scopeWhere`.
         prisma.event.findMany({
-            where: { AND: [{ event_statuses: { status: { contains: 'confirm' } } }, scopeWhere] },
+            // Confirmed + Completed, past and future — same as the full
+            // Calendar page, so past bookings still show when scrolling back.
+            // No row cap: a cap on an ascending sort would keep only the
+            // oldest events and drop upcoming ones.
+            where: { AND: [{ event_status_id: { in: [2, 3] } }, scopeWhere] },
             select: {
                 id: true,
                 date: true,
@@ -355,7 +386,6 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
                 users_events_dj_idTousers: { select: { id: true, name: true, color: true } },
             },
             orderBy: { date: 'asc' },
-            take: 200,
         }),
         // Notes related to this year's events
         // Event Activity feed. Laravel (DashboardController) shows Admin/Super
@@ -368,6 +398,8 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
             where: {
                 event_id: { in: events.map(e => e.id) }, // Only notes for events fetched above
                 ...(scope === 'admin' ? {} : { created_by: userId }),
+                // Raw Outlook-sync audit entries from an older build — not activity.
+                NOT: { notes: { startsWith: 'CalendarEventId' } },
             },
             orderBy: { created_at: 'desc' },
             take: 10,
@@ -411,15 +443,65 @@ async function getDashboardStats({ year = null, userId = null, scope = 'admin', 
     // "System" when null) instead of a name — same class of bug already
     // fixed for events.created_by. Batch-resolve the distinct ids actually
     // present rather than a query per note.
-    const noteCreatorIds = [...new Set(recentNotes.map((n) => n.created_by).filter((id) => id != null))];
-    const noteCreators = noteCreatorIds.length
-        ? await prisma.user.findMany({ where: { id: { in: noteCreatorIds } }, select: { id: true, name: true } })
+    // Same scope rule as the notes: admins see everyone's logins, others only their own.
+    const recentLogins = scope === 'admin' || userId != null
+        ? await prisma.activity_log.findMany({
+            where: {
+                log_name: 'logged in',
+                ...(scope === 'admin' ? {} : { causer_id: BigInt(userId) }),
+            },
+            orderBy: { created_at: 'desc' },
+            take: 10,
+            select: { id: true, causer_id: true, created_at: true },
+        })
         : [];
-    const noteCreatorNameById = new Map(noteCreators.map((u) => [Number(u.id), u.name]));
-    const recentNotesWithNames = recentNotes.map((n) => ({
-        ...n,
-        created_by_name: n.created_by != null ? noteCreatorNameById.get(Number(n.created_by)) || null : null,
-    }));
+
+    const noteCreatorIds = [...new Set([
+        ...recentNotes.map((n) => n.created_by),
+        ...recentLogins.map((l) => (l.causer_id != null ? Number(l.causer_id) : null)),
+    ].filter((id) => id != null))];
+    const noteEventIds = [...new Set(recentNotes.map((n) => n.event_id))];
+    const [noteCreators, noteEvents] = await Promise.all([
+        noteCreatorIds.length
+            ? prisma.user.findMany({ where: { id: { in: noteCreatorIds } }, select: { id: true, name: true } })
+            : [],
+        noteEventIds.length
+            ? prisma.event.findMany({ where: { id: { in: noteEventIds } }, select: { id: true, users_events_user_idTousers: { select: { name: true } } } })
+            : [],
+    ]);
+    const nameByUserId = new Map(noteCreators.map((u) => [Number(u.id), u.name]));
+    const clientNameByEventId = new Map(noteEvents.map((e) => [e.id, e.users_events_user_idTousers?.name || null]));
+
+    // Client-requested format — line 1 "[Client] – [Action]", line 2 "[User] –
+    // date, time" (the widget renders line 2 from created_by_name/created_at).
+    // Built from the stored note text so historical notes, written in several
+    // older formats, display the same way as new ones.
+    const noteEntries = recentNotes.map((n) => {
+        const client = clientNameByEventId.get(n.event_id);
+        const action = activityActionFromNote(n.notes);
+        return {
+            id: `note-${n.id}`,
+            event_id: n.event_id,
+            notes: client ? `${client} – ${action}` : action,
+            created_at: n.created_at,
+            created_by: n.created_by,
+            created_by_name: n.created_by != null ? nameByUserId.get(Number(n.created_by)) || null : null,
+        };
+    });
+    const loginEntries = recentLogins.map((l) => {
+        const name = l.causer_id != null ? nameByUserId.get(Number(l.causer_id)) || null : null;
+        return {
+            id: `login-${l.id}`,
+            event_id: null,
+            notes: `${name || 'Unknown user'} – Logged in`,
+            created_at: l.created_at,
+            created_by: l.causer_id != null ? Number(l.causer_id) : null,
+            created_by_name: name,
+        };
+    });
+    const recentNotesWithNames = [...noteEntries, ...loginEntries]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 10);
 
     return {
         year: targetYear,

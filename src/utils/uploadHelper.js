@@ -141,9 +141,16 @@ export async function resolveProfilePhotoUrl(value) {
 export async function pruneExpiredFiles(prismaClient) {
   if (!prismaClient) throw new Error('prismaClient_required');
   const now = new Date();
+  // Rows with no delete_after (e.g. files brought over in the S3 migration)
+  // would otherwise never expire. Treat them as having Laravel's upload
+  // default — created_at + 7 days — so they follow the same rule.
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const expired = await prismaClient.fileUpload.findMany({
     where: {
-      delete_after: { lte: now },
+      OR: [
+        { delete_after: { lte: now } },
+        { delete_after: null, created_at: { lte: weekAgo } },
+      ],
       event_id: { not: null },
       events: { event_status_id: { in: [3, 4] } },
     },

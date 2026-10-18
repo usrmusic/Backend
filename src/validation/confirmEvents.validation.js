@@ -52,6 +52,19 @@ const listConfirmEvents = Joi.object({
   }),
 });
 
+// Same as listConfirmEvents plus an optional exact event id: the header search,
+// dashboard and calendar redirect here with the clicked event's id so the page
+// can show that one event instead of relying on a name text-match.
+const listCompletedEvents = Joi.object({
+  query: Joi.object({
+    search: Joi.string().trim().max(100).allow("", null),
+    perPage: Joi.number().integer().min(1).max(100).default(10),
+    page: Joi.number().integer().min(1).default(1),
+    paymentStatus: Joi.string().valid("completed", "pending").optional(),
+    id: Joi.number().integer().min(1).optional(),
+  }),
+});
+
 const confirmEvent = Joi.object({
   params: Joi.object({
     id: Joi.number().integer().required(),
@@ -173,6 +186,7 @@ const deletePayment = Joi.object({
 
 export default {
   listConfirmEvents,
+  listCompletedEvents,
   confirmEvent,
   getConfirmEvent,
   sendEmail,

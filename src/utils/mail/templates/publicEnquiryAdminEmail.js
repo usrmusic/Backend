@@ -1,3 +1,5 @@
+import { formatDateDMY } from "../../dateUtils.js";
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
@@ -45,7 +47,7 @@ export function buildPublicEnquiryAdminEmail({
       ${row("Name", name)}
       ${row("Email", email)}
       ${row("Contact Number", contact_number)}
-      ${row("Event Date", event_date)}
+      ${row("Event Date", formatDateDMY(event_date))}
       ${row("Event Type", event_type || "N/A")}
       ${row("Venue", venue || "N/A")}
       ${row("Event Details", event_details || "N/A")}

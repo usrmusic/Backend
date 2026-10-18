@@ -41,6 +41,11 @@ router
   );
 router.route("/get-dropdown").get(checkPermissions, companyController.listCompanyDropdown);
 
+// Public, deliberately no auth: the permanent "Download Brochure" link in
+// emailed brochures (recipients are prospects, not CRM users). Redirects to a
+// fresh signed URL on each click, so it never expires like an embedded one.
+router.get("/:id/brochure", companyController.downloadBrochure);
+
 router.route('/:id')
   .get(
     checkPermissions,

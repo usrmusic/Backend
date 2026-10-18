@@ -28,4 +28,16 @@ export function toDbDate(dateStr) {
   return null;
 }
 
-export default { toDbDate };
+// Display format for emails and documents: DD-MM-YYYY. Accepts a Date, an ISO
+// string, or a YYYY-MM-DD / DD-MM-YYYY string. Never throws and never blanks a
+// real value: if it can't be parsed the original text is returned as-is.
+export function formatDateDMY(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (value instanceof Date && Number.isNaN(value.getTime())) return '';
+  const ymd = toDbDate(value instanceof Date ? value.toISOString() : String(value));
+  if (!ymd) return String(value);
+  const [y, m, d] = ymd.split('-');
+  return `${d}-${m}-${y}`;
+}
+
+export default { toDbDate, formatDateDMY };

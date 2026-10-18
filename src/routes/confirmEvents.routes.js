@@ -28,7 +28,7 @@ router
   .get(
     verifyAccessToken,
     checkPermission("complete event"),
-    validate(confirmEventsValidation.listConfirmEvents),
+    validate(confirmEventsValidation.listCompletedEvents),
     confirmEventsController.listCompletedConfirmEvents,
   );
 

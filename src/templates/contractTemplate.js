@@ -9,7 +9,7 @@ function fmtDate(d) {
   const day = String(dt.getDate()).padStart(2, '0');
   const month = String(dt.getMonth() + 1).padStart(2, '0');
   const year = dt.getFullYear();
-  return `${day}/${month}/${year}`;
+  return `${day}-${month}-${year}`;
 }
 
 function fmtMoney(n) {

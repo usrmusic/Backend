@@ -7,6 +7,7 @@ import { logActivity } from "../utils/activityLogger.js";
 import { buildUsrLetterEmail } from "../utils/mail/templates/usrLetterShell.js";
 import { buildTodoAssignedEmailBody, TODO_ASSIGNED_EMAIL_SUBJECT } from "../utils/mail/templates/todoAssignedEmail.js";
 import sendEmail from "../utils/mail/graphMailClient.js";
+import { formatDateDMY } from "../utils/dateUtils.js";
 
 const todoSvc = services.get("todos");
 
@@ -230,11 +231,11 @@ async function notifyAssignedTodo(todo, assignedToId, requester) {
   }
 
   const eventLabel = event
-    ? [event.date ? new Date(event.date).toLocaleDateString("en-GB") : null, event.users_events_user_idTousers?.name || null]
+    ? [event.date ? formatDateDMY(event.date) : null, event.users_events_user_idTousers?.name || null]
         .filter(Boolean)
         .join(" ")
     : null;
-  const deadlineLabel = todo.deadline ? new Date(todo.deadline).toLocaleDateString("en-GB") : null;
+  const deadlineLabel = todo.deadline ? formatDateDMY(todo.deadline) : null;
 
   const bodyHtml = buildTodoAssignedEmailBody({
     createdPersonName,

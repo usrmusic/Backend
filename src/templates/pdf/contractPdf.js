@@ -151,7 +151,7 @@ function fmtDate(d) {
   const dt = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(dt.getTime())) return String(d);
   const p = (n) => String(n).padStart(2, '0');
-  return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+  return `${p(dt.getDate())}-${p(dt.getMonth() + 1)}-${dt.getFullYear()}`;
 }
 
 // round2 handles dirty VARCHAR values (currency symbols, commas, the literal

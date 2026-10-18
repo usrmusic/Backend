@@ -1,11 +1,11 @@
 {
 	"info": {
-		"_postman_id": "70c21575-c7dd-4f5c-a5cc-dcfba286e71d",
+		"_postman_id": "d29ee976-06bd-44f2-8a7d-d5219df12531",
 		"name": "USRMusic Backend Server",
 		"description": "Minimal Postman collection with Auth (user) endpoints only.",
-		"schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "36141927",
-		"_collection_link": "https://usrmusic.postman.co/workspace/USRMusic-Workspace~37aa5683-e1ff-4943-8086-0444878a84c1/collection/36141927-70c21575-c7dd-4f5c-a5cc-dcfba286e71d?action=share&source=collection_link&creator=36141927"
+		"_collection_link": "https://usrmusic.postman.co/workspace/USRMusic-Workspace~37aa5683-e1ff-4943-8086-0444878a84c1/collection/36141927-d29ee976-06bd-44f2-8a7d-d5219df12531?action=share&source=collection_link&creator=36141927"
 	},
 	"item": [
 		{
@@ -25,7 +25,17 @@
 							"mode": "raw",
 							"raw": "{ \"email\": \"{{testUserEmail}}\", \"password\": \"{{testUserPassword}}\" }"
 						},
-						"url": "{{baseUrl}}/api/user/auth"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/auth",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"auth"
+							]
+						}
 					},
 					"response": []
 				},
@@ -76,7 +86,16 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/user"
+						"url": {
+							"raw": "{{baseUrl}}/api/user",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user"
+							]
+						}
 					},
 					"response": []
 				},
@@ -94,7 +113,17 @@
 								"value": "{{REFRESH_COOKIE_NAME}}={{refreshRaw}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/user/refresh"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"refresh"
+							]
+						}
 					},
 					"response": []
 				},
@@ -108,7 +137,17 @@
 								"value": "{{REFRESH_COOKIE_NAME}}={{refreshRaw}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/user/signout"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/signout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"signout"
+							]
+						}
 					},
 					"response": []
 				},
@@ -126,7 +165,17 @@
 							"mode": "raw",
 							"raw": "{ \"email\": \"{{testUserEmail}}\" }"
 						},
-						"url": "{{baseUrl}}/api/user/forgot"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/forgot",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"forgot"
+							]
+						}
 					},
 					"response": []
 				},
@@ -144,7 +193,17 @@
 							"mode": "raw",
 							"raw": "{ \"token\": \"{{verificationToken}}\" }"
 						},
-						"url": "{{baseUrl}}/api/user/verify"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/verify",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"verify"
+							]
+						}
 					},
 					"response": []
 				},
@@ -232,7 +291,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/user/get-dropdown"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				},
@@ -246,7 +315,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/user/{{userId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"{{userId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -268,7 +347,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Updated Name\" }"
 						},
-						"url": "{{baseUrl}}/api/user/{{userId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"{{userId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -282,7 +371,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/user/{{userId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"{{userId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -305,7 +404,17 @@
 								}
 							}
 						},
-						"url": "{{baseUrl}}/api/user/delete-many"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/delete-many",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"delete-many"
+							]
+						}
 					},
 					"response": []
 				},
@@ -319,7 +428,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/user/roles"
+						"url": {
+							"raw": "{{baseUrl}}/api/user/roles",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"user",
+								"roles"
+							]
+						}
 					},
 					"response": []
 				}
@@ -370,7 +489,13 @@
 					"name": "Create Client (multipart)",
 					"request": {
 						"method": "POST",
-						"header": [],
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
 						"body": {
 							"mode": "formdata",
 							"formdata": [
@@ -406,7 +531,16 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/client"
+						"url": {
+							"raw": "{{baseUrl}}/api/client",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client"
+							]
+						}
 					},
 					"response": []
 				},
@@ -420,7 +554,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/client/{{clientId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/client/{{clientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client",
+								"{{clientId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -442,7 +586,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Updated Client\" }"
 						},
-						"url": "{{baseUrl}}/api/client/{{clientId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/client/{{clientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client",
+								"{{clientId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -456,7 +610,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/client/{{clientId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/client/{{clientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client",
+								"{{clientId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -478,7 +642,17 @@
 							"mode": "raw",
 							"raw": "{ \"ids\": [1,2], \"force\": false }"
 						},
-						"url": "{{baseUrl}}/api/client/delete-many"
+						"url": {
+							"raw": "{{baseUrl}}/api/client/delete-many",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client",
+								"delete-many"
+							]
+						}
 					},
 					"response": []
 				},
@@ -492,7 +666,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/client/get-dropdown"
+						"url": {
+							"raw": "{{baseUrl}}/api/client/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"client",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				}
@@ -543,7 +727,13 @@
 					"name": "Create Venue (multipart)",
 					"request": {
 						"method": "POST",
-						"header": [],
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
 						"body": {
 							"mode": "formdata",
 							"formdata": [
@@ -569,7 +759,16 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/venue"
+						"url": {
+							"raw": "{{baseUrl}}/api/venue",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue"
+							]
+						}
 					},
 					"response": []
 				},
@@ -583,7 +782,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/venue/{{venueId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/venue/{{venueId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue",
+								"{{venueId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -605,7 +814,17 @@
 							"mode": "raw",
 							"raw": "{ \"venue\": \"Updated Venue\" }"
 						},
-						"url": "{{baseUrl}}/api/venue/{{venueId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/venue/{{venueId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue",
+								"{{venueId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -619,7 +838,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/venue/{{venueId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/venue/{{venueId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue",
+								"{{venueId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -641,7 +870,17 @@
 							"mode": "raw",
 							"raw": "{ \"ids\": [1,2], \"force\": false }"
 						},
-						"url": "{{baseUrl}}/api/venue/delete-many"
+						"url": {
+							"raw": "{{baseUrl}}/api/venue/delete-many",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue",
+								"delete-many"
+							]
+						}
 					},
 					"response": []
 				},
@@ -655,7 +894,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/venue/get-dropdown"
+						"url": {
+							"raw": "{{baseUrl}}/api/venue/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"venue",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				}
@@ -720,7 +969,16 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Supplier Name\", \"company_name\": \"Company\", \"email\": \"supplier@example.com\", \"contact_number\": \"1234567890\", \"industry\": \"Music\", \"notes\": \"Notes\" }"
 						},
-						"url": "{{baseUrl}}/api/supplier"
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier"
+							]
+						}
 					},
 					"response": []
 				},
@@ -734,7 +992,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/supplier/{{supplierId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier/{{supplierId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier",
+								"{{supplierId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -756,7 +1024,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Updated Supplier\" }"
 						},
-						"url": "{{baseUrl}}/api/supplier/{{supplierId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier/{{supplierId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier",
+								"{{supplierId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -770,7 +1048,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/supplier/{{supplierId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier/{{supplierId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier",
+								"{{supplierId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -792,7 +1080,18 @@
 							"mode": "raw",
 							"raw": "{ \"ids\": [1,2], \"force\": false }"
 						},
-						"url": "{{baseUrl}}/api/supplier/delete-many/{{ids}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier/delete-many/{{ids}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier",
+								"delete-many",
+								"{{ids}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -806,7 +1105,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/supplier/get-dropdown"
+						"url": {
+							"raw": "{{baseUrl}}/api/supplier/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"supplier",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				}
@@ -852,23 +1161,9 @@
 						}
 					},
 					"response": []
-					},
-					{
-						"name": "Get Equipment Dropdown",
-						"request": {
-							"method": "GET",
-							"header": [
-								{
-									"key": "Authorization",
-									"value": "Bearer {{accessToken}}"
-								}
-							],
-							"url": "{{baseUrl}}/api/equipment/get-dropdown"
-						},
-						"response": []
-					},
-					{
-						"name": "Create Equipment",
+				},
+				{
+					"name": "Create Equipment",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -883,9 +1178,18 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{ \"name\": \"Equipment Name\", \"supplier_id\": [13], \"sell_price\":50 }"
+							"raw": "{ \"name\": \"Equipment Name\", \"supplier_id\": 13, \"sell_price\":50 }"
 						},
-						"url": "{{baseUrl}}/api/equipment"
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment"
+							]
+						}
 					},
 					"response": []
 				},
@@ -899,7 +1203,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/equipment/{{equipmentId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment/{{equipmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment",
+								"{{equipmentId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -921,7 +1235,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Updated Equipment\" }"
 						},
-						"url": "{{baseUrl}}/api/equipment/{{equipmentId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment/{{equipmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment",
+								"{{equipmentId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -935,14 +1259,24 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/equipment/{{equipmentId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment/{{equipmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment",
+								"{{equipmentId}}"
+							]
+						}
 					},
 					"response": []
 				},
 				{
 					"name": "Delete Many Equipment",
 					"request": {
-						"method": "POST",
+						"method": "DELETE",
 						"header": [
 							{
 								"key": "Content-Type",
@@ -957,7 +1291,42 @@
 							"mode": "raw",
 							"raw": "{ \"ids\": [1,2], \"force\": false }"
 						},
-						"url": "{{baseUrl}}/api/equipment/delete-many/{{ids}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment/delete-many/{{ids}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment",
+								"delete-many",
+								"{{ids}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Equipment dropdown",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/equipment/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"equipment",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				}
@@ -1022,7 +1391,16 @@
 							"mode": "raw",
 							"raw": "{\r\n\"package_name\": \"New Package Name New\",\r\n\"user_id\": 1016,\r\n\"sell_price\": 100,\r\n\"cost_price\": 100,\r\n\"equipments\": [\r\n{ \"equipment_id\": 12, \"quantity\": 2 },\r\n{ \"equipment_id\": 5, \"quantity\": 1, \"equipment_order_id\": 3 }\r\n]\r\n}"
 						},
-						"url": "{{baseUrl}}/api/package"
+						"url": {
+							"raw": "{{baseUrl}}/api/package",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1036,7 +1414,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/package/{{packageId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/package/{{packageId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package",
+								"{{packageId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1058,7 +1446,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Updated Package\" }"
 						},
-						"url": "{{baseUrl}}/api/package/{{packageId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/package/{{packageId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package",
+								"{{packageId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1072,7 +1470,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/package/{{packageId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/package/{{packageId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package",
+								"{{packageId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1094,7 +1502,17 @@
 							"mode": "raw",
 							"raw": "{ \"ids\": [25,24], \"force\": false }"
 						},
-						"url": "{{baseUrl}}/api/package/delete-many"
+						"url": {
+							"raw": "{{baseUrl}}/api/package/delete-many",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package",
+								"delete-many"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1108,7 +1526,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/package/get-dropdown"
+						"url": {
+							"raw": "{{baseUrl}}/api/package/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"package",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				}
@@ -1227,7 +1655,16 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/company"
+						"url": {
+							"raw": "{{baseUrl}}/api/company",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1241,7 +1678,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/company/{{companyId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/company/{{companyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company",
+								"{{companyId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1249,7 +1696,13 @@
 					"name": "Update Company (multipart)",
 					"request": {
 						"method": "PUT",
-						"header": [],
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
 						"body": {
 							"mode": "formdata",
 							"formdata": [
@@ -1275,7 +1728,17 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/company/{{companyId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/company/{{companyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company",
+								"{{companyId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1289,7 +1752,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/company/{{companyId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/company/{{companyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company",
+								"{{companyId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1312,7 +1785,17 @@
 								}
 							}
 						},
-						"url": "{{baseUrl}}/api/company/delete-many"
+						"url": {
+							"raw": "{{baseUrl}}/api/company/delete-many",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company",
+								"delete-many"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1321,9 +1804,13 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "GET",
 						"header": [
@@ -1332,7 +1819,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/company/get-dropdown"
+						"url": {
+							"raw": "{{baseUrl}}/api/company/get-dropdown",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"company",
+								"get-dropdown"
+							]
+						}
 					},
 					"response": []
 				}
@@ -1346,9 +1843,13 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "GET",
 						"header": [
@@ -1393,7 +1894,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Barear {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1449,7 +1950,16 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"name\": \"John Doe\",\r\n\"email\": \"johndoe@example.com\",\r\n\"contact_number\": \"0123456789\",\r\n\"address\": \"123 Main St\",\r\n\"event_date\": \"15-03-2026\",\r\n\"start_time\": \"19:00\",\r\n\"end_time\": \"22:00\",\r\n\"deposit_amount\": 100,\r\n\"new_venue_name\": \"The Grand Hall\",\r\n\"event_details\": \"Birthday party\",\r\n\"dj_name\": \"DJ Test\",\r\n\"dj_package_name\": \"Premium\",\r\n\"total_cost\": 500,\r\n\"dj_cost\": 200,\r\n\"equipment_data\": [\r\n{ \"equipment_id\": 1, \"sell_price\": 50, \"quantity\": 1, \"notes\": \"Main speaker\" },\r\n{ \"equipment_id\": 3, \"sell_price\": 40, \"quantity\": 2, \"notes\": \"Monitors\" }\r\n],\r\n\"extra_data\": [\r\n{ \"equipment_id\": 5, \"sell_price\": 30, \"quantity\": 1, \"notes\": \"Extra cables\" }\r\n],\r\n\"rig_notes_data\": [\r\n{ \"equipment_id\": 1, \"rig_notes\": \"Place on stage left\" },\r\n{ \"equipment_id\": 3, \"rig_notes\": \"Raise 30cm\" }\r\n]\r\n}"
 						},
-						"url": "{{baseUrl}}/api/enquiry"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1463,7 +1973,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Bearer {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1476,7 +1986,17 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"name\": \"updated naem\",\r\n\"email\": \"johndoe@example.com\",\r\n\"contact_number\": \"0123456789\",\r\n\"address\": \"123 Main St\",\r\n\"event_date\": \"15-03-2026\",\r\n\"start_time\": \"19:00\",\r\n\"end_time\": \"22:00\",\r\n\"deposit_amount\": 100,\r\n\"new_venue_name\": \"The Grand Hall\",\r\n\"event_details\": \"Birthday party\",\r\n\"dj_name\": \"DJ Test\",\r\n\"dj_package_name\": \"Premium\",\r\n\"total_cost\": 500,\r\n\"dj_cost\": 2002,\r\n\"equipment_data\": [\r\n{ \"equipment_id\": 1, \"sell_price\": 50, \"quantity\": 1, \"notes\": \"Main speaker ahead\" },\r\n{ \"equipment_id\": 3, \"sell_price\": 40, \"quantity\": 2, \"notes\": \"Monitors too\" }\r\n],\r\n\"extra_data\": [\r\n{ \"equipment_id\": 5, \"sell_price\": 30, \"quantity\": 1, \"notes\": \"Extra cables\" }\r\n],\r\n\"rig_notes_data\": [\r\n{ \"equipment_id\": 1, \"rig_notes\": \"Place on stage left\" },\r\n{ \"equipment_id\": 3, \"rig_notes\": \"Raise 30cm\" }\r\n]\r\n}"
 						},
-						"url": "{{baseUrl}}/api/enquiry/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1490,7 +2010,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Bearer {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1499,7 +2019,17 @@
 								"type": "text"
 							}
 						],
-						"url": "{{baseUrl}}/api/enquiry/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1513,7 +2043,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Bearer {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1564,15 +2094,19 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{access_token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "POST",
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "{{access_token}}",
+								"value": "{{accessToken}}",
 								"type": "text",
 								"disabled": true
 							},
@@ -1586,7 +2120,18 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"note\":\"test note to test the route\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/enquiry/add-note/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/add-note/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"add-note",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1595,15 +2140,19 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{access_token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "POST",
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "{{access_token}}",
+								"value": "{{accessToken}}",
 								"type": "text",
 								"disabled": true
 							},
@@ -1617,7 +2166,17 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"event_id\":1190,\r\n    \"body\": \"Thank you for very much for your interest in booking us for your event.\\n\\nPlease find attached a copy of our brochure. This will give you lots of inspiration, creating the perfect look for your big day! \\n\\nPlease get in touch after browsing the brochure to arrange a more in depth chat. We believe face to face or even a quick chat on the phone allows better understanding of your event so that we can tailor the package based on your requirements and budget! :)\\n\\nThank you once again,\",\r\n    \"subject\": \"Brochure\",\r\n    \"company_name_id\": \"3\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/enquiry/brochure"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/brochure",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"brochure"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1626,15 +2185,19 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{access_token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "POST",
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "{{access_token}}",
+								"value": "{{accessToken}}",
 								"type": "text",
 								"disabled": true
 							},
@@ -1648,7 +2211,17 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"event_id\":1190,\r\n    \"subject\":\"USR - Enquiry\",\r\n    \"body\": \"Thank you for very much for your interest in booking USR for your event.\\n\\nPlease find attached a copy of the enquiry form. To proceed, please can you sign and return this form along with the agreed deposit of {--amount--} (Bank details are at the bottom of the form). Please ensure the reference when paying the deposit is NameDate.\\n\\nPlease note, no events are booked and added to the USR diary without the deposit.\\n\\nThank you once again,\",\r\n    \"company_name_id\": \"3\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/enquiry/quote"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/quote",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"quote"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1721,7 +2294,17 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"event_id\":1195,\r\n    \"body\": \"Look forward to hearing from you soon.\",\r\n    \"subject\": \"Enquiry - Update\",\r\n    \"company_name_id\": \"3\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/enquiry/email-update"
+						"url": {
+							"raw": "{{baseUrl}}/api/enquiry/email-update",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"enquiry",
+								"email-update"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1732,7 +2315,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Bearer {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1772,7 +2355,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Bearer {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1810,9 +2393,13 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "GET",
 						"header": [
@@ -1872,13 +2459,14 @@
 							}
 						],
 						"url": {
-							"raw": "{{baseUrl}}/api/confirm-event",
+							"raw": "{{baseUrl}}/api/confirm-event/completed",
 							"host": [
 								"{{baseUrl}}"
 							],
 							"path": [
 								"api",
-								"confirm-event"
+								"confirm-event",
+								"completed"
 							],
 							"query": [
 								{
@@ -1898,7 +2486,7 @@
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "Bearer {{access_token}}",
+								"value": "Bearer {{accessToken}}",
 								"type": "text"
 							},
 							{
@@ -1911,7 +2499,17 @@
 							"mode": "raw",
 							"raw": "{\r\n    \"event_id\":1195,\r\n    \"subject\":\"USR - Invoice\",\r\n    \"body\": \"Please find attached a copy of the Invoice. \\n\\nThank you once again for booking USR for your big day!\",\r\n    \"company_name_id\": \"3\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/confirm-event/send-invoice"
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/send-invoice",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"send-invoice"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1935,7 +2533,17 @@
 							"mode": "raw",
 							"raw": "{\r\n  \"payment_method_id\": 1,\r\n  \"deposit_amount\": 100,\r\n  \"company_name\": \"3\",\r\n  \"event_date\": \"15-03-2026\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/confirm-event/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1947,15 +2555,19 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "GET",
 						"header": [
 							{
 								"key": "Authorization",
-								"value": "{{access_token}}",
+								"value": "{{accessToken}}",
 								"type": "text",
 								"disabled": true
 							},
@@ -1969,7 +2581,17 @@
 							"mode": "raw",
 							"raw": "{\r\n  \"payment_method_id\": 1,\r\n  \"deposit_amount\": 100,\r\n  \"company_name\": \"3\",\r\n  \"event_date\": \"15-03-2026\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/confirm-event/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -1978,9 +2600,13 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "POST",
 						"header": [
@@ -1995,7 +2621,18 @@
 								"type": "text"
 							}
 						],
-						"url": "{{baseUrl}}/api/confirm-event/download-invoice/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/download-invoice/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"download-invoice",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2019,7 +2656,17 @@
 							"mode": "raw",
 							"raw": "{\n  \"first_name\": \"John updateds\",\n  \"email\": \"john@example.com\",\n  \"phone_number\": 7123456789,\n  \"dj_name\": \"DJ Test\",\n  \"videography\": \"Yes\",\n  \"caterer\": \"Acme Catering\",\n  \"decor\": \"Standard\",\n  \"couple_name\": \"John & Jane\",\n  \"date\": \"15-03-2026\",\n  \"start_time\": \"19:00\",\n  \"end_time\": \"22:00\",\n  \"venue\": \"The Grand Hall\",\n  \"venue_id\": 5,\n  \"access_time\": \"18:00\",\n  \"event_date_contact\": \"Coordinator Name\",\n  \"no_of_guests\": 150,\n  \"deposit_amount\": 100,\n  \"brief_itinerary\": \"Ceremony then reception\",\n  \"stag_songs\": \"Song A\",\n  \"hen_songs\": \"Song B\",\n  \"dont\": \"No smoke\",\n  \"usr_name\": \"USR\",\n  \"usr_date\": \"15-03-2026\",\n  \"photo_usb_provided\": \"no\",\n  \"guests_upstanding\": \"no\",\n  \"refund_amount\": 0\n}"
 						},
-						"url": "{{baseUrl}}/api/confirm-event/{{event_id}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/confirm-event/{{event_id}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"confirm-event",
+								"{{event_id}}"
+							]
+						}
 					},
 					"response": []
 				}
@@ -2038,7 +2685,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/todos/{{eventId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/todos/{{eventId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"todos",
+								"{{eventId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2060,7 +2717,17 @@
 							"mode": "raw",
 							"raw": "{ \"assigned_to\": 2, \"action\": \"Task\", \"deadline\": \"2026-03-20T12:00:00.000Z\", \"comment\": \"Notes\", \"complete\": false }"
 						},
-						"url": "{{baseUrl}}/api/todos/{{eventId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/todos/{{eventId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"todos",
+								"{{eventId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2082,7 +2749,18 @@
 							"mode": "raw",
 							"raw": "{ \"assigned_to\": 2, \"action\": \"Updated Task\", \"deadline\": \"2026-03-21T12:00:00.000Z\", \"comment\": \"Updated\", \"complete\": true }"
 						},
-						"url": "{{baseUrl}}/api/todos/{{eventId}}/{{todoId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/todos/{{eventId}}/{{todoId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"todos",
+								"{{eventId}}",
+								"{{todoId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2132,7 +2810,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/roles-permissions/manage-access"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/manage-access",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"manage-access"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2154,7 +2842,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Test Role\", \"guard_name\": \"web\" }"
 						},
-						"url": "{{baseUrl}}/api/roles-permissions/roles"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/roles",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"roles"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2176,7 +2874,18 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"Updated Role\" }"
 						},
-						"url": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"roles",
+								"{{roleId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2190,7 +2899,18 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"roles",
+								"{{roleId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2204,7 +2924,19 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}/permissions"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/roles/{{roleId}}/permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"roles",
+								"{{roleId}}",
+								"permissions"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2226,7 +2958,17 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"manage events\", \"guard_name\": \"web\" }"
 						},
-						"url": "{{baseUrl}}/api/roles-permissions/permissions"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"permissions"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2248,7 +2990,18 @@
 							"mode": "raw",
 							"raw": "{ \"name\": \"updated.permission\" }"
 						},
-						"url": "{{baseUrl}}/api/roles-permissions/permissions/{{permissionId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/permissions/{{permissionId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"permissions",
+								"{{permissionId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2262,7 +3015,18 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/roles-permissions/permissions/{{permissionId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/permissions/{{permissionId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"permissions",
+								"{{permissionId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2284,7 +3048,17 @@
 							"mode": "raw",
 							"raw": "{ \"roleId\": 1, \"permissionIds\": [1,2] }"
 						},
-						"url": "{{baseUrl}}/api/roles-permissions/assign"
+						"url": {
+							"raw": "{{baseUrl}}/api/roles-permissions/assign",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles-permissions",
+								"assign"
+							]
+						}
 					},
 					"response": []
 				}
@@ -2349,7 +3123,17 @@
 							"mode": "raw",
 							"raw": "{\r\n  \"email_name\": \"SEND QUOTE-CONFIRMED\",\r\n  \"subject\": \"USR - Contract\",\r\n  \"body\": \"Thank you for very much for your interest in booking USR for your event. \\n\\nPlease find attached a copy of the enquiry form. To proceed, please can you sign and return this for along with the agreed deposit of {--amount--} (Bank details are at the bottom of the form). Please ensure the reference when paying the deposit is NameDate. \\n\\nPlease note, no events are booked and added to the USR diary without the deposit. \\n\\nThank you once again.\"\r\n}"
 						},
-						"url": "{{baseUrl}}/api/email-content/{{emailContentId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/email-content/{{emailContentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"email-content",
+								"{{emailContentId}}"
+							]
+						}
 					},
 					"response": []
 				}
@@ -2537,7 +3321,17 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/files/uploads"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/uploads",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"uploads"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2551,7 +3345,18 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/uploads/{{uploadId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/uploads/{{uploadId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"uploads",
+								"{{uploadId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2573,7 +3378,18 @@
 							"mode": "raw",
 							"raw": "{ \"file_name\": \"newname.jpg\" }"
 						},
-						"url": "{{baseUrl}}/api/uploads/{{uploadId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/uploads/{{uploadId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"uploads",
+								"{{uploadId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2587,7 +3403,18 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/uploads/{{uploadId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/uploads/{{uploadId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"uploads",
+								"{{uploadId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2601,7 +3428,19 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/uploads/{{uploadId}}/download"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/uploads/{{uploadId}}/download",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"uploads",
+								"{{uploadId}}",
+								"download"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2663,7 +3502,17 @@
 								}
 							]
 						},
-						"url": "{{baseUrl}}/api/files/media"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/media",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"media"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2677,7 +3526,18 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/files/media/{{mediaId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/files/media/{{mediaId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"media",
+								"{{mediaId}}"
+							]
+						}
 					},
 					"response": []
 				}
@@ -2691,9 +3551,13 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "GET",
 						"header": [
@@ -2702,7 +3566,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/rig-list/drop-down"
+						"url": {
+							"raw": "{{baseUrl}}/api/rig-list/drop-down",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rig-list",
+								"drop-down"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2711,9 +3585,13 @@
 					"request": {
 						"auth": {
 							"type": "bearer",
-							"bearer": {
-								"token": "{{token}}"
-							}
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
 						},
 						"method": "GET",
 						"header": [
@@ -2722,7 +3600,17 @@
 								"value": "Bearer {{accessToken}}"
 							}
 						],
-						"url": "{{baseUrl}}/api/rig-list/{{eventId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/rig-list/{{eventId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rig-list",
+								"{{eventId}}"
+							]
+						}
 					},
 					"response": []
 				},
@@ -2744,7 +3632,17 @@
 							"mode": "raw",
 							"raw": "{ \"note\": \"Sample rig note\" }"
 						},
-						"url": "{{baseUrl}}/api/rig-list/{{eventId}}"
+						"url": {
+							"raw": "{{baseUrl}}/api/rig-list/{{eventId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rig-list",
+								"{{eventId}}"
+							]
+						}
 					},
 					"response": []
 				}
@@ -2753,22 +3651,303 @@
 		{
 			"name": "Contract",
 			"item": [
-				{ "name": "Ensure Contract Token", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/event/{{eventId}}/token" }, "response": [] },
-				{ "name": "Send Contract Link", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/event/{{eventId}}/send" }, "response": [] },
-				{ "name": "List Contracts For Event", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/event/{{eventId}}/list" }, "response": [] },
-				{ "name": "Download Contract (admin)", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/admin/{{contractId}}/download" }, "response": [] },
-				{ "name": "Delete Contract (admin)", "request": { "method": "DELETE", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/contract/admin/{{contractId}}" }, "response": [] },
-				{ "name": "Show Contract (public token)", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/api/contract/{{token}}" }, "response": [] },
-				{ "name": "Sign Contract (public token)", "request": { "method": "POST", "header": [ { "key": "Content-Type", "value": "application/json" } ], "body": { "mode": "raw", "raw": "{ \"signature_image\": \"data:image/png;base64,...\" }" }, "url": "{{baseUrl}}/api/contract/{{token}}/sign" }, "response": [] }
+				{
+					"name": "Ensure Contract Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/event/{{eventId}}/token",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"event",
+								"{{eventId}}",
+								"token"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Send Contract Link",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/event/{{eventId}}/send",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"event",
+								"{{eventId}}",
+								"send"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Contracts For Event",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/event/{{eventId}}/list",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"event",
+								"{{eventId}}",
+								"list"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Download Contract (admin)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/admin/{{contractId}}/download",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"admin",
+								"{{contractId}}",
+								"download"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Contract (admin)",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/admin/{{contractId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"admin",
+								"{{contractId}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show Contract (public token)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/{{token}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"{{token}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sign Contract (public token)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"signature_image\": \"data:image/png;base64,...\" }"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/contract/{{token}}/sign",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"contract",
+								"{{token}}",
+								"sign"
+							]
+						}
+					},
+					"response": []
+				}
 			]
 		},
 		{
 			"name": "Dashboard",
 			"item": [
-				{ "name": "Get Dashboard Stats", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": { "raw": "{{baseUrl}}/api/dashboard?year=2026", "host": [ "{{baseUrl}}" ], "path": [ "api", "dashboard" ], "query": [ { "key": "year", "value": "2026" } ] } }, "response": [] },
-				{ "name": "Get Upcoming Events", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/dashboard/upcoming-events" }, "response": [] },
-				{ "name": "Events Drop-down", "request": { "method": "GET", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" } ], "url": "{{baseUrl}}/api/dashboard/drop-down?search={{searchQuery}}" }, "response": [] },
-				{ "name": "Recalculate Profits", "request": { "method": "POST", "header": [ { "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" } ], "body": { "mode": "raw", "raw": "{ \"force\": true }" }, "url": "{{baseUrl}}/api/dashboard/recalculate-profits" }, "response": [] }
+				{
+					"name": "Get Dashboard Stats",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/dashboard?year=2026",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"dashboard"
+							],
+							"query": [
+								{
+									"key": "year",
+									"value": "2026"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Upcoming Events",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/dashboard/upcoming-events",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"upcoming-events"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Events Drop-down",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/dashboard/drop-down?search={{searchQuery}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"drop-down"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "{{searchQuery}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Recalculate Profits",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{ \"force\": true }"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/dashboard/recalculate-profits",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"dashboard",
+								"recalculate-profits"
+							]
+						}
+					},
+					"response": []
+				}
 			]
 		}
 	],

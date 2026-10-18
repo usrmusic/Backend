@@ -472,7 +472,14 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
   const paymentStatus = String(q.paymentStatus || q.paymentstatus || "").trim().toLowerCase();
   const { page, limit } = parsePaginationParams(q);
 
-  let where = { event_status_id: 3 };
+  const eventId = Number(q.id) || null;
+
+  // Completed (3) AND Cancelled (4) live on this page: the header search,
+  // dashboard widgets and calendar all route both statuses here (there is no
+  // separate cancelled-events page), but this used to filter status 3 only,
+  // so a cancelled event could never appear and the redirect landed on an
+  // empty table.
+  let where = { event_status_id: { in: [3, 4] } };
   where = await applyOwnershipScope(where, req);
   if (paymentStatus) {
     if (paymentStatus === "completed") {
@@ -481,11 +488,18 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
       where.is_event_payment_fully_paid = false;
     }
   }
-  if (search) {
+  if (eventId) {
+    // Exact event, from a header-search / dashboard / calendar redirect. Wins
+    // over the text search: the redirect's display name is often the couple
+    // name, which this search never matched, so the table came back empty.
+    where.id = eventId;
+  } else if (search) {
     where.OR = [
       { usr_name: { contains: search } },
+      { couple_name: { contains: search } },
       { venues: { is: { venue: { contains: search } } } },
       { users_events_user_idTousers: { is: { name: { contains: search } } } },
+      { users_events_user_idTousers: { is: { email: { contains: search } } } },
     ];
   }
 
@@ -496,6 +510,7 @@ const listCompletedConfirmEvents = catchAsync(async (req, res) => {
     select: {
       id: true,
       date: true,
+      event_status_id: true,
       users_events_user_idTousers: { select: { name: true, email: true, contact_number: true } },
       venues: { select: { venue: true } },
       event_payments: { select: { amount: true, date: true } },

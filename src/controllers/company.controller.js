@@ -347,6 +347,31 @@ export const listCompanyDropdown = catchAsync(async (req, res) => {
   const items = await companySvc.model.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } });
   res.json({ data: serializeForJson(items) });
 });
+
+// Public (no auth): the permanent link behind the "Download Brochure" button in
+// emailed brochures. It redirects to a freshly-signed S3 URL on every click
+// instead of the email carrying one — a presigned URL dies after 7 days (and
+// the moment the company's brochure is replaced or deleted), which is how
+// brochure links in already-sent emails ended up broken. Same approach as the
+// signed-contract email's /api/contract/:token/download. Only the company's
+// brochure (a document meant to be shared with prospects) is reachable here.
+const downloadBrochure = catchAsync(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "company_id_required" });
+
+  const company = await prisma.companyName.findUnique({
+    where: { id: BigInt(id) },
+    select: { name: true, brochure: true },
+  });
+  if (!company?.brochure) return res.status(404).json({ error: "brochure_not_found" });
+
+  // Saved as "<Company>.pdf" (what Laravel's emailed attachment was called)
+  // rather than the storage key's "<timestamp>_brochure.pdf".
+  const fileName = `${String(company.name || "Brochure").replace(/[^\w.-]+/g, "_")}.pdf`;
+  const url = await getSignedGetUrl(String(company.brochure), 60 * 10, fileName);
+  return res.redirect(303, url);
+});
+
 // Helper: remove uploaded files for a company record (handles s3/local and shared refs)
 async function removeCompanyFiles(c) {
   const uploadsDir = getUploadsDir();
@@ -391,4 +416,4 @@ async function removeCompanyFiles(c) {
 }
 
 
-export default { listCompanies, getCompany, createCompany, updateCompany, deleteCompany, deleteCompanies, listCompanyDropdown };
+export default { listCompanies, getCompany, createCompany, updateCompany, deleteCompany, deleteCompanies, listCompanyDropdown, downloadBrochure };

@@ -14,9 +14,20 @@ const createClient = Joi.object({
     email: Joi.string().email().lowercase().trim().required(),
     contact_number: Joi.string().trim().min(7).max(32).allow("", null),
     address: Joi.string().trim().max(500).allow("", null),
-    // Laravel's StoreClientRequest requires event_date on client creation:
-    // 'required|date|after_or_equal:today'
-    event_date: Joi.date().iso().min(startOfToday()).required(),
+    // Optional: a client can be added before any event is booked, and the
+    // controller already skips event creation when this is blank. When a
+    // date IS given it must still be today or later (Laravel's
+    // `after_or_equal:today`). Checked per request in `.custom()` rather than
+    // `.min(startOfToday())`, which froze "today" at server start and so
+    // silently accepted past dates once the process had been up a few days.
+    event_date: Joi.date()
+      .iso()
+      .allow("", null)
+      .custom((value, helpers) => {
+        const today = startOfToday();
+        return value < today ? helpers.error("date.min", { limit: today }) : value;
+      })
+      .optional(),
     role_id: Joi.number().integer().required(),
   }),
 });
@@ -31,6 +42,11 @@ const updateClient = Joi.object({
     contact_number: Joi.string().trim().min(7).max(32).allow("", null),
     address: Joi.string().trim().max(500).allow("", null),
     role_id: Joi.number().integer(),
+    // Updating a client never touches events (see updateClient in the
+    // controller), but the edit form used to send event_date along and Joi
+    // rejected it as an unknown key. Accept and drop it so an older cached
+    // frontend can't trip over it either.
+    event_date: Joi.any().strip(),
   }),
 });
 

@@ -1845,29 +1845,35 @@ const sendBrochure = catchAsync(async (req, res) => {
   }
   if (!company) return res.status(400).json({ error: "company_not_found" });
 
+  // Nothing to send: fail loudly instead of emailing the client a "brochure"
+  // with no way to download it and then logging "Brochure Email Sent" on the
+  // event (the old behaviour silently dropped the button).
+  if (!company.brochure) {
+    return res.status(400).json({
+      error: "brochure_not_uploaded",
+      message: `${company.name || "This company"} has no brochure uploaded. Add one under Company settings first.`,
+    });
+  }
+
   // prepare email (prefer request body, fall back to EMAIL BROCHURE template id=1)
   const template = await prisma.emailContent
     .findFirst({ where: { email_name: "EMAIL BROCHURE" } })
     .catch(() => null);
   const subject = body.subject || template?.subject || "Brochure";
   const raw = body.body || template?.body || "";
-  let brochureUrl = null;
-  if (company.brochure) {
-    try {
-      brochureUrl = await getSignedGetUrl(String(company.brochure));
-    } catch (e) {
-      brochureUrl = null;
-    }
-  }
+  // Link to our own permanent route (GET /api/company/:id/brochure), which
+  // signs a fresh S3 URL on every click. This used to embed a presigned S3 URL
+  // directly, which expires after 7 days and dies the moment the brochure is
+  // replaced, so brochure links in already-sent emails broke. Same approach as
+  // the signed-contract email (contractSign.service.js). Laravel avoided the
+  // problem by attaching the PDF instead, but a ~3.6MB brochure is past what
+  // Microsoft Graph's sendMail accepts as an inline attachment.
+  const apiBase = (process.env.PUBLIC_API_URL || "https://usrmusic.up.railway.app").replace(/\/$/, "");
+  const brochureUrl = `${apiBase}/api/company/${Number(company.id)}/brochure`;
 
-  // Matches Laravel's usr_brochure.blade.php shell. Button styled the same as
-  // the "Login to your Account" CTA in the booking confirmation email
-  // (userCredentialEmail.js), rather than a bare text link.
-  const bodyHtml = `${nl2p(raw)}${
-    brochureUrl
-      ? `<p style="margin:20px 0 0;"><a href="${brochureUrl}" style="background:#719984; text-decoration:none; display:inline-block; font-weight:600; color:#fff; text-transform:uppercase; font-size:14px; padding:11px 24px; border-radius:50px;">Download Brochure</a></p>`
-      : ""
-  }`;
+  // Button styled the same as the "Login to your Account" CTA in the booking
+  // confirmation email (userCredentialEmail.js), rather than a bare text link.
+  const bodyHtml = `${nl2p(raw)}<p style="margin:20px 0 0;"><a href="${brochureUrl}" style="background:#719984; text-decoration:none; display:inline-block; font-weight:600; color:#fff; text-transform:uppercase; font-size:14px; padding:11px 24px; border-radius:50px;">Download Brochure</a></p>`;
   const logoUrl = company.company_logo
     ? await getSignedGetUrl(String(company.company_logo)).catch(() => null)
     : null;

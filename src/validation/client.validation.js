@@ -42,6 +42,11 @@ const updateClient = Joi.object({
     contact_number: Joi.string().trim().min(7).max(32).allow("", null),
     address: Joi.string().trim().max(500).allow("", null),
     role_id: Joi.number().integer(),
+    // Reactivate / deactivate from the Clients list: updateClient maps
+    // "active" → deleted_at = null and "inactive" → deleted_at = now. It was
+    // missing here, so Joi rejected every Reactivate with "status" is not
+    // allowed.
+    status: Joi.string().valid("active", "inactive"),
     // Updating a client never touches events (see updateClient in the
     // controller), but the edit form used to send event_date along and Joi
     // rejected it as an unknown key. Accept and drop it so an older cached

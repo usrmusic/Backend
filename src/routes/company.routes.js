@@ -16,6 +16,9 @@ const upload = createUploadMiddleware({
     "application/pdf",
     "application/vnd.oasis.opendocument.text",
   ],
+  // Brochures are full-colour, multi-page PDFs (the 2026 one is ~18 MB), well
+  // past the 10 MB default, which rejected them outright.
+  maxBytes: 50 * 1024 * 1024,
 });
 
 const checkPermissions = [verifyAccessToken, checkPermission("user")];

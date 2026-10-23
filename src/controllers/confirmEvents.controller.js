@@ -1683,7 +1683,9 @@ const sendCancelEventEmail = catchAsync(async (req, res) => {
   }
 
   const admins = await prisma.user.findMany({
-    where: { role_id: BigInt(2), is_email_send: true },
+    // deleted_at: null — deactivated admin accounts (old test inboxes, former
+    // staff) kept is_email_send on and were still receiving these emails.
+    where: { role_id: BigInt(2), is_email_send: true, deleted_at: null },
   });
   const adminEmails = admins.map((a) => a.email).filter(Boolean);
   if (adminEmails.length) {

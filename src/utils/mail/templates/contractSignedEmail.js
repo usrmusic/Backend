@@ -10,6 +10,10 @@ function escapeHtml(value) {
 
 const row = (content) => `<tr><td align="left" style="word-break: break-word; font-family:'Calibri Light',serif, 'EmojiFont', sans-serif; color: #424040;font-size:16px;line-height: 22px;font-weight: normal; padding-bottom: 15px;">${content}</td></tr>`;
 
+// Explicit paragraph margins: email clients add ~16px above a bare <p>, which
+// stacked on the greeting row's padding left a big gap under "Hi <name>,".
+const P = "margin:0 0 12px;";
+
 // Mirrors the legacy Laravel CRM's client-facing "Your Signed Contract" email
 // (resources/views/email/contract_signed.blade.php) almost line for line —
 // same greeting/copy, same company logo + address + contact block order.
@@ -51,7 +55,7 @@ export function buildContractSignedEmail({ name, signedUrl, company, logoUrl }) 
             <td style="word-break: break-word; font-family: Georgia, serif; font-size: 16px; background-color: #fff; padding: 30px;">
               <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
                 ${row(`Hi ${escapeHtml(name)},`)}
-                ${row(`<p>Please sign attached a copy of your signed contract</p><p>We look forward to working with you :)</p><p>You can also download the contract from this link: <a style="color:blue;" href="${escapeHtml(signedUrl)}">Download Contract</a></p>`)}
+                ${row(`<p style="${P}">Please sign attached a copy of your signed contract</p><p style="${P}">We look forward to working with you :)</p><p style="margin:0;">You can also download the contract from this link: <a style="color:blue;" href="${escapeHtml(signedUrl)}">Download Contract</a></p>`)}
                 ${logoUrl ? row(`<img src="${escapeHtml(logoUrl)}" style="max-width: 100px; width: 100%; display: block;" alt="Logo" />`) : ""}
                 ${addressLines.length ? row(addressLines.join("")) : ""}
                 ${contactLines.length ? row(contactLines.join("")) : ""}

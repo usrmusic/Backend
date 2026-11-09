@@ -161,13 +161,45 @@ const updateEquipment = catchAsync(async (req, res) => {
         select: { id: true },
       });
       if (affectedEvents.length) {
-        await prisma.event_package.updateMany({
+        // The Prisma model is EventPackage, so the client accessor is
+        // `eventPackage` — `event_package` is undefined and threw a TypeError
+        // after the equipment had already been saved.
+        await prisma.eventPackage.updateMany({
           where: {
             equipment_id: idBig,
             event_id: { in: affectedEvents.map((e) => Number(e.id)) },
           },
           data: { cost_price: newCostPrice },
         });
+      }
+    }
+
+    // Rig notes are copied onto each event_package when an event is booked, and
+    // the Rig List reads that copy first. Without this, editing the equipment's
+    // rig note never reached events that were already booked. Push the change to
+    // upcoming events, but only where the copy is empty or still equals the old
+    // equipment note — a note someone customised for one event is left alone.
+    if (Object.prototype.hasOwnProperty.call(body, "rig_notes")) {
+      const oldRig = (existingEquipment?.rig_notes ?? "").trim();
+      const newRig = (updated?.rig_notes ?? "").trim();
+      if (oldRig !== newRig) {
+        const today = new Date(new Date().toISOString().slice(0, 10));
+        const upcoming = await prisma.event.findMany({
+          where: { date: { gte: today }, event_package: { some: { equipment_id: idBig } } },
+          select: { id: true },
+        });
+        if (upcoming.length) {
+          const stale = [{ rig_notes: null }, { rig_notes: "" }];
+          if (oldRig) stale.push({ rig_notes: existingEquipment.rig_notes });
+          await prisma.eventPackage.updateMany({
+            where: {
+              equipment_id: idBig,
+              event_id: { in: upcoming.map((e) => Number(e.id)) },
+              OR: stale,
+            },
+            data: { rig_notes: newRig || null },
+          });
+        }
       }
     }
 

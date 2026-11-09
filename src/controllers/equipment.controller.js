@@ -3,6 +3,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
 import { logActivity } from "../utils/activityLogger.js";
+import { isStaleCopy } from "../utils/rigNotes.js";
 
 const equipmentSvc = services.get("equipment");
 const supplierSvc = services.get("supplier");
@@ -174,34 +175,28 @@ const updateEquipment = catchAsync(async (req, res) => {
       }
     }
 
-    // Rig notes are copied onto each event_package when an event is booked, and
-    // the Rig List reads that copy first. Without this, editing the equipment's
-    // rig note never reached events that were already booked. Push the change to
-    // upcoming events, but only where the copy is empty or still equals the old
-    // equipment note — a note someone customised for one event is left alone.
+    // Rig notes are copied onto each event_package when an event is booked.
+    // Push the new equipment note to upcoming events whose copy is out of date
+    // (blank, or only missing lines the equipment has since gained). A note
+    // customised for one event is left alone. The Rig List also heals stale
+    // copies on read, so this just keeps the stored data in step.
     if (Object.prototype.hasOwnProperty.call(body, "rig_notes")) {
-      const oldRig = (existingEquipment?.rig_notes ?? "").trim();
       const newRig = (updated?.rig_notes ?? "").trim();
-      if (oldRig !== newRig) {
-        const today = new Date(new Date().toISOString().slice(0, 10));
-        const upcoming = await prisma.event.findMany({
-          where: { date: { gte: today }, event_package: { some: { equipment_id: idBig } } },
-          select: { id: true },
-        });
-        if (upcoming.length) {
-          const stale = [{ rig_notes: null }, { rig_notes: "" }];
-          if (oldRig) stale.push({ rig_notes: existingEquipment.rig_notes });
-          await prisma.eventPackage.updateMany({
-            where: {
-              equipment_id: idBig,
-              event_id: { in: upcoming.map((e) => Number(e.id)) },
-              OR: stale,
-            },
+      const today = new Date(new Date().toISOString().slice(0, 10));
+      const upcoming = await prisma.eventPackage.findMany({
+        where: { equipment_id: idBig, events: { is: { date: { gte: today } } } },
+        select: { id: true, rig_notes: true },
+      });
+      for (const pkg of upcoming) {
+        if (isStaleCopy(pkg.rig_notes, newRig) && (pkg.rig_notes ?? "").trim() !== newRig) {
+          await prisma.eventPackage.update({
+            where: { id: pkg.id },
             data: { rig_notes: newRig || null },
           });
         }
       }
     }
+
 
     await logActivity(null, {
       log_name: "equipment updated",

@@ -3,6 +3,7 @@ import catchAsync from '../utils/catchAsync.js';
 import { parseFilterSort } from '../utils/queryHelpers.js';
 import { serializeForJson } from '../utils/serialize.js';
 import { logActivity } from '../utils/activityLogger.js';
+import { resolveRigNotes } from '../utils/rigNotes.js';
 
 export const listEvents = catchAsync(async (req, res) => {
   const opts = parseFilterSort(req.query || {});
@@ -76,7 +77,15 @@ export const getEvent = catchAsync(async (req, res) => {
     orderBy: { package_type_id: 'asc' },
   });
 
-  res.json(serializeForJson({ event, packages }));
+  // Heal stale copies on read: events booked before an equipment note was
+  // added/edited still carry the old text, so show the current equipment note
+  // unless this event has its own customised one.
+  const resolved = packages.map((p) => ({
+    ...p,
+    rig_notes: resolveRigNotes(p.rig_notes, p.equipment?.rig_notes),
+  }));
+
+  res.json(serializeForJson({ event, packages: resolved }));
 });
 
 export const StoreRigListNotes = catchAsync(async (req, res) => {

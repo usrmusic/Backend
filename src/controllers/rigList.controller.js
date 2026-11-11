@@ -82,7 +82,7 @@ export const getEvent = catchAsync(async (req, res) => {
   // unless this event has its own customised one.
   const resolved = packages.map((p) => ({
     ...p,
-    rig_notes: resolveRigNotes(p.rig_notes, p.equipment?.rig_notes),
+    rig_notes: resolveRigNotes(p.rig_notes, p.equipment?.rig_notes, p.equipment?.name),
   }));
 
   res.json(serializeForJson({ event, packages: resolved }));

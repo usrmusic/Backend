@@ -3,7 +3,7 @@ import catchAsync from "../utils/catchAsync.js";
 import { serializeForJson } from "../utils/serialize.js";
 import services from "../services/index.js";
 import { logActivity } from "../utils/activityLogger.js";
-import { isStaleCopy } from "../utils/rigNotes.js";
+import { isEmptyCopy } from "../utils/rigNotes.js";
 
 const equipmentSvc = services.get("equipment");
 const supplierSvc = services.get("supplier");
@@ -177,9 +177,9 @@ const updateEquipment = catchAsync(async (req, res) => {
 
     // Rig notes are copied onto each event_package when an event is booked.
     // Push the new equipment note to upcoming events whose copy is out of date
-    // (blank, or only missing lines the equipment has since gained). A note
-    // customised for one event is left alone. The Rig List also heals stale
-    // copies on read, so this just keeps the stored data in step.
+    // (blank, or just the item's name). A note customised for one event is
+    // left alone. The Rig List applies the same rule on read, so this just
+    // keeps the stored data in step.
     if (Object.prototype.hasOwnProperty.call(body, "rig_notes")) {
       const newRig = (updated?.rig_notes ?? "").trim();
       const today = new Date(new Date().toISOString().slice(0, 10));
@@ -188,7 +188,7 @@ const updateEquipment = catchAsync(async (req, res) => {
         select: { id: true, rig_notes: true },
       });
       for (const pkg of upcoming) {
-        if (isStaleCopy(pkg.rig_notes, newRig) && (pkg.rig_notes ?? "").trim() !== newRig) {
+        if (isEmptyCopy(pkg.rig_notes, updated?.name) && (pkg.rig_notes ?? "").trim() !== newRig) {
           await prisma.eventPackage.update({
             where: { id: pkg.id },
             data: { rig_notes: newRig || null },

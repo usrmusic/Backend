@@ -45,6 +45,7 @@ export async function signContractForEvent({
       users_events_user_idTousers: true,
       venues: true,
       event_package: { include: { equipment: true } },
+      event_payments: true,
     },
   });
   if (!event) {

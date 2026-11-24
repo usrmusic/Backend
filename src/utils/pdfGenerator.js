@@ -103,8 +103,9 @@ export async function generateQuotePdf({
 export async function generateContractPdf({
   event, user, company, signature, adminSignature, signedAt,
 }) {
+  const logo = await resolveCompanyLogo(company || {});
   const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true });
-  renderContractPdf(doc, { event, user, company, signature, adminSignature, signedAt });
+  renderContractPdf(doc, { event, user, company, logo, signature, adminSignature, signedAt });
   return toBuffer(doc);
 }
 

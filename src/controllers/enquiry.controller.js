@@ -541,6 +541,8 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
       dj_package_name: true,
       event_type: true,
       deposit_amount: true,
+      // Quote total for the Open Enquiry hover preview.
+      total_cost_for_equipment: true,
       // Backs the Open Enquiry table's "Date Created" column — wasn't
       // selected at all before, so every row rendered blank regardless of
       // the real value in the DB.
@@ -580,6 +582,13 @@ const listOpenEnquiries = catchAsync(async (req, res) => {
     return {
       ...ev,
       // event_packages: evPackages,
+      // Slim equipment list for the Open Enquiry hover preview — the
+      // packages are already loaded above, so this costs no extra query.
+      preview_items: evPackages.map((p) => ({
+        id: p.id,
+        name: p.equipment?.name || p.notes || "Item",
+        quantity: Number(p.quantity) > 0 ? Number(p.quantity) : 1,
+      })),
       event_notes: evNotes,
       last_note: evNotes.length ? evNotes[0] : null,
     };
